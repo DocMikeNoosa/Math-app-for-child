@@ -137,18 +137,103 @@
 
   const sfx = (() => {
     let ctx = null;
+    let primed = false;
+    let keepalive = null;
+    let hinted = false;
+
+    // iOS 16.4+: a "playback"-type audio session plays through the ring/
+    // silent switch — without this, Web Audio is hard-muted whenever the
+    // phone's side switch is on silent (the default on most kids' phones).
+    function setPlaybackSession() {
+      try {
+        if (navigator.audioSession && navigator.audioSession.type !== "playback") {
+          navigator.audioSession.type = "playback";
+        }
+      } catch (e) { /* older browsers */ }
+    }
+
+    /** Tiny silent looping <audio> for pre-16.4 iOS: an active media element
+     * moves the page's audio session to playback, unmuting Web Audio. */
+    function startKeepalive() {
+      if (keepalive || navigator.audioSession) return;
+      try {
+        const rate = 8000, secs = 1, data = 44 + rate * secs * 2;
+        const buf = new ArrayBuffer(data);
+        const v = new DataView(buf);
+        const str = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+        str(0, "RIFF"); v.setUint32(4, data - 8, true); str(8, "WAVE");
+        str(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+        str(36, "data"); v.setUint32(40, rate * secs * 2, true);
+        const el = document.createElement("audio");
+        el.src = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+        el.loop = true;
+        el.setAttribute("playsinline", "");
+        el.play().catch(() => {});
+        keepalive = el;
+      } catch (e) { /* cosmetic — chime scheduling still works */ }
+    }
+
     function ensure() {
       if (!ctx) {
         const AC = window.AudioContext || window.webkitAudioContext;
         if (!AC) return null;
         ctx = new AC();
+        setPlaybackSession();
       }
-      if (ctx.state === "suspended") ctx.resume();
+      // iOS parks the context in "interrupted" (not "suspended") after a
+      // lock/app switch/Siri — resume on ANY non-running state.
+      if (ctx.state !== "running") {
+        try { ctx.resume(); } catch (e) { /* retried on next event */ }
+      }
       return ctx;
     }
-    const midi = (m) => 440 * Math.pow(2, (m - 69) / 12);
-    function play(notes) {
+
+    /** One-time unlock inside a user gesture: resume + play one silent
+     * buffer (primes iOS output) + start the session keepalive. */
+    function unlock() {
       const ac = ensure();
+      if (!ac) return;
+      setPlaybackSession();
+      startKeepalive();
+      if (!primed && ac.state === "running") {
+        try {
+          const buffer = ac.createBuffer(1, 1, 22050);
+          const source = ac.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ac.destination);
+          source.start(0);
+          primed = true;
+        } catch (e) { /* priming is best-effort */ }
+      }
+    }
+
+    // Unlock on the earliest possible gestures; recover when the app comes
+    // back to the foreground (where iOS leaves the context interrupted).
+    for (const evt of ["pointerdown", "touchend", "click"]) {
+      document.addEventListener(evt, unlock, { passive: true });
+    }
+    for (const evt of ["visibilitychange", "pageshow", "focus"]) {
+      window.addEventListener(evt, () => {
+        if (document.visibilityState !== "hidden" && ctx && ctx.state !== "running") {
+          try { ctx.resume(); } catch (e) {}
+        }
+      });
+    }
+
+    function maybeHint(ac) {
+      if (hinted || !primed || !ac || ac.state === "running") return;
+      hinted = true;
+      showToast(t("Nie słychać dźwięków? Sprawdź przełącznik dzwonka i głośność.",
+                  "No sound? Check the ringer switch and the volume."));
+    }
+    const midi = (m) => 440 * Math.pow(2, (m - 69) / 12);
+    function play(name, notes) {
+      const ac = ensure();
+      (window.__sfxLog = window.__sfxLog || []).push({
+        name, state: ac ? ac.state : "no-context", notes: notes.length, t: Date.now(),
+      });
+      maybeHint(ac);
       if (!ac || state.volume <= 0.01) return;
       const now = ac.currentTime + 0.02;
       for (const n of notes) {
@@ -171,11 +256,12 @@
       }
     }
     const seq = (ms, step, dur, gain) => ms.map((m, i) => ({ m, start: i * step, dur, gain }));
+    window.__sfxState = () => (ctx ? ctx.state : "no-context");
     return {
-      unlock: ensure,
-      correct: () => play(seq([84, 88, 91], 0.085, 0.22, 0.42)),
-      wrong: () => play([{ m: 67, start: 0, dur: 0.22, gain: 0.18 }, { m: 64, start: 0.16, dur: 0.3, gain: 0.16 }]),
-      coin: () => play([{ m: 83, start: 0, dur: 0.09, gain: 0.4 }, { m: 88, start: 0.08, dur: 0.55, gain: 0.45 }]),
+      unlock,
+      correct: () => play("correct", seq([84, 88, 91], 0.085, 0.22, 0.42)),
+      wrong: () => play("wrong", [{ m: 67, start: 0, dur: 0.22, gain: 0.18 }, { m: 64, start: 0.16, dur: 0.3, gain: 0.16 }]),
+      coin: () => play("coin", [{ m: 83, start: 0, dur: 0.09, gain: 0.4 }, { m: 88, start: 0.08, dur: 0.55, gain: 0.45 }]),
       fanfare(tier) {
         let ms = [72, 76, 79, 84];
         if (tier >= 2) ms = ms.concat([83, 84]);
@@ -186,15 +272,15 @@
         const chordStart = ms.length * 0.13 + 0.05;
         [72, 76, 79, 84].slice(0, 1 + tier).forEach((m, i) =>
           notes.push({ m, start: chordStart + i * 0.01, dur: 0.7 + tier * 0.12, gain: 0.3 }));
-        play(notes);
+        play("fanfare" + tier, notes);
       },
       trophy() {
         const notes = seq([60, 64, 67, 72, 76, 79, 84], 0.07, 0.18, 0.35);
         [72, 76, 79, 84, 88].forEach((m, i) =>
           notes.push({ m, start: 0.6 + i * 0.012, dur: 1.0, gain: 0.28 }));
-        play(notes);
+        play("trophy", notes);
       },
-      sleepy: () => play([{ m: 79, start: 0, dur: 0.5, gain: 0.22 },
+      sleepy: () => play("sleepy", [{ m: 79, start: 0, dur: 0.5, gain: 0.22 },
                           { m: 76, start: 0.4, dur: 0.5, gain: 0.2 },
                           { m: 72, start: 0.8, dur: 0.9, gain: 0.18 }]),
     };
