@@ -491,6 +491,7 @@
     certUrl: null,
     certBusy: false,
     certStats: true,
+    certViewer: null,
     tutorial: null,           // {plan, index, timers: []}
     limitReached: false,
   };
@@ -532,6 +533,16 @@
   window.addEventListener("pagehide", heartbeat);
 
   // ================================================================ render
+
+  let toastTimer = null;
+  function showToast(msg) {
+    const el = document.getElementById("toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+  }
 
   let lastShown = null;
 
@@ -1206,7 +1217,8 @@
           </div>
           ${body}
         </div>
-      </div>`;
+      </div>
+      ${ui.certViewer && ui.certUrl ? renderCertViewer() : ""}`;
   }
 
   function renderSettings() {
@@ -1385,8 +1397,9 @@
           <iframe class="cert-frame" id="cert-frame" src="${ui.certUrl}" title="Dyplom"></iframe>
           <div class="cert-actions">
             <button class="big-btn sky squishy" data-action="share-cert" id="share-cert">📤 ${t("Udostępnij", "Share")}</button>
-            <a class="big-btn mint squishy" id="cert-download" href="${ui.certUrl}" download="${certFileName()}">💾 ${t("Zapisz PDF", "Save PDF")}</a>
+            <button class="big-btn mint squishy" data-action="save-cert" id="save-cert">💾 ${t("Zapisz PDF", "Save PDF")}</button>
           </div>
+          <a id="cert-download" href="${ui.certUrl}" download="${certFileName()}" hidden>PDF</a>
           <button class="big-btn squishy" data-action="print-cert-pdf" id="print-cert-pdf" style="margin-top:10px">🖨 ${t("Drukuj", "Print")}</button>
           <p class="small-note">${t("Na iPhonie: Udostępnij → Drukuj (AirPrint) lub Zapisz do Plików / wyślij e-mailem.",
             "On iPhone: Share → Print (AirPrint), or save to Files / e-mail it.")}</p>` : ""}
@@ -1624,33 +1637,109 @@
     render();
   }
 
-  /** Share via the native sheet; guaranteed fallback: trigger the download. */
-  async function shareCertificate() {
-    if (!certBlob) return;
-    const file = new File([certBlob], certFileName(), { type: "application/pdf" });
-    try {
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: certFileName() });
-        return;
-      }
-    } catch (e) {
-      if (e && e.name === "AbortError") return; // user closed the sheet
-    }
-    const a = $("#cert-download");
-    if (a) a.click();
+  // ---- The three diploma actions. Design rule: every tap gives instant
+  // visible feedback (toast), and every path that can be blocked by the
+  // platform (Web Share permissions, sandboxed downloads, PDF-frame
+  // printing) falls back to the in-app full-screen viewer with a clear
+  // hint — never a silent button.
+
+  const isEmbedded = (() => {
+    try { return window.self !== window.top; } catch (e) { return true; }
+  })();
+
+  function certFile() {
+    return new File([certBlob], certFileName(), { type: "application/pdf" });
   }
 
-  /** Print: try the PDF frame, then a new tab; never fail silently. */
-  function printCertificatePDF() {
-    const frame = $("#cert-frame");
+  function canShareCertFile() {
+    try {
+      return !!(certBlob && navigator.canShare && navigator.canShare({ files: [certFile()] }));
+    } catch (e) { return false; }
+  }
+
+  function openCertViewer(mode) {
+    ui.certViewer = mode; // "print" | "share" | "save"
+    render();
+  }
+
+  /** In-viewer print button: a deliberate user gesture (auto-printing into
+   * the PDF frame can crash some embedded viewers). */
+  function viewerPrint() {
+    const frame = $("#cert-viewer-frame");
     try {
       frame.contentWindow.focus();
       frame.contentWindow.print();
       return;
-    } catch (e) { /* cross-origin/viewer restrictions — fall through */ }
-    let opened = null;
-    try { opened = window.open(ui.certUrl, "_blank"); } catch (e) { /* blocked */ }
-    if (!opened) shareCertificate();
+    } catch (e) { /* fall through to the hint */ }
+    showToast(t("Ta przeglądarka nie drukuje PDF bezpośrednio — użyj Udostępnij → Drukuj",
+                "This browser can't print the PDF directly — use Share → Print"));
+  }
+
+  async function shareCertificate(fallbackMode) {
+    if (!certBlob) return;
+    if (canShareCertFile()) {
+      showToast(t("Otwieram udostępnianie…", "Opening share…"));
+      try {
+        await navigator.share({ files: [certFile()], title: certFileName() });
+        return;
+      } catch (e) {
+        if (e && e.name === "AbortError") return; // parent closed the sheet
+      }
+    }
+    showToast(t("Udostępnianie niedostępne — otwieram podgląd",
+                "Sharing unavailable — opening the preview"));
+    openCertViewer(fallbackMode || "share");
+  }
+
+  function saveCertificate() {
+    if (!certBlob) return;
+    if (canShareCertFile()) {
+      // On iPhone the share sheet is where "Save to Files" lives.
+      shareCertificate("save");
+      return;
+    }
+    if (!isEmbedded) {
+      showToast(t("Pobieram PDF — sprawdź pobrane pliki", "Downloading the PDF — check your downloads"));
+      const a = $("#cert-download");
+      if (a) { a.click(); return; }
+    }
+    showToast(t("Otwieram podgląd — zapisz stamtąd", "Opening the preview — save from there"));
+    openCertViewer("save");
+  }
+
+  function printCertificatePDF() {
+    if (!certBlob) return;
+    showToast(t("Otwieram podgląd wydruku…", "Opening the print preview…"));
+    openCertViewer("print");
+  }
+
+  function renderCertViewer() {
+    const hints = {
+      print: t("Dotknij Drukuj poniżej. Na iPhonie: Udostępnij → Drukuj (AirPrint).",
+               "Tap Print below. On iPhone: Share → Print (AirPrint)."),
+      share: t("Użyj przycisków poniżej, aby udostępnić lub zapisać dyplom.",
+               "Use the buttons below to share or save the diploma."),
+      save: t("Dotknij Udostępnij → Zachowaj w Plikach (albo Drukuj przez AirPrint).",
+              "Tap Share → Save to Files (or Print via AirPrint)."),
+    };
+    return `
+      <div class="cert-viewer" id="cert-viewer">
+        <div class="cert-viewer-top">
+          <span>🏅 ${t("Dyplom", "Diploma")}</span>
+          <button class="close-x squishy" data-action="close-cert-viewer" id="close-cert-viewer">✕</button>
+        </div>
+        <iframe id="cert-viewer-frame" src="${ui.certUrl}" title="Dyplom PDF"></iframe>
+        <div class="cert-viewer-bottom">
+          <p class="small-note">${hints[ui.certViewer] || hints.share}</p>
+          <div class="cert-actions">
+            <button class="big-btn sky squishy" data-action="share-cert">📤 ${t("Udostępnij", "Share")}</button>
+            <a class="big-btn mint squishy" href="${ui.certUrl}" download="${certFileName()}">💾 ${t("Zapisz", "Save")}</a>
+          </div>
+          ${ui.certViewer === "print"
+            ? `<button class="big-btn squishy" data-action="viewer-print" id="viewer-print" style="margin-top:10px">🖨 ${t("Drukuj", "Print")}</button>`
+            : ""}
+        </div>
+      </div>`;
   }
 
   // ---------------------------------------------------------------- time limit reached
@@ -1775,6 +1864,7 @@
     "close-overlay"() {
       if (ui.overlay === "tutorial" || ui.overlay === "celebration") return; // no dead ends, but no accidental skips
       ui.overlay = null;
+      ui.certViewer = null;
       render();
     },
     "pick-theme"(el) { state.theme = el.dataset.theme; persist(); render(); },
@@ -1876,7 +1966,10 @@
     "stats-frame"(el) { ui.stats.frame = el.dataset.frame; render(); },
     "gen-cert"() { generateCertificate(); },
     "share-cert"() { shareCertificate(); },
+    "save-cert"() { saveCertificate(); },
     "print-cert-pdf"() { printCertificatePDF(); },
+    "close-cert-viewer"() { ui.certViewer = null; render(); },
+    "viewer-print"() { viewerPrint(); },
 
     // time limit
     "limit-unlock"() {
