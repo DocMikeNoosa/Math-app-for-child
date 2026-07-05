@@ -1,9 +1,39 @@
 # Matematyka Tosi 🧮✨
 
-A child-friendly, fully offline **native iOS app** (Swift + SwiftUI, iOS 17+, portrait)
-for a 9-year-old preparing for grade 3 of Polish primary school (podstawa
-programowa, edukacja wczesnoszkolna). Default language: **Polski**, with full
-**English** translation switchable at runtime in the parent settings.
+A child-friendly math practice app for a 9-year-old preparing for grade 3 of
+Polish primary school (podstawa programowa, edukacja wczesnoszkolna). Default
+language: **Polski**, with full **English** translation switchable at runtime
+in the parent settings.
+
+It ships in **two editions with identical features and logic**:
+
+1. **Web app** (`docs/` — no Mac, no App Store needed): a Progressive Web App
+   that runs in Safari/Chrome, can be added to the iPhone home screen like a
+   real app, and works offline after the first visit.
+2. **Native iOS app** (Swift + SwiftUI, iOS 17+): kept ready for a future
+   App Store / TestFlight release.
+
+## Using the web app on an iPhone (no Mac needed)
+
+**Option A — GitHub Pages (recommended, permanent):**
+1. On github.com open this repository → **Settings → Pages**.
+2. Under "Build and deployment" choose **Deploy from a branch**, pick this
+   branch and the **`/docs`** folder, and save.
+3. After ~1 minute the app is live at
+   `https://<your-username>.github.io/Math-app-for-child/`.
+4. Open that link in **Safari on the iPhone** → Share button → **Add to Home
+   Screen**. It gets its own icon, launches full-screen and works offline.
+
+**Option B — run from any computer on your Wi-Fi:**
+
+```sh
+python3 -m http.server 8123 --directory docs
+```
+
+then open `http://<computer-ip>:8123` in the iPhone's Safari (same Wi-Fi).
+
+Progress, coins, trophies, the parent PIN and statistics are stored on the
+device (localStorage). The PIN is stored as a SHA-256 hash.
 
 ## Features
 
@@ -44,6 +74,11 @@ programowa, edukacja wczesnoszkolna). Default language: **Polski**, with full
 ## Project layout
 
 ```
+docs/                         Web app (PWA): index.html, core.js (ported,
+                              tested logic), app.js (UI), styles.css, sw.js,
+                              manifest, icons — served as-is by GitHub Pages
+scripts/web-core-tests/       Web-core test suite (node --test), a port of
+                              the Swift suites — 45 tests
 run.sh                        One-command build & launch (macOS, simulator)
 MatematykaTosi.xcodeproj      Xcode 16 project (file-system-synchronized
                               groups, shared scheme included)
@@ -86,8 +121,15 @@ launches it. Alternatively open `MatematykaTosi.xcodeproj` in Xcode and press
 ## Tests
 
 ```sh
+node --test scripts/web-core-tests/core.test.cjs   # web core (45 tests, any OS)
 ./run.sh test        # full XCTest suite in the iOS simulator (macOS)
 ```
+
+The web edition is additionally verified end-to-end in a real Chromium
+(Playwright): onboarding PIN → operations/range/level → 5 correct answers →
+celebration → coin → 3 wrong answers → tutorial (kindness rule) → treasures →
+theme → parent PIN (wrong + right) → live language switch → statistics with
+all five time frames → persistence across reload — with zero console errors.
 
 The five suites (66 tests) cover: problem generation (all operation × range ×
 difficulty combinations, crossing/borrow rules, exact division, no
