@@ -1,5 +1,5 @@
 /* Matematyka Tosi — offline-first service worker. */
-const CACHE = "tosia-v1";
+const CACHE = "tosia-v2";
 const ASSETS = [
   "./",
   "index.html",
@@ -9,6 +9,12 @@ const ASSETS = [
   "manifest.webmanifest",
   "icons/icon-180.png",
   "icons/icon-512.png",
+  "fonts/baloo-2-latin-500-normal.woff2",
+  "fonts/baloo-2-latin-700-normal.woff2",
+  "fonts/baloo-2-latin-800-normal.woff2",
+  "fonts/baloo-2-latin-ext-500-normal.woff2",
+  "fonts/baloo-2-latin-ext-700-normal.woff2",
+  "fonts/baloo-2-latin-ext-800-normal.woff2",
 ];
 
 self.addEventListener("install", (event) => {

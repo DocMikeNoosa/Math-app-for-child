@@ -265,66 +265,176 @@
   })();
 
   // ================================================================ SVG characters
+  // Modern sticker-style mascots: big sparkly eyes with lashes, blush,
+  // pastel gradient bodies, blink + wag animations (CSS-driven).
 
-  const FACE = (y = 0) => `
-    <g transform="translate(0 ${y})">
-      <circle cx="-13" cy="-4" r="5" fill="#222"/><circle cx="-15" cy="-6" r="1.8" fill="#fff"/>
-      <circle cx="13" cy="-4" r="5" fill="#222"/><circle cx="11" cy="-6" r="1.8" fill="#fff"/>
-      <circle cx="-24" cy="6" r="5.5" fill="#ff9dbb" opacity=".6"/>
-      <circle cx="24" cy="6" r="5.5" fill="#ff9dbb" opacity=".6"/>
-      <path d="M -12 8 Q 0 18 12 8" stroke="#222" stroke-width="3" fill="none" stroke-linecap="round"/>
+  const FACE = (y = 0, s = 1) => `
+    <g transform="translate(0 ${y}) scale(${s})">
+      <g class="blink">
+        <ellipse cx="-16" cy="-4" rx="8" ry="10" fill="#3a2350"/>
+        <circle cx="-18.5" cy="-7.5" r="3.2" fill="#fff"/>
+        <circle cx="-13.5" cy="-1" r="1.7" fill="#fff" opacity=".9"/>
+        <ellipse cx="16" cy="-4" rx="8" ry="10" fill="#3a2350"/>
+        <circle cx="13.5" cy="-7.5" r="3.2" fill="#fff"/>
+        <circle cx="18.5" cy="-1" r="1.7" fill="#fff" opacity=".9"/>
+      </g>
+      <g stroke="#3a2350" stroke-width="2.4" stroke-linecap="round">
+        <line x1="-22" y1="-16" x2="-25" y2="-19"/><line x1="-16" y1="-17.5" x2="-17" y2="-21"/>
+        <line x1="22" y1="-16" x2="25" y2="-19"/><line x1="16" y1="-17.5" x2="17" y2="-21"/>
+      </g>
+      <ellipse cx="-29" cy="7" rx="7" ry="4.8" fill="#ff8fb8" opacity=".8"/>
+      <ellipse cx="29" cy="7" rx="7" ry="4.8" fill="#ff8fb8" opacity=".8"/>
+      <path d="M -10 10 Q 0 20 10 10" stroke="#3a2350" stroke-width="3.6" fill="none" stroke-linecap="round"/>
     </g>`;
 
+  const STAR_D = (() => {
+    let d = "";
+    for (let i = 0; i < 10; i++) {
+      const a = (i * Math.PI) / 5 - Math.PI / 2;
+      const r = i % 2 === 0 ? 62 : 27;
+      d += (i ? "L" : "M") + (Math.cos(a) * r).toFixed(1) + " " + (Math.sin(a) * r).toFixed(1) + " ";
+    }
+    return d + "Z";
+  })();
+
+  const miniStar = (x, y, s, c) =>
+    `<path d="${STAR_D}" fill="${c}" transform="translate(${x} ${y}) scale(${s})"/>`;
+
   const CHARACTERS = {
-    unicorn: `<svg viewBox="-75 -95 150 175"><g>
-      <g>${[0, 1, 2, 3, 4].map((i) => `<ellipse cx="${(i - 2) * 15}" cy="-52" rx="8" ry="21"
-        fill="${["#ff6b9c", "#9e70e6", "#73bffa", "#59cc99", "#ffc740"][i]}"
-        transform="rotate(${(i - 2) * 21} ${(i - 2) * 15} -52)"/>`).join("")}</g>
-      <polygon points="0,-92 10,-58 -10,-58" fill="#ffc740"/>
-      <circle r="52" fill="#fff"/>${FACE(4)}</g></svg>`,
-    puppy: `<svg viewBox="-75 -85 150 165"><g>
-      <ellipse cx="-46" cy="-30" rx="16" ry="34" fill="#8c6140" transform="rotate(24 -46 -30)"/>
-      <ellipse cx="46" cy="-30" rx="16" ry="34" fill="#8c6140" transform="rotate(-24 46 -30)"/>
-      <circle r="52" fill="#b78257"/>
-      <ellipse cy="22" rx="21" ry="15" fill="#eed9b8"/><circle cy="14" r="6.5" fill="#3a2a1a"/>
-      <ellipse cy="36" rx="7" ry="9" fill="#ff6b9c"/>${FACE(-8)}</g></svg>`,
-    kitten: `<svg viewBox="-75 -85 150 165"><g>
-      <polygon points="-52,-30 -38,-66 -18,-38" fill="#b8b8cc"/>
-      <polygon points="52,-30 38,-66 18,-38" fill="#b8b8cc"/>
-      <polygon points="-44,-36 -38,-56 -27,-41" fill="#ffb3cb"/>
-      <polygon points="44,-36 38,-56 27,-41" fill="#ffb3cb"/>
-      <circle r="52" fill="#b8b8cc"/>
-      <g stroke="#fff" stroke-width="2"><line x1="-72" y1="4" x2="-42" y2="7"/><line x1="-72" y1="14" x2="-42" y2="12"/>
-      <line x1="72" y1="4" x2="42" y2="7"/><line x1="72" y1="14" x2="42" y2="12"/></g>
-      <polygon points="-6,14 6,14 0,21" fill="#ff6b9c"/>${FACE(-6)}</g></svg>`,
-    bunny: `<svg viewBox="-75 -105 150 185"><g>
-      <ellipse cx="-22" cy="-64" rx="14" ry="40" fill="#fff" transform="rotate(-8 -22 -64)"/>
-      <ellipse cx="22" cy="-64" rx="14" ry="40" fill="#fff" transform="rotate(8 22 -64)"/>
-      <ellipse cx="-22" cy="-60" rx="7" ry="27" fill="#ffc3d6" transform="rotate(-8 -22 -60)"/>
-      <ellipse cx="22" cy="-60" rx="7" ry="27" fill="#ffc3d6" transform="rotate(8 22 -60)"/>
-      <circle r="50" cy="2" fill="#fff"/>
-      <polygon points="-5,16 5,16 0,22" fill="#ff6b9c"/>${FACE(-4)}</g></svg>`,
-    rainbow: `<svg viewBox="-75 -60 150 120"><g>
-      ${["#ff8c66", "#ffc740", "#59cc99", "#73bffa", "#9e70e6"].map((c, i) =>
-        `<path d="M ${-58 + i * 10} 30 A ${58 - i * 10} ${58 - i * 10} 0 0 1 ${58 - i * 10} 30"
-         stroke="${c}" stroke-width="9" fill="none" stroke-linecap="round"/>`).join("")}
-      <g fill="#fff"><circle cx="-58" cy="32" r="14"/><circle cx="-46" cy="36" r="11"/><circle cx="-68" cy="37" r="10"/>
-      <circle cx="58" cy="32" r="14"/><circle cx="46" cy="36" r="11"/><circle cx="68" cy="37" r="10"/></g></g></svg>`,
-    star: `<svg viewBox="-75 -80 150 160"><g>
-      <path d="${(() => { let d = ""; for (let i = 0; i < 10; i++) { const a = (i * Math.PI) / 5 - Math.PI / 2;
-        const r = i % 2 === 0 ? 62 : 28; d += (i ? "L" : "M") + (Math.cos(a) * r).toFixed(1) + " " + (Math.sin(a) * r).toFixed(1) + " "; }
-        return d + "Z"; })()}" fill="#ffc740" stroke="#ffb81a" stroke-width="3"/>${FACE(8)}</g></svg>`,
-    dragon: `<svg viewBox="-75 -85 150 165"><g>
-      <polygon points="-36,-40 -26,-66 -14,-42" fill="#ffc740"/>
-      <polygon points="36,-40 26,-66 14,-42" fill="#ffc740"/>
-      <circle r="52" fill="#73c780"/>
-      <ellipse cy="26" rx="24" ry="16" fill="#d8f7cc"/>
-      <circle cx="-7" cy="16" r="3" fill="#2226"/><circle cx="7" cy="16" r="3" fill="#2226"/>${FACE(-8)}</g></svg>`,
-    teddy: `<svg viewBox="-75 -85 150 165"><g>
-      <circle cx="-42" cy="-42" r="20" fill="#c79a6b"/><circle cx="42" cy="-42" r="20" fill="#c79a6b"/>
-      <circle cx="-42" cy="-42" r="10" fill="#f2debe"/><circle cx="42" cy="-42" r="10" fill="#f2debe"/>
-      <circle r="53" fill="#c79a6b"/>
-      <ellipse cy="22" rx="21" ry="15" fill="#f2debe"/><circle cy="14" r="6" fill="#3a2a1a"/>${FACE(-8)}</g></svg>`,
+    unicorn: `<svg viewBox="-85 -105 170 190">
+      <defs>
+        <linearGradient id="uniB" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#ffe3f1"/>
+        </linearGradient>
+        <linearGradient id="uniH" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stop-color="#ffb81a"/><stop offset="1" stop-color="#ffe680"/>
+        </linearGradient>
+      </defs>
+      <g>
+        ${["#ff5ca8", "#ffb81a", "#3fd9d0", "#9b6bf2", "#62c5ff", "#ff8fb8"].map((c, i) =>
+          `<path d="M ${-42 + i * 17} -48 q ${-8 + (i % 2) * 16} -34 ${4 - (i % 2) * 8} -46"
+            stroke="${c}" stroke-width="13" fill="none" stroke-linecap="round"/>`).join("")}
+        <polygon points="0,-100 11,-60 -11,-60" fill="url(#uniH)" stroke="#eda612" stroke-width="2"/>
+        <ellipse cx="-46" cy="-42" rx="12" ry="18" fill="#fff" transform="rotate(-20 -46 -42)"/>
+        <ellipse cx="46" cy="-42" rx="12" ry="18" fill="#fff" transform="rotate(20 46 -42)"/>
+        <ellipse cx="-46" cy="-40" rx="6" ry="10" fill="#ffc3d6" transform="rotate(-20 -46 -40)"/>
+        <ellipse cx="46" cy="-40" rx="6" ry="10" fill="#ffc3d6" transform="rotate(20 46 -40)"/>
+        <circle r="56" fill="url(#uniB)"/>
+        ${miniStar(-58, -62, 0.13, "#ffd54d")}${miniStar(60, -50, 0.1, "#ff8fb8")}${miniStar(52, 48, 0.09, "#3fd9d0")}
+        ${FACE(6)}
+      </g></svg>`,
+
+    puppy: `<svg viewBox="-85 -95 170 180">
+      <defs><linearGradient id="pupB" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#e8bd93"/><stop offset="1" stop-color="#cf9a68"/>
+      </linearGradient></defs>
+      <g>
+        <g class="wag"><ellipse cx="-50" cy="-32" rx="17" ry="37" fill="#a9744a" transform="rotate(26 -50 -32)"/></g>
+        <ellipse cx="50" cy="-32" rx="17" ry="37" fill="#a9744a" transform="rotate(-26 50 -32)"/>
+        <circle r="56" fill="url(#pupB)"/>
+        <ellipse cx="-30" cy="-30" rx="16" ry="20" fill="#fff" opacity=".55"/>
+        <ellipse cy="24" rx="23" ry="16" fill="#f7e6cc"/>
+        <path d="M -7 12 C -7 8 7 8 7 12 C 7 17 0 20 0 20 C 0 20 -7 17 -7 12 Z" fill="#ff5ca8"/>
+        <ellipse cy="38" rx="7" ry="9" fill="#ff8fb8"/>
+        ${miniStar(56, -60, 0.1, "#ffd54d")}
+        ${FACE(-10)}
+      </g></svg>`,
+
+    kitten: `<svg viewBox="-85 -95 170 180">
+      <defs><linearGradient id="kitB" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#e7dcff"/><stop offset="1" stop-color="#c9b3f5"/>
+      </linearGradient></defs>
+      <g>
+        <polygon points="-56,-30 -42,-74 -18,-40" fill="#c9b3f5"/>
+        <polygon points="56,-30 42,-74 18,-40" fill="#c9b3f5"/>
+        <polygon points="-47,-38 -41,-62 -28,-44" fill="#ffb3cb"/>
+        <polygon points="47,-38 41,-62 28,-44" fill="#ffb3cb"/>
+        <circle r="56" fill="url(#kitB)"/>
+        <path d="M -14 -66 C -14 -76 -2 -76 0 -68 C 2 -76 14 -76 14 -66 C 14 -58 2 -56 0 -62 C -2 -56 -14 -58 -14 -66 Z"
+              fill="#ff5ca8" stroke="#f2308f" stroke-width="2"/>
+        <g stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".9">
+          <line x1="-80" y1="2" x2="-46" y2="6"/><line x1="-80" y1="14" x2="-46" y2="12"/>
+          <line x1="80" y1="2" x2="46" y2="6"/><line x1="80" y1="14" x2="46" y2="12"/>
+        </g>
+        <polygon points="-6,14 6,14 0,21" fill="#ff5ca8"/>
+        ${miniStar(-58, 46, 0.09, "#ffd54d")}
+        ${FACE(-6)}
+      </g></svg>`,
+
+    bunny: `<svg viewBox="-85 -115 170 200">
+      <defs><linearGradient id="bunB" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#ffe9f3"/>
+      </linearGradient></defs>
+      <g>
+        <ellipse cx="-24" cy="-70" rx="15" ry="44" fill="url(#bunB)" transform="rotate(-9 -24 -70)"/>
+        <ellipse cx="24" cy="-70" rx="15" ry="44" fill="url(#bunB)" transform="rotate(9 24 -70)"/>
+        <ellipse cx="-24" cy="-65" rx="7.5" ry="30" fill="#ffc3d6" transform="rotate(-9 -24 -65)"/>
+        <ellipse cx="24" cy="-65" rx="7.5" ry="30" fill="#ffc3d6" transform="rotate(9 24 -65)"/>
+        <circle r="54" cy="2" fill="url(#bunB)"/>
+        <g transform="translate(-40 -46)">
+          ${[0, 72, 144, 216, 288].map((a) =>
+            `<ellipse cx="0" cy="-8" rx="4.5" ry="7.5" fill="#ff8fb8" transform="rotate(${a})"/>`).join("")}
+          <circle r="4" fill="#ffd54d"/>
+        </g>
+        <polygon points="-5,16 5,16 0,22" fill="#ff5ca8"/>
+        ${FACE(-2)}
+      </g></svg>`,
+
+    rainbow: `<svg viewBox="-85 -70 170 140">
+      <g>
+        ${["#ff5ca8", "#ffb81a", "#ffd54d", "#38d9a9", "#62c5ff", "#9b6bf2"].map((c, i) =>
+          `<path d="M ${-64 + i * 9.5} 34 A ${64 - i * 9.5} ${64 - i * 9.5} 0 0 1 ${64 - i * 9.5} 34"
+           stroke="${c}" stroke-width="9" fill="none" stroke-linecap="round"/>`).join("")}
+        <g fill="#fff">
+          <circle cx="-62" cy="36" r="15"/><circle cx="-49" cy="41" r="12"/><circle cx="-73" cy="42" r="11"/>
+          <circle cx="62" cy="36" r="15"/><circle cx="49" cy="41" r="12"/><circle cx="73" cy="42" r="11"/>
+        </g>
+        ${miniStar(0, -10, 0.11, "#ffd54d")}${miniStar(-30, 6, 0.07, "#ff8fb8")}${miniStar(30, 6, 0.07, "#9b6bf2")}
+      </g></svg>`,
+
+    star: `<svg viewBox="-85 -90 170 175">
+      <defs><linearGradient id="staB" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#ffe680"/><stop offset="1" stop-color="#ffb81a"/>
+      </linearGradient></defs>
+      <g>
+        <g stroke="#ffd54d" stroke-width="4" stroke-linecap="round" opacity=".8">
+          <line x1="-74" y1="-44" x2="-62" y2="-36"/><line x1="74" y1="-44" x2="62" y2="-36"/>
+          <line x1="-76" y1="26" x2="-64" y2="22"/><line x1="76" y1="26" x2="64" y2="22"/>
+        </g>
+        <path d="${STAR_D}" fill="url(#staB)" stroke="#eda612" stroke-width="3" transform="scale(1.12)"/>
+        ${FACE(10, 0.95)}
+      </g></svg>`,
+
+    dragon: `<svg viewBox="-85 -95 170 180">
+      <defs><linearGradient id="draB" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#9fe8d9"/><stop offset="1" stop-color="#57cdb5"/>
+      </linearGradient></defs>
+      <g>
+        <g class="wag"><path d="M -52 -20 Q -84 -34 -78 -58 Q -66 -46 -50 -46 Z" fill="#c3a1ff"/></g>
+        <path d="M 52 -20 Q 84 -34 78 -58 Q 66 -46 50 -46 Z" fill="#c3a1ff"/>
+        <polygon points="-24,-52 -14,-76 -4,-54" fill="#ffd54d"/>
+        <polygon points="24,-52 14,-76 4,-54" fill="#ffd54d"/>
+        <circle r="56" fill="url(#draB)"/>
+        <ellipse cy="28" rx="26" ry="17" fill="#eafcf4"/>
+        <circle cx="-7" cy="17" r="3" fill="#2a6653" opacity=".5"/>
+        <circle cx="7" cy="17" r="3" fill="#2a6653" opacity=".5"/>
+        ${miniStar(58, -56, 0.1, "#ff8fb8")}
+        ${FACE(-9)}
+      </g></svg>`,
+
+    teddy: `<svg viewBox="-85 -95 170 180">
+      <defs><linearGradient id="tedB" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#dfb68a"/><stop offset="1" stop-color="#c49361"/>
+      </linearGradient></defs>
+      <g>
+        <circle cx="-45" cy="-46" r="22" fill="url(#tedB)"/><circle cx="45" cy="-46" r="22" fill="url(#tedB)"/>
+        <circle cx="-45" cy="-46" r="11" fill="#f7e2c4"/><circle cx="45" cy="-46" r="11" fill="#f7e2c4"/>
+        <circle r="57" fill="url(#tedB)"/>
+        <ellipse cy="24" rx="23" ry="16" fill="#f7e2c4"/>
+        <path d="M -8 8 C -8 3 8 3 8 8 C 8 14 0 18 0 18 C 0 18 -8 14 -8 8 Z" fill="#ff5ca8"/>
+        ${miniStar(-58, -58, 0.1, "#ffd54d")}
+        ${FACE(-10)}
+      </g></svg>`,
   };
 
   const THEME_POOL = {
@@ -378,11 +488,16 @@
     parentTab: "settings",
     stats: { frame: "week", start: "", end: "" },
     celebration: null,        // {milestoneNumber, collected, flying, trophy, showTrophy}
+    certUrl: null,
+    certBusy: false,
+    certStats: true,
     tutorial: null,           // {plan, index, timers: []}
     limitReached: false,
   };
 
   // ================================================================ usage tracking + time limit
+
+  let certBlob = null;
 
   let currentSession = { start: Date.now(), dur: 0 };
   sessions.push(currentSession);
@@ -418,8 +533,17 @@
 
   // ================================================================ render
 
+  let lastShown = null;
+
   function render() {
     const app = $("#app");
+    const shownNow = ui.limitReached && state.hasOnboarded ? "limit" : ui.screen;
+    if (shownNow !== lastShown) {
+      lastShown = shownNow;
+      app.style.animation = "none";
+      void app.offsetWidth; // restart the animation
+      app.style.animation = "screenIn .5s cubic-bezier(.22, 1.4, .36, 1)";
+    }
     if (ui.limitReached && state.hasOnboarded) {
       app.innerHTML = renderLimitReached();
       $("#overlay").innerHTML = ui.overlay === "gate" ? renderGate() : "";
@@ -850,21 +974,31 @@
     const pool = THEME_POOL[state.theme] || THEME_POOL.mixed;
     const chars = Array.from({ length: Math.min(tierN, 5) },
       (_, i) => pool[(cel.milestoneNumber + i) % pool.length]);
-    const offsets = [0, -110, 110, -60, 60];
-    const sizes = [150, 120, 120, 95, 95];
+    const main = chars[0];
+    const sides = chars.slice(1);
+    const sidePos = ["left:-4%;bottom:0", "right:-4%;bottom:0", "left:10%;bottom:62%", "right:10%;bottom:62%"];
     const hearts = tierN >= 2
       ? `<div class="hearts">${Array.from({ length: tierN * 3 }, (_, i) =>
           `<span style="left:${8 + Math.random() * 84}%;animation-delay:${i * 0.5}s;font-size:${18 + Math.random() * 16}px">💜</span>`).join("")}</div>`
       : "";
+    const sparkleGlyphs = ["✨", "💖", "⭐", "🫧", "🌸", "💫"];
+    const orbit = Array.from({ length: 5 + tierN * 2 }, (_, i) =>
+      `<span style="left:${(6 + Math.random() * 88).toFixed(0)}%;top:${(Math.random() * 92).toFixed(0)}%;animation-delay:${(i * 0.33).toFixed(2)}s;font-size:${(15 + Math.random() * 17).toFixed(0)}px">${sparkleGlyphs[i % sparkleGlyphs.length]}</span>`).join("");
+    // The star of the show fills most of the screen; each tier adds size,
+    // sparkles and (from tier 4) a rainbow halo.
+    const mainSize = `min(${62 + tierN * 6}vw, ${290 + tierN * 26}px)`;
     return `
       <div class="fullscreen celebration" data-action="cel-skip">
         ${hearts}
         <h1 id="cel-headline">${esc(C.milestoneHeadline(cel.milestoneNumber, state.lang, state.name))}</h1>
         <div class="characters">
-          ${chars.map((c, i) => `
-            <span class="char" style="margin-left:${offsets[i]}px;width:${sizes[i]}px;animation-delay:${i * 0.18}s;${i % 2 ? "bottom:30px" : ""}">
+          ${tierN >= 4 ? '<div class="rainbow-halo"></div>' : ""}
+          <span class="char main" style="width:${mainSize}">${CHARACTERS[main]}</span>
+          ${sides.map((c, i) => `
+            <span class="char side" style="${sidePos[i % sidePos.length]};width:min(24vw, 110px);animation-delay:${(0.22 + i * 0.17).toFixed(2)}s">
               ${CHARACTERS[c]}
             </span>`).join("")}
+          <span class="orbit">${orbit}</span>
         </div>
         ${cel.collected
           ? `<button class="big-btn sky squishy" data-action="cel-done" id="cel-done" style="max-width:320px">${t("Dalej!", "Onward!")}</button>`
@@ -1239,42 +1373,284 @@
   function renderCertTab() {
     return `
       <div class="card" style="text-align:center">
-        <h3>🏅 ${t("Dyplom Mistrza Matematyki", "Master of Mathematics Diploma")}</h3>
-        <p class="small-note">${t("Dyplom otworzy się w widoku wydruku — możesz go wydrukować (AirPrint) albo zapisać jako PDF.",
-          "The diploma opens in the print view — print it (AirPrint) or save it as a PDF.")}</p>
+        <h3>🏅 ${t("Dyplom Mistrzyni Matematyki", "Master of Mathematics Diploma")}</h3>
         <label class="setting-row" style="justify-content:center">
-          <input type="checkbox" id="cert-stats" checked> ${t("Dołącz statystyki", "Include statistics")}
+          <input type="checkbox" id="cert-stats" ${ui.certStats ? "checked" : ""} data-change="cert-stats">
+          ${t("Dołącz statystyki i umiejętności", "Include statistics and skills")}
         </label>
-        <button class="big-btn squishy" data-action="print-cert">${t("🖨 Drukuj / Zapisz PDF", "🖨 Print / Save PDF")}</button>
+        <button class="big-btn squishy" data-action="gen-cert" id="gen-cert" ${ui.certBusy ? "disabled" : ""}>
+          ${ui.certBusy ? t("Tworzę dyplom…", "Creating the diploma…") : t("🎓 Generuj dyplom", "🎓 Generate diploma")}
+        </button>
+        ${ui.certUrl ? `
+          <iframe class="cert-frame" id="cert-frame" src="${ui.certUrl}" title="Dyplom"></iframe>
+          <div class="cert-actions">
+            <button class="big-btn sky squishy" data-action="share-cert" id="share-cert">📤 ${t("Udostępnij", "Share")}</button>
+            <a class="big-btn mint squishy" id="cert-download" href="${ui.certUrl}" download="${certFileName()}">💾 ${t("Zapisz PDF", "Save PDF")}</a>
+          </div>
+          <button class="big-btn squishy" data-action="print-cert-pdf" id="print-cert-pdf" style="margin-top:10px">🖨 ${t("Drukuj", "Print")}</button>
+          <p class="small-note">${t("Na iPhonie: Udostępnij → Drukuj (AirPrint) lub Zapisz do Plików / wyślij e-mailem.",
+            "On iPhone: Share → Print (AirPrint), or save to Files / e-mail it.")}</p>` : ""}
       </div>`;
   }
 
-  function printCertificate() {
-    const withStats = !$("#cert-stats") || $("#cert-stats").checked;
-    const s = C.summary(attempts);
-    const date = new Date().toLocaleDateString(state.lang === "pl" ? "pl-PL" : "en-US",
+  function certFileName() {
+    const base = (state.lang === "pl" ? "Dyplom-" : "Diploma-") + state.name;
+    return base.replace(/[^\p{L}\p{N}-]+/gu, "-") + ".pdf";
+  }
+
+  // ---- diploma PDF: certificate drawn on canvas (bundled Baloo 2, so the
+  // Polish diacritics come straight from the font), embedded as a JPEG in a
+  // minimal hand-built PDF. Fully offline, no libraries.
+
+  function drawStar(g, x, y, r, color) {
+    g.save();
+    g.translate(x, y);
+    g.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = (i * Math.PI) / 5 - Math.PI / 2;
+      const rad = i % 2 === 0 ? r : r * 0.45;
+      g[i ? "lineTo" : "moveTo"](Math.cos(a) * rad, Math.sin(a) * rad);
+    }
+    g.closePath();
+    g.fillStyle = color;
+    g.fill();
+    g.restore();
+  }
+
+  function roundRectPath(g, x, y, w, h, r) {
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  }
+
+  async function makeDiplomaPDF(withStats) {
+    try {
+      await Promise.all([
+        document.fonts.load('800 120px "Baloo 2"'),
+        document.fonts.load('700 60px "Baloo 2"'),
+        document.fonts.load('500 40px "Baloo 2"'),
+      ]);
+      await document.fonts.ready;
+    } catch (e) { /* fall back to system font */ }
+
+    const W = 1240, H = 1754; // A4 at 150 dpi
+    const cv = document.createElement("canvas");
+    cv.width = W; cv.height = H;
+    const g = cv.getContext("2d");
+    const pl = state.lang === "pl";
+    const baloo = (weight, size) => `${weight} ${size}px "Baloo 2", sans-serif`;
+
+    // Background
+    const bg = g.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, "#fff8fc");
+    bg.addColorStop(0.55, "#f7efff");
+    bg.addColorStop(1, "#effaf7");
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, H);
+
+    // Double border: gold outside, dotted pink inside
+    g.lineWidth = 12;
+    g.strokeStyle = "#e3b23c";
+    roundRectPath(g, 46, 46, W - 92, H - 92, 42);
+    g.stroke();
+    g.lineWidth = 5;
+    g.strokeStyle = "#ff8fb8";
+    g.setLineDash([2, 20]);
+    g.lineCap = "round";
+    roundRectPath(g, 82, 82, W - 164, H - 164, 30);
+    g.stroke();
+    g.setLineDash([]);
+
+    // Corner stars
+    for (const [x, y] of [[110, 110], [W - 110, 110], [110, H - 110], [W - 110, H - 110]]) {
+      drawStar(g, x, y, 26, "#ffcf40");
+    }
+
+    g.textAlign = "center";
+
+    // Header
+    g.font = "84px serif";
+    g.fillText("🌸 🏆 🌸", W / 2, 250);
+
+    const titleGrad = g.createLinearGradient(W / 2 - 300, 0, W / 2 + 300, 0);
+    titleGrad.addColorStop(0, "#f2308f");
+    titleGrad.addColorStop(1, "#8a5cf0");
+    g.fillStyle = titleGrad;
+    g.font = baloo(800, 130);
+    g.fillText(pl ? "DYPLOM" : "DIPLOMA", W / 2, 420);
+
+    g.fillStyle = "#c8871a";
+    g.font = baloo(700, 62);
+    g.fillText(pl ? "Mistrzyni Matematyki" : "Master of Mathematics", W / 2, 510);
+
+    g.fillStyle = "#8a6fae";
+    g.font = baloo(500, 38);
+    g.fillText(pl ? "dla" : "awarded to", W / 2, 590);
+
+    g.fillStyle = "#ff5ca8";
+    g.font = baloo(800, 108);
+    g.fillText(state.name, W / 2, 700);
+
+    g.fillStyle = "#4a2364";
+    g.font = baloo(500, 44);
+    g.fillText(pl ? "za wspaniałe wyniki przekraczające" : "for wonderful results exceeding", W / 2, 800);
+    g.fillText(pl ? "wszelkie oczekiwania!" : "all expectations!", W / 2, 860);
+
+    let y = 960;
+    if (withStats) {
+      const s = C.summary(attempts);
+      const ops = [...new Set(attempts.map((a) => a.op))];
+      const diffOrder = { easy: 0, medium: 1, hard: 2, genius: 3 };
+      const topDiff = attempts.reduce(
+        (best, a) => (diffOrder[a.diff] > diffOrder[best] ? a.diff : best),
+        attempts.length ? attempts[0].diff : "easy");
+      const lines = [
+        `✅  ${s.solvedCorrectly} ${pl ? "rozwiązanych zadań" : "problems solved"}`,
+        `🎯  ${pl ? "Skuteczność" : "Accuracy"}: ${Math.round(s.accuracy * 100)}%`,
+        `🪙  ${state.coins} ${pl ? "zdobytych złotych monet" : "gold coins collected"}`,
+      ];
+      if (ops.length) {
+        lines.push(`✏️  ${pl ? "Ćwiczyła" : "Practiced"}: ${ops.map(opName).join(", ")}`);
+        lines.push(`🚀  ${pl ? "Poziom" : "Level"}: ${diffName(topDiff)}`);
+      }
+      g.font = baloo(700, 40);
+      g.fillStyle = "#8a5cf0";
+      for (const line of lines) {
+        g.fillText(line, W / 2, y);
+        y += 62;
+      }
+      y += 10;
+    }
+
+    g.font = "48px serif";
+    g.fillText("⭐ 🌟 ⭐ 🌟 ⭐", W / 2, y + 20);
+
+    // Gold seal with ribbons (bottom right)
+    const sx = W - 250, sy = H - 300;
+    g.save();
+    g.translate(sx, sy);
+    g.fillStyle = "#e3b23c";
+    g.beginPath();
+    g.moveTo(-42, 40); g.lineTo(-70, 150); g.lineTo(-32, 120); g.lineTo(-12, 155); g.lineTo(-4, 60);
+    g.closePath(); g.fill();
+    g.beginPath();
+    g.moveTo(42, 40); g.lineTo(70, 150); g.lineTo(32, 120); g.lineTo(12, 155); g.lineTo(4, 60);
+    g.closePath(); g.fill();
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      g.beginPath();
+      g.arc(Math.cos(a) * 78, Math.sin(a) * 78, 16, 0, Math.PI * 2);
+      g.fillStyle = "#f5c04a";
+      g.fill();
+    }
+    const seal = g.createRadialGradient(-20, -25, 8, 0, 0, 85);
+    seal.addColorStop(0, "#ffe488");
+    seal.addColorStop(1, "#e8a922");
+    g.fillStyle = seal;
+    g.beginPath(); g.arc(0, 0, 78, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = "#c8871a"; g.lineWidth = 4;
+    g.beginPath(); g.arc(0, 0, 62, 0, Math.PI * 2); g.stroke();
+    drawStar(g, 0, 0, 38, "#fff6d8");
+    g.restore();
+
+    // Date + signature
+    const date = new Date().toLocaleDateString(pl ? "pl-PL" : "en-US",
       { year: "numeric", month: "long", day: "numeric" });
-    const stats = withStats ? `
-      <div class="stats">
-        ✅ ${s.solvedCorrectly} ${t("rozwiązanych zadań!", "problems solved!")}<br>
-        🎯 ${t("Skuteczność", "Accuracy")}: ${Math.round(s.accuracy * 100)}%<br>
-        🪙 ${state.coins} ${t("zdobytych złotych monet!", "gold coins collected!")}
-      </div>` : "";
-    $("#print-cert").innerHTML = `
-      <div class="cert">
-        <div class="laurel">🌿 🏆 🌿</div>
-        <h1>${t("DYPLOM", "DIPLOMA")}</h1>
-        <div class="sub">${t("Mistrza Matematyki", "Master of Mathematics")}</div>
-        <div class="for">${t("dla", "awarded to")}</div>
-        <div class="name">${esc(state.name)}</div>
-        <div class="body">${t("za wspaniałe wyniki przekraczające<br>wszelkie oczekiwania!",
-                              "for wonderful results exceeding<br>all expectations!")}</div>
-        ${stats}
-        <div>⭐ 🌟 ⭐ 🌟 ⭐</div>
-        <div class="date">${date}</div>
-        <div class="sig">${t("Matematyka Tosi 🧮", "Tosia's Math 🧮")}</div>
-      </div>`;
-    window.print();
+    g.fillStyle = "#8a6fae";
+    g.font = baloo(500, 36);
+    g.fillText(date, W / 2, H - 250);
+    g.fillStyle = "#8a5cf0";
+    g.font = baloo(700, 40);
+    g.fillText(pl ? "Matematyka Tosi 🧮" : "Tosia's Math 🧮", W / 2, H - 185);
+
+    // Canvas → JPEG bytes → single-page PDF
+    const dataUrl = cv.toDataURL("image/jpeg", 0.92);
+    const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    const bin = atob(b64);
+    const jpeg = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) jpeg[i] = bin.charCodeAt(i);
+    return buildImagePDF(jpeg, W, H);
+  }
+
+  /** Wrap a JPEG in a minimal one-page A4 PDF (image covers the page). */
+  function buildImagePDF(jpeg, wPx, hPx) {
+    const pageW = 595.28, pageH = 841.89; // A4 points
+    const enc = (s) => new TextEncoder().encode(s);
+    const chunks = [];
+    const offsets = [0];
+    let pos = 0;
+    const push = (bytes) => { chunks.push(bytes); pos += bytes.length; };
+    const beginObj = (n, body) => { offsets[n] = pos; push(enc(body)); };
+
+    push(enc("%PDF-1.4\n%âãÏÓ\n"));
+    beginObj(1, "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+    beginObj(2, "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+    beginObj(3, `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] ` +
+      "/Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n");
+    offsets[4] = pos;
+    push(enc(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${wPx} /Height ${hPx} ` +
+      `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`));
+    push(jpeg);
+    push(enc("\nendstream\nendobj\n"));
+    const content = `q ${pageW} 0 0 ${pageH} 0 0 cm /Im1 Do Q`;
+    beginObj(5, `5 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`);
+
+    const xrefPos = pos;
+    let xref = "xref\n0 6\n0000000000 65535 f \n";
+    for (let n = 1; n <= 5; n++) xref += String(offsets[n]).padStart(10, "0") + " 00000 n \n";
+    xref += `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`;
+    push(enc(xref));
+    return new Blob(chunks, { type: "application/pdf" });
+  }
+
+  async function generateCertificate() {
+    if (ui.certBusy) return;
+    ui.certBusy = true;
+    render();
+    try {
+      const blob = await makeDiplomaPDF(ui.certStats);
+      certBlob = blob;
+      if (ui.certUrl) URL.revokeObjectURL(ui.certUrl);
+      ui.certUrl = URL.createObjectURL(blob);
+    } catch (e) {
+      ui.certUrl = null;
+      alert(t("Nie udało się utworzyć dyplomu: ", "Could not create the diploma: ") + e);
+    }
+    ui.certBusy = false;
+    render();
+  }
+
+  /** Share via the native sheet; guaranteed fallback: trigger the download. */
+  async function shareCertificate() {
+    if (!certBlob) return;
+    const file = new File([certBlob], certFileName(), { type: "application/pdf" });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: certFileName() });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return; // user closed the sheet
+    }
+    const a = $("#cert-download");
+    if (a) a.click();
+  }
+
+  /** Print: try the PDF frame, then a new tab; never fail silently. */
+  function printCertificatePDF() {
+    const frame = $("#cert-frame");
+    try {
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+      return;
+    } catch (e) { /* cross-origin/viewer restrictions — fall through */ }
+    let opened = null;
+    try { opened = window.open(ui.certUrl, "_blank"); } catch (e) { /* blocked */ }
+    if (!opened) shareCertificate();
   }
 
   // ---------------------------------------------------------------- time limit reached
@@ -1498,7 +1874,9 @@
       }
     },
     "stats-frame"(el) { ui.stats.frame = el.dataset.frame; render(); },
-    "print-cert"() { printCertificate(); },
+    "gen-cert"() { generateCertificate(); },
+    "share-cert"() { shareCertificate(); },
+    "print-cert-pdf"() { printCertificatePDF(); },
 
     // time limit
     "limit-unlock"() {
@@ -1533,6 +1911,7 @@
     },
     "stats-start"(el) { ui.stats.start = el.value; render(); },
     "stats-end"(el) { ui.stats.end = el.value; render(); },
+    "cert-stats"(el) { ui.certStats = el.checked; },
   };
 
   document.addEventListener("click", (e) => {
@@ -1568,6 +1947,19 @@
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
+
+  (function decorate() {
+    const decor = document.getElementById("decor");
+    if (!decor) return;
+    const glyphs = ["✨", "💖", "⭐", "🫧", "🌸", "💜", "🦋", "💫"];
+    decor.innerHTML = glyphs.concat(glyphs).map((g, i) => {
+      const left = (i * 53 + 11) % 96;
+      const top = (i * 37 + 7) % 92;
+      const size = 14 + ((i * 7) % 18);
+      const delay = (i * 1.37) % 9;
+      return `<span style="left:${left}%;top:${top}%;font-size:${size}px;animation-delay:-${delay}s,-${delay * 1.7}s">${g}</span>`;
+    }).join("");
+  })();
 
   checkLimit();
   render();
