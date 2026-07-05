@@ -52,6 +52,7 @@ struct OperationSelectView: View {
 
     @State private var showTreasures = false
     @State private var showParentGate = false
+    @State private var parentUnlocked = false
     @State private var showParentSettings = false
 
     private let tileColors: [MathOperation: Color] = [
@@ -143,10 +144,17 @@ struct OperationSelectView: View {
         }
         .navigationBarBackButtonHidden(true)
         .sheet(isPresented: $showTreasures) { TreasuresView() }
-        .sheet(isPresented: $showParentGate) {
-            PinGateView {
-                showParentGate = false
+        .sheet(isPresented: $showParentGate, onDismiss: {
+            // Present the settings only after the gate sheet has fully
+            // dismissed — toggling both in the same tick drops the second sheet.
+            if parentUnlocked {
+                parentUnlocked = false
                 showParentSettings = true
+            }
+        }) {
+            PinGateView {
+                parentUnlocked = true
+                showParentGate = false
             }
         }
         .sheet(isPresented: $showParentSettings) { ParentSettingsView() }

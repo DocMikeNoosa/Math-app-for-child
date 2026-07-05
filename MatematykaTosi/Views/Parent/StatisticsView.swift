@@ -143,7 +143,7 @@ struct StatisticsView: View {
                         .foregroundStyle(Theme.mint)
                         .symbol(.circle)
                 }
-                .chartYScale(domain: 0...100)
+                .chartYScale(domain: 0.0...100.0)
                 .frame(height: 170)
                 .padding(.vertical, 4)
             }
@@ -174,7 +174,7 @@ struct StatisticsView: View {
                         .foregroundStyle(Theme.purple)
                         .cornerRadius(4)
                 }
-                .chartYScale(domain: 0...100)
+                .chartYScale(domain: 0.0...100.0)
                 .frame(height: 170)
                 .padding(.vertical, 4)
             }

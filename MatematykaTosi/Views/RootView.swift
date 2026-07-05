@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import Combine
 
 /// Bootstraps the singleton AppState and routes to onboarding or the main flow.
 struct RootView: View {
@@ -67,9 +66,14 @@ struct MainRouterView: View {
                 closeSession()
             }
         }
-        .onReceive(Timer.publish(every: 15, on: .main, in: .common).autoconnect()) { _ in
-            checkpointSession()
-            refreshLimitState(now: Date())
+        .task {
+            // Stable heartbeat for usage checkpointing and limit checks
+            // (a Timer publisher created in body would restart on re-render).
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(15))
+                checkpointSession()
+                refreshLimitState(now: Date())
+            }
         }
         .onChange(of: app.dailyLimitMinutes) { refreshLimitState(now: Date()) }
         .onChange(of: app.limitOverrideDate) { refreshLimitState(now: Date()) }

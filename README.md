@@ -44,15 +44,20 @@ programowa, edukacja wczesnoszkolna). Default language: **Polski**, with full
 ## Project layout
 
 ```
-MatematykaTosi.xcodeproj      Xcode 16 project (file-system-synchronized groups)
+run.sh                        One-command build & launch (macOS, simulator)
+MatematykaTosi.xcodeproj      Xcode 16 project (file-system-synchronized
+                              groups, shared scheme included)
 MatematykaTosi/
-  Core/                       Pure logic: generator, tutorial plans, stats,
-                              time limit, trophies/badges, praise bank, L10n,
-                              Keychain PIN store, sound synth, theme
+  Core/                       Pure logic: generator, tutorial plans, practice
+                              state machine, stats, time limit, trophies/
+                              badges, praise bank, L10n, Keychain PIN store,
+                              sound synth, theme
   Models/                     SwiftData models (AppState, AttemptRecord, UsageSession)
   Views/                      Onboarding, setup flow, practice, tutorial,
                               celebration, treasures, parent zone, time limit
-MatematykaTosiTests/          Unit tests (XCTest)
+MatematykaTosiTests/          Unit tests (XCTest, 5 suites / 66 tests)
+scripts/linux-core-tests.sh   Runs the full core test suite with any
+                              Swift ≥ 5.8 toolchain on Linux (used in review)
 ```
 
 Notes on two deliberate choices:
@@ -66,28 +71,42 @@ Notes on two deliberate choices:
 - **Statistics/limit/generator logic** is pure and takes `now`, `Calendar` and
   a seedable RNG as parameters, so all of it is deterministic under test.
 
-## Building
+## Running the app — one command
 
-1. Open `MatematykaTosi.xcodeproj` in Xcode 16 or newer.
-2. Select the `MatematykaTosi` scheme and an iPhone (iOS 17+) simulator or device.
-3. Run. (Signing: automatic; set your team for a physical device.)
+On a Mac with Xcode 16+:
+
+```sh
+./run.sh
+```
+
+This picks (and boots) an iPhone simulator, builds the app, installs it and
+launches it. Alternatively open `MatematykaTosi.xcodeproj` in Xcode and press
+⌘R; for a physical iPhone set your signing team first.
 
 ## Tests
 
-`⌘U` in Xcode, or:
-
 ```sh
-xcodebuild test -project MatematykaTosi.xcodeproj -scheme MatematykaTosi \
-  -destination 'platform=iOS Simulator,name=iPhone 16'
+./run.sh test        # full XCTest suite in the iOS simulator (macOS)
 ```
 
-Covered: problem generation (all operation × range × difficulty combinations,
-crossing/borrow rules, exact division, no back-to-back repeats, Genius
-formats), statistics aggregation (every time frame incl. custom, summary math,
-daily series, usage), coin/trophy/milestone logic, praise rotation and Polish
+The five suites (66 tests) cover: problem generation (all operation × range ×
+difficulty combinations, crossing/borrow rules, exact division, no
+back-to-back repeats, Genius formats), the practice state machine (the exact
+correct/wrong/wrong/wrong→tutorial answer logic, milestone-every-5, the
+tutorial kindness rule, input handling, mid-session config changes),
+statistics aggregation (every time frame incl. custom, summary math, daily
+series, usage), coin/trophy/milestone/badge logic, praise rotation and Polish
 vocative, tutorial plans (every plan ends with the correct answer), and
 time-limit enforcement (overlap at midnight, warning/reached thresholds,
 override expiry).
+
+All of this logic is platform-independent and the identical suite also runs
+on Linux with any Swift ≥ 5.8 toolchain (this is how the code in this repo
+was verified: `scripts/linux-core-tests.sh` — 66/66 passing):
+
+```sh
+scripts/linux-core-tests.sh
+```
 
 ## Manual end-to-end checklist
 

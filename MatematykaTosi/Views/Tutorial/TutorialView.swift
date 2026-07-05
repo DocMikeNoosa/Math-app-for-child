@@ -4,7 +4,6 @@ import SwiftUI
 /// Walks through THIS exact problem step by step, ends with the answer and
 /// hands back to the engine for a fresh similar problem.
 struct TutorialView: View {
-    @Environment(AppState.self) private var app
     @Environment(\.l10n) private var t
     let problem: MathProblem
     let onFinish: () -> Void
@@ -171,7 +170,7 @@ private struct NumberLineJumpView: View {
                 let axisHi = hi + pad
                 let width = geo.size.width - 40
                 let y = geo.size.height * 0.7
-                func x(_ value: Int) -> CGFloat {
+                let x: (Int) -> CGFloat = { value in
                     20 + width * CGFloat(value - axisLo) / CGFloat(max(1, axisHi - axisLo))
                 }
 

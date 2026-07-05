@@ -12,6 +12,7 @@ struct PracticeView: View {
     @State private var engine: PracticeEngine?
     @State private var showTreasures = false
     @State private var showParentGate = false
+    @State private var parentUnlocked = false
     @State private var showParentSettings = false
     @State private var showFancyWordMeaning = false
 
@@ -40,10 +41,17 @@ struct PracticeView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showTreasures) { TreasuresView() }
-        .sheet(isPresented: $showParentGate) {
-            PinGateView {
-                showParentGate = false
+        .sheet(isPresented: $showParentGate, onDismiss: {
+            // Present settings only after the gate sheet is fully dismissed —
+            // toggling both in the same tick drops the second sheet.
+            if parentUnlocked {
+                parentUnlocked = false
                 showParentSettings = true
+            }
+        }) {
+            PinGateView {
+                parentUnlocked = true
+                showParentGate = false
             }
         }
         .sheet(isPresented: $showParentSettings) { ParentSettingsView() }

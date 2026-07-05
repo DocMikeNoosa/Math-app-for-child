@@ -126,6 +126,13 @@ struct ParentSettingsView: View {
             }
             .navigationTitle("⚙️ " + t.parentZone)
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                // Keep the custom stepper in sync with a previously saved
+                // custom limit.
+                if let minutes = app.dailyLimitMinutes, ![15, 30, 45, 60].contains(minutes) {
+                    customLimit = minutes
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(t.done) {
