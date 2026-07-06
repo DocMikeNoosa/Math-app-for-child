@@ -1,5 +1,5 @@
 /* Matematyka Tosi — offline-first service worker. */
-const CACHE = "tosia-v4";
+const CACHE = "tosia-v5";
 const ASSETS = [
   "./",
   "index.html",
@@ -7,6 +7,7 @@ const ASSETS = [
   "core.js",
   "app.js",
   "manifest.webmanifest",
+  "czytanie.html",
   "icons/icon-180.png",
   "icons/icon-192.png",
   "icons/icon-512.png",
