@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RyczałtRx — Medical Practice Take-Home Calculator</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page: #0a0714;
+    --page-2: #120b20;
+    --surface: #161022;          /* chart / panel surface (validated) */
+    --glass: rgba(157, 123, 255, 0.055);
+    --glass-strong: rgba(157, 123, 255, 0.10);
+    --glass-border: rgba(180, 150, 255, 0.16);
+    --glass-border-soft: rgba(180, 150, 255, 0.09);
+    --ink: #f2eefc;
+    --ink-2: #b9b0d0;
+    --ink-3: #857c9e;
+    --grid: #2a2338;
+    --axis: #3a3150;
+    --accent: #9085e9;           /* violet — revenue */
+    --accent-glow: rgba(144, 133, 233, 0.35);
+    --teal: #199e70;             /* take-home */
+    --gold: #c98500;             /* social ZUS */
+    --magenta: #d55181;          /* tax */
+    --blue: #3987e5;             /* health */
+    --danger: #e66767;
+    --radius: 16px;
+    font-size: 15px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scrollbar-color: #3a3150 #0a0714; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background:
+      radial-gradient(1100px 600px at 80% -10%, rgba(120, 90, 220, 0.16), transparent 60%),
+      radial-gradient(900px 500px at -10% 40%, rgba(60, 40, 140, 0.14), transparent 60%),
+      linear-gradient(180deg, var(--page-2), var(--page) 40%);
+    background-attachment: fixed;
+    color: var(--ink);
+    min-height: 100vh;
+    line-height: 1.45;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 22px 20px 80px; }
+
+  /* ── header ─────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; padding: 6px 2px 20px;
+  }
+  .brand { display: flex; align-items: center; gap: 13px; }
+  .brand-mark {
+    width: 42px; height: 42px; border-radius: 12px; flex: none;
+    background: linear-gradient(135deg, rgba(144,133,233,.28), rgba(144,133,233,.08));
+    border: 1px solid var(--glass-border);
+    display: grid; place-items: center;
+    box-shadow: 0 0 24px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  .brand h1 { font-size: 1.25rem; font-weight: 650; letter-spacing: .01em; }
+  .brand h1 span { color: var(--accent); }
+  .brand small { display: block; color: var(--ink-3); font-size: .78rem; font-weight: 400; }
+  .clock { text-align: right; }
+  .clock .time { font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .04em; color: var(--ink-2); }
+  .clock .date { font-size: .8rem; color: var(--ink-3); }
+
+  /* ── glass panels & controls ────────────────────────── */
+  .panel {
+    background: linear-gradient(160deg, var(--glass-strong), var(--glass) 55%);
+    border: 1px solid var(--glass-border-soft);
+    border-top-color: var(--glass-border);
+    border-radius: var(--radius);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 18px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
+    padding: 20px;
+  }
+  .panel h2 {
+    font-size: .8rem; font-weight: 650; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--ink-3); margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .btn {
+    font: inherit; color: var(--ink); cursor: pointer;
+    background: linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.03));
+    border: 1px solid var(--glass-border);
+    border-radius: 11px; padding: 9px 16px;
+    backdrop-filter: blur(8px);
+    transition: box-shadow .15s, border-color .15s, transform .05s;
+  }
+  .btn:hover { border-color: rgba(180,150,255,.38); box-shadow: 0 0 16px var(--accent-glow); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary {
+    background: linear-gradient(160deg, rgba(144,133,233,.42), rgba(144,133,233,.18));
+    border-color: rgba(160,140,255,.5);
+    font-weight: 600;
+  }
+  .btn.small { padding: 5px 11px; font-size: .82rem; border-radius: 9px; }
+  .btn.ghost { background: transparent; border-color: var(--glass-border-soft); color: var(--ink-2); }
+  .btn.danger:hover { border-color: rgba(230,103,103,.55); box-shadow: 0 0 14px rgba(230,103,103,.25); color: var(--danger); }
+  input[type=text], input[type=number], select {
+    font: inherit; color: var(--ink);
+    background: rgba(8, 5, 18, 0.55);
+    border: 1px solid var(--glass-border-soft);
+    border-radius: 11px; padding: 9px 12px; width: 100%;
+  }
+  input:focus, select:focus { outline: none; border-color: rgba(160,140,255,.5); box-shadow: 0 0 0 3px rgba(144,133,233,.15); }
+  select option { background: #191227; }
+  label.field { display: block; font-size: .8rem; color: var(--ink-3); margin-bottom: 4px; }
+  .check { display: flex; align-items: center; gap: 9px; font-size: .86rem; color: var(--ink-2); cursor: pointer; user-select: none; }
+  .check input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+
+  /* ── layout ─────────────────────────────────────────── */
+  .grid { display: grid; grid-template-columns: 400px 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 940px) { .grid { grid-template-columns: 1fr; } }
+  .stack { display: grid; gap: 18px; }
+
+  /* ── calculator ─────────────────────────────────────── */
+  .rev-input { position: relative; margin-bottom: 14px; }
+  .rev-input input {
+    font-size: 1.55rem; font-weight: 600; padding: 13px 58px 13px 15px;
+    letter-spacing: .01em;
+  }
+  .rev-input .unit { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--ink-3); font-size: 1rem; }
+  .month-q {
+    background: rgba(144,133,233,.07); border: 1px solid var(--glass-border-soft);
+    border-radius: 12px; padding: 12px 13px; margin-bottom: 14px;
+  }
+  .month-q .q { font-size: .84rem; color: var(--ink-2); margin-bottom: 8px; }
+  .month-q .q strong { color: var(--accent); font-weight: 600; }
+  .month-row { display: grid; grid-template-columns: 1.5fr 1fr; gap: 8px; }
+  .hint { font-size: .74rem; color: var(--ink-3); margin-top: 7px; }
+  .hint.warn { color: var(--gold); }
+  .opts { display: grid; gap: 8px; margin: 4px 0 16px; }
+
+  .result { border-top: 1px solid var(--glass-border-soft); padding-top: 15px; }
+  .hero-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); }
+  .hero {
+    font-size: 2.55rem; font-weight: 700; letter-spacing: -.01em;
+    color: #4fd2a2; text-shadow: 0 0 28px rgba(25,158,112,.35);
+    margin: 2px 0 4px;
+  }
+  .hero-sub { font-size: .82rem; color: var(--ink-3); margin-bottom: 13px; }
+  .bk { width: 100%; border-collapse: collapse; font-size: .87rem; }
+  .bk td { padding: 5.5px 0; border-bottom: 1px solid rgba(180,150,255,.06); }
+  .bk td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  .bk tr.neg td:last-child { color: var(--ink-2); }
+  .bk td .sw { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 8px; vertical-align: 1px; }
+  .bk tr.total td { border-bottom: none; padding-top: 9px; font-weight: 650; color: var(--ink); }
+  .bk tr.total td:last-child { color: #4fd2a2; }
+  .tier-note { font-size: .75rem; color: var(--ink-3); margin-top: 9px; }
+  .save-row { display: flex; gap: 9px; margin-top: 15px; align-items: center; flex-wrap: wrap; }
+  .save-row .btn.primary { flex: 1; padding: 12px; font-size: .95rem; }
+  #cancelEdit { display: none; }
+
+  /* ── stat tiles ─────────────────────────────────────── */
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  .tile { padding: 13px 15px; }
+  .tile .t-label { font-size: .74rem; color: var(--ink-3); }
+  .tile .t-value { font-size: 1.3rem; font-weight: 650; margin-top: 2px; }
+  .tile .t-sub { font-size: .72rem; color: var(--ink-3); margin-top: 1px; }
+
+  /* ── charts ─────────────────────────────────────────── */
+  .filter-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .chip {
+    font: inherit; font-size: .8rem; cursor: pointer; color: var(--ink-2);
+    background: transparent; border: 1px solid var(--glass-border-soft);
+    border-radius: 999px; padding: 5px 13px;
+  }
+  .chip.on { background: rgba(144,133,233,.16); border-color: rgba(160,140,255,.45); color: var(--ink); font-weight: 600; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: .8rem; color: var(--ink-2); margin-bottom: 8px; }
+  .legend .key { display: flex; align-items: center; gap: 7px; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 4px; }
+  .chart-box { position: relative; }
+  .chart-box svg { display: block; width: 100%; height: auto; }
+  .empty-note { color: var(--ink-3); font-size: .86rem; padding: 26px 0; text-align: center; }
+  .empty-note a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  #tooltip {
+    position: fixed; z-index: 50; pointer-events: none; display: none;
+    background: rgba(18, 12, 32, 0.94); border: 1px solid var(--glass-border);
+    border-radius: 10px; padding: 9px 12px; font-size: .8rem;
+    box-shadow: 0 8px 26px rgba(0,0,0,.5); backdrop-filter: blur(6px);
+    max-width: 250px;
+  }
+  #tooltip .tt-title { font-weight: 650; margin-bottom: 5px; }
+  #tooltip .tt-row { display: flex; justify-content: space-between; gap: 16px; color: var(--ink-2); }
+  #tooltip .tt-row b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  #tooltip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+
+  /* ── records table ──────────────────────────────────── */
+  .rec-table-wrap { overflow-x: auto; }
+  table.rec { width: 100%; border-collapse: collapse; font-size: .86rem; min-width: 640px; }
+  table.rec th {
+    text-align: right; font-weight: 600; color: var(--ink-3); font-size: .74rem;
+    text-transform: uppercase; letter-spacing: .07em;
+    padding: 7px 10px; border-bottom: 1px solid var(--axis);
+  }
+  table.rec th:first-child, table.rec td:first-child { text-align: left; }
+  table.rec td {
+    padding: 8px 10px; text-align: right; font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid rgba(180,150,255,.07); color: var(--ink-2);
+  }
+  table.rec td.mon { color: var(--ink); font-weight: 550; }
+  table.rec td.th { color: #4fd2a2; font-weight: 600; }
+  table.rec tr:hover td { background: rgba(144,133,233,.05); }
+  table.rec tr.yr-total td { font-weight: 650; color: var(--ink); border-top: 1px solid var(--axis); border-bottom: none; }
+  .row-actions { display: inline-flex; gap: 5px; }
+  .icon-btn {
+    font: inherit; font-size: .78rem; cursor: pointer; color: var(--ink-3);
+    background: transparent; border: 1px solid transparent; border-radius: 7px; padding: 3px 8px;
+  }
+  .icon-btn:hover { color: var(--ink); border-color: var(--glass-border); background: rgba(255,255,255,.04); }
+  .icon-btn.del:hover { color: var(--danger); border-color: rgba(230,103,103,.4); }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ── modals ─────────────────────────────────────────── */
+  dialog {
+    background: linear-gradient(165deg, #1c1430, #140e22);
+    color: var(--ink); border: 1px solid var(--glass-border);
+    border-radius: 18px; padding: 24px; width: min(560px, 92vw);
+    box-shadow: 0 30px 80px rgba(0,0,0,.6);
+  }
+  dialog::backdrop { background: rgba(5, 3, 12, 0.65); backdrop-filter: blur(4px); }
+  dialog h3 { font-size: 1.05rem; margin-bottom: 4px; }
+  dialog .sub { font-size: .8rem; color: var(--ink-3); margin-bottom: 16px; }
+  .set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-bottom: 14px; }
+  .set-grid .full { grid-column: 1 / -1; }
+  .set-sec { font-size: .74rem; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); grid-column: 1 / -1; margin-top: 8px; }
+  dialog .foot { display: flex; gap: 9px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
+  dialog .foot .spacer { flex: 1; }
+  .import-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--glass-border-soft); border-radius: 11px; margin-top: 10px; }
+  .import-list table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+  .import-list td, .import-list th { padding: 7px 11px; text-align: left; border-bottom: 1px solid rgba(180,150,255,.07); }
+  .import-list td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge { font-size: .7rem; padding: 2px 8px; border-radius: 999px; border: 1px solid; }
+  .badge.new { color: #4fd2a2; border-color: rgba(25,158,112,.5); }
+  .badge.ow { color: var(--gold); border-color: rgba(201,133,0,.5); }
+
+  #toast {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: rgba(22, 15, 38, 0.95); border: 1px solid var(--glass-border);
+    border-radius: 12px; padding: 11px 20px; font-size: .87rem;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5); transition: transform .25s ease; z-index: 60;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  footer { margin-top: 30px; text-align: center; font-size: .74rem; color: var(--ink-3); line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M4 12h4l2-6 3 12 2.5-6H20" stroke="#9085e9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Ryczałt<span>Rx</span></h1>
+        <small>Take-home calculator · 14% ryczałt · single-owner medical practice</small>
+      </div>
+    </div>
+    <div class="clock">
+      <div class="time" id="clockTime">--:--:--</div>
+      <div class="date" id="clockDate">—</div>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- ── Calculator ── -->
+    <div class="panel" id="calcPanel">
+      <h2>Calculator <button class="btn small ghost" id="openSettings">⚙ Rates &amp; ZUS</button></h2>
+
+      <label class="field" for="revenue">Total revenue for the month (przychód, gross)</label>
+      <div class="rev-input">
+        <input type="text" id="revenue" inputmode="decimal" placeholder="0,00" autocomplete="off">
+        <span class="unit">zł</span>
+      </div>
+
+      <div class="month-q">
+        <div class="q">Which month is this total for? <strong id="monthEcho"></strong></div>
+        <div class="month-row">
+          <select id="selMonth"></select>
+          <select id="selYear"></select>
+        </div>
+        <div class="hint" id="monthHint"></div>
+      </div>
+
+      <div class="opts">
+        <label class="check"><input type="checkbox" id="optChorobowe"> Include voluntary sickness insurance (chorobowe)</label>
+        <label class="check"><input type="checkbox" id="optDeductSocial"> Deduct social ZUS from taxable revenue</label>
+        <label class="check"><input type="checkbox" id="optDeductHealth"> Deduct 50% of health contribution from taxable revenue</label>
+      </div>
+
+      <div class="result">
+        <div class="hero-label">Estimated take-home</div>
+        <div class="hero" id="heroTakeHome">0,00 zł</div>
+        <div class="hero-sub" id="heroSub">Enter a revenue amount to calculate.</div>
+        <table class="bk" id="breakdown"></table>
+        <div class="tier-note" id="tierNote"></div>
+        <div class="save-row">
+          <button class="btn primary" id="saveBtn">Save month</button>
+          <button class="btn ghost" id="cancelEdit">Cancel edit</button>
+        </div>
+        <div class="hint" id="saveHint"></div>
+      </div>
+    </div>
+
+    <!-- ── Right column ── -->
+    <div class="stack">
+      <div class="tiles" id="tiles"></div>
+
+      <div class="panel">
+        <h2>Trends</h2>
+        <div class="filter-row" id="rangeChips"></div>
+        <div class="legend">
+          <span class="key"><span class="dot" style="background:var(--accent)"></span>Revenue</span>
+          <span class="key"><span class="dot" style="background:var(--teal)"></span>Take-home</span>
+        </div>
+        <div class="chart-box" id="trendChart"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Where the money goes</h2>
+        <div class="legend">
+          <span class="key"><span class="dot" style="background:var(--teal)"></span>Take-home</span>
+          <span class="key"><span class="dot" style="background:var(--gold)"></span>Social ZUS</span>
+          <span class="key"><span class="dot" style="background:var(--magenta)"></span>Tax (ryczałt)</span>
+          <span class="key"><span class="dot" style="background:var(--blue)"></span>Health (NFZ)</span>
+        </div>
+        <div class="chart-box" id="stackChart"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Records ── -->
+  <div class="panel" style="margin-top:18px">
+    <h2>Monthly records
+      <span class="toolbar">
+        <button class="btn small ghost" id="importBtn">⇪ Import file</button>
+        <button class="btn small ghost" id="exportCsvBtn">Export CSV</button>
+        <button class="btn small ghost" id="exportJsonBtn">Backup JSON</button>
+      </span>
+    </h2>
+    <input type="file" id="fileInput" accept=".csv,.json,.txt,.tsv" style="display:none">
+    <div class="rec-table-wrap" id="recordsArea"></div>
+  </div>
+
+  <footer>
+    Estimates only — figures use editable 2026 defaults (duży ZUS base 5 652,60 zł; ryczałt health tiers 498,35 / 830,58 / 1 495,04 zł).<br>
+    Verify current rates with your accountant / ZUS before filing. Data is stored locally in this browser.
+  </footer>
+</div>
+
+<!-- ── Settings modal ── -->
+<dialog id="settingsDlg">
+  <h3>Rates &amp; ZUS contributions</h3>
+  <div class="sub">Values apply per year — pick the year to edit. Amounts in zł / month unless noted.</div>
+  <div class="set-grid">
+    <div class="full">
+      <label class="field">Rate year</label>
+      <select id="setYear"></select>
+    </div>
+    <div>
+      <label class="field">Ryczałt tax rate (%)</label>
+      <input type="number" id="setTax" step="0.5" min="0" max="40">
+    </div>
+    <div>
+      <label class="field">Health tier override</label>
+      <select id="setTierMode">
+        <option value="auto">Auto (from annual revenue)</option>
+        <option value="0">Force tier 1 (≤ 60 000 zł)</option>
+        <option value="1">Force tier 2 (60–300 000 zł)</option>
+        <option value="2">Force tier 3 (&gt; 300 000 zł)</option>
+      </select>
+    </div>
+    <div class="set-sec">Social ZUS (składki społeczne)</div>
+    <div><label class="field">Retirement (emerytalna)</label><input type="number" id="setEmeryt" step="0.01"></div>
+    <div><label class="field">Disability (rentowa)</label><input type="number" id="setRent" step="0.01"></div>
+    <div><label class="field">Accident (wypadkowa)</label><input type="number" id="setWypad" step="0.01"></div>
+    <div><label class="field">Labour Fund (FP + FS)</label><input type="number" id="setFpfs" step="0.01"></div>
+    <div><label class="field">Sickness (chorobowa, voluntary)</label><input type="number" id="setChorob" step="0.01"></div>
+    <div class="set-sec">Health contribution (składka zdrowotna, ryczałt)</div>
+    <div><label class="field">Tier 1 (annual ≤ 60 000 zł)</label><input type="number" id="setH1" step="0.01"></div>
+    <div><label class="field">Tier 2 (≤ 300 000 zł)</label><input type="number" id="setH2" step="0.01"></div>
+    <div><label class="field">Tier 3 (&gt; 300 000 zł)</label><input type="number" id="setH3" step="0.01"></div>
+  </div>
+  <div class="foot">
+    <button class="btn ghost" id="setDefaults">Restore 2026 defaults</button>
+    <span class="spacer"></span>
+    <button class="btn ghost" id="setCancel">Cancel</button>
+    <button class="btn primary" id="setSave">Save rates</button>
+  </div>
+</dialog>
+
+<!-- ── Import modal ── -->
+<dialog id="importDlg">
+  <h3>Import monthly totals</h3>
+  <div class="sub" id="importSub"></div>
+  <div class="import-list" id="importList"></div>
+  <div class="foot">
+    <button class="btn ghost" id="importCancel">Cancel</button>
+    <button class="btn primary" id="importConfirm">Import</button>
+  </div>
+</dialog>
+
+<div id="tooltip"></div>
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* ════════════════════════ storage & rates ════════════════════════ */
+const LS_REC = "ryczaltrx.records.v1";
+const LS_SET = "ryczaltrx.settings.v1";
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTHS_PL = ["stycznia","lutego","marca","kwietnia","maja","czerwca","lipca","sierpnia","września","października","listopada","grudnia"];
+
+const DEFAULT_RATES = {                      // 2026 duży ZUS defaults
+  taxRate: 14,
+  emerytalna: 1103.27, rentowa: 452.16, wypadkowa: 94.39, fpfs: 138.47, chorobowa: 138.47,
+  h1: 498.35, h2: 830.58, h3: 1495.04,       // health tiers (9% of 60/100/180% avg wage)
+  thr1: 60000, thr2: 300000,
+  tierMode: "auto",
+};
+
+let records = [];      // {id, year, month(1-12), revenue}
+let settings = { years: {} };
+let opts = { chorobowe: true, deductSocial: true, deductHalfHealth: true };
+let editingId = null;
+let chartRange = 12;   // months shown in charts: 12 | 24 | 0 (all) | -1 (this year)
+
+function load() {
+  try { records = JSON.parse(localStorage.getItem(LS_REC)) || []; } catch (e) { records = []; }
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_SET)) || {};
+    settings = s.years ? s : { years: {} };
+    if (s.opts) opts = Object.assign(opts, s.opts);
+    if (s.chartRange !== undefined) chartRange = s.chartRange;
+  } catch (e) { settings = { years: {} }; }
+}
+function persist() {
+  localStorage.setItem(LS_REC, JSON.stringify(records));
+  localStorage.setItem(LS_SET, JSON.stringify({ years: settings.years, opts, chartRange }));
+}
+function ratesFor(year) {
+  if (settings.years[year]) return Object.assign({}, DEFAULT_RATES, settings.years[year]);
+  // fall back to the nearest configured year, else defaults
+  const ys = Object.keys(settings.years).map(Number).sort((a, b) => Math.abs(a - year) - Math.abs(b - year));
+  if (ys.length) return Object.assign({}, DEFAULT_RATES, settings.years[ys[0]]);
+  return Object.assign({}, DEFAULT_RATES);
+}
+
+/* ════════════════════════ calculation engine ════════════════════════ */
+function socialTotal(r) {
+  return r.emerytalna + r.rentowa + r.wypadkowa + r.fpfs + (opts.chorobowe ? r.chorobowa : 0);
+}
+// Cumulative revenue Jan..month of `year`, using saved records but substituting
+// `revenue` for the month being calculated.
+function cumulativeRevenue(year, month, revenue, excludeId) {
+  let cum = 0;
+  for (const rec of records) {
+    if (rec.year === year && rec.month <= month && rec.id !== excludeId && rec.month !== month) cum += rec.revenue;
+  }
+  return cum + revenue;
+}
+function healthTier(r, cum) {
+  if (r.tierMode !== "auto") return Number(r.tierMode);
+  return cum <= r.thr1 ? 0 : cum <= r.thr2 ? 1 : 2;
+}
+function calc(year, month, revenue, excludeId) {
+  const r = ratesFor(year);
+  const social = socialTotal(r);
+  const cum = cumulativeRevenue(year, month, revenue, excludeId);
+  const tier = healthTier(r, cum);
+  const health = [r.h1, r.h2, r.h3][tier];
+  const taxBase = Math.max(0, revenue
+    - (opts.deductSocial ? social : 0)
+    - (opts.deductHalfHealth ? health / 2 : 0));
+  const tax = Math.round(taxBase * r.taxRate / 100);   // PIT rounds to whole zł
+  const takeHome = revenue - social - health - tax;
+  return { revenue, social, health, tier, cum, taxBase, tax, takeHome,
+           effRate: revenue > 0 ? (revenue - takeHome) / revenue : 0, rates: r };
+}
+
+/* ════════════════════════ formatting ════════════════════════ */
+const fmtPLN = new Intl.NumberFormat("pl-PL", { style: "currency", currency: "PLN" });
+const fmtNum = new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 0 });
+const zl = v => fmtPLN.format(v);
+const zl0 = v => fmtNum.format(Math.round(v)) + " zł";
+const compact = v => Math.abs(v) >= 1000 ? (v / 1000).toLocaleString("pl-PL", { maximumFractionDigits: Math.abs(v) >= 10000 ? 0 : 1 }) + "k" : String(Math.round(v));
+const pct = v => (v * 100).toLocaleString("pl-PL", { maximumFractionDigits: 1 }) + "%";
+const monLabel = (y, m) => MONTHS[m - 1] + " " + y;
+const monShort = (y, m) => MONTHS[m - 1].slice(0, 3) + " ’" + String(y).slice(2);
+function parseAmount(s) {
+  if (typeof s === "number") return s;
+  const t = String(s).replace(/\s|zł|PLN/gi, "").replace(/,(\d{1,2})$/, ".$1").replace(/,/g, "");
+  const v = parseFloat(t);
+  return isNaN(v) ? null : v;
+}
+
+/* ════════════════════════ clock & month picker ════════════════════════ */
+function tickClock() {
+  const now = new Date();
+  document.getElementById("clockTime").textContent = now.toLocaleTimeString("pl-PL");
+  document.getElementById("clockDate").textContent =
+    now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    + " · " + now.getDate() + " " + MONTHS_PL[now.getMonth()] + " " + now.getFullYear();
+}
+function initMonthPicker() {
+  const now = new Date();
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1); // suggest last completed month
+  const selM = document.getElementById("selMonth"), selY = document.getElementById("selYear");
+  selM.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
+  const y0 = now.getFullYear();
+  const years = [];
+  for (let y = y0 - 6; y <= y0 + 1; y++) years.push(y);
+  selY.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join("");
+  selM.value = prev.getMonth() + 1;
+  selY.value = prev.getFullYear();
+  updateMonthHint();
+}
+function updateMonthHint() {
+  const now = new Date();
+  const y = +selYear.value, m = +selMonth.value;
+  const hint = document.getElementById("monthHint");
+  document.getElementById("monthEcho").textContent = "";
+  if (y === now.getFullYear() && m === now.getMonth() + 1) {
+    hint.textContent = "⚠ That is the current month (" + monLabel(y, m) + ") — it may not be complete yet.";
+    hint.className = "hint warn";
+  } else if (y > now.getFullYear() || (y === now.getFullYear() && m > now.getMonth() + 1)) {
+    hint.textContent = "⚠ " + monLabel(y, m) + " is in the future.";
+    hint.className = "hint warn";
+  } else {
+    hint.textContent = "Suggested: " + monLabel(new Date(now.getFullYear(), now.getMonth() - 1).getFullYear(), new Date(now.getFullYear(), now.getMonth() - 1).getMonth() + 1) + " (last completed month). Change it if this total is for a different month.";
+    hint.className = "hint";
+  }
+  const exists = records.find(r => r.year === y && r.month === m && r.id !== editingId);
+  document.getElementById("saveHint").textContent = exists
+    ? "⚠ " + monLabel(y, m) + " is already saved (" + zl(exists.revenue) + " revenue) — saving will overwrite it." : "";
+}
+
+/* ════════════════════════ calculator UI ════════════════════════ */
+const selMonth = document.getElementById("selMonth");
+const selYear = document.getElementById("selYear");
+const revenueInput = document.getElementById("revenue");
+
+function renderCalc() {
+  const v = parseAmount(revenueInput.value);
+  const y = +selYear.value, m = +selMonth.value;
+  const bk = document.getElementById("breakdown");
+  const hero = document.getElementById("heroTakeHome");
+  if (v === null || v <= 0) {
+    hero.textContent = zl(0);
+    document.getElementById("heroSub").textContent = "Enter a revenue amount to calculate.";
+    bk.innerHTML = ""; document.getElementById("tierNote").textContent = "";
+    return null;
+  }
+  const c = calc(y, m, v, editingId);
+  hero.textContent = zl(c.takeHome);
+  document.getElementById("heroSub").textContent =
+    monLabel(y, m) + " · effective deductions " + pct(c.effRate);
+  bk.innerHTML = `
+    <tr><td><span class="sw" style="background:var(--accent)"></span>Revenue (przychód)</td><td>${zl(c.revenue)}</td></tr>
+    <tr class="neg"><td><span class="sw" style="background:var(--gold)"></span>Social ZUS${opts.chorobowe ? " (incl. chorobowe)" : ""}</td><td>− ${zl(c.social)}</td></tr>
+    <tr class="neg"><td><span class="sw" style="background:var(--blue)"></span>Health contribution — tier ${c.tier + 1}</td><td>− ${zl(c.health)}</td></tr>
+    <tr class="neg"><td><span class="sw" style="background:var(--magenta)"></span>Ryczałt tax ${c.rates.taxRate}% <span style="color:var(--ink-3)">(base ${zl0(c.taxBase)})</span></td><td>− ${zl(c.tax)}</td></tr>
+    <tr class="total"><td>Take-home</td><td>${zl(c.takeHome)}</td></tr>`;
+  document.getElementById("tierNote").textContent =
+    c.rates.tierMode === "auto"
+      ? "Health tier from cumulative " + y + " revenue through " + MONTHS[m - 1] + ": " + zl0(c.cum) +
+        (c.tier === 0 ? " (≤ 60 000 zł)" : c.tier === 1 ? " (60 000–300 000 zł)" : " (> 300 000 zł)")
+      : "Health tier " + (c.tier + 1) + " forced in settings.";
+  return c;
+}
+
+function saveMonth() {
+  const v = parseAmount(revenueInput.value);
+  if (v === null || v <= 0) { toast("Enter a revenue amount first."); revenueInput.focus(); return; }
+  const y = +selYear.value, m = +selMonth.value;
+  const existing = records.find(r => r.year === y && r.month === m && r.id !== editingId);
+  if (existing && !confirm(monLabel(y, m) + " is already saved (" + zl(existing.revenue) + "). Overwrite it?")) return;
+  if (existing) records = records.filter(r => r.id !== existing.id);
+  if (editingId) {
+    const rec = records.find(r => r.id === editingId);
+    if (rec) { rec.year = y; rec.month = m; rec.revenue = v; }
+    editingId = null;
+  } else {
+    records.push({ id: "r" + Date.now() + Math.floor(performance.now() % 1000), year: y, month: m, revenue: v });
+  }
+  records.sort((a, b) => a.year - b.year || a.month - b.month);
+  persist(); renderAll();
+  toast("Saved " + monLabel(y, m) + " ✓");
+  revenueInput.value = ""; setEditMode(false); renderCalc();
+}
+function setEditMode(on, rec) {
+  document.getElementById("saveBtn").textContent = on ? "Update " + monLabel(rec.year, rec.month) : "Save month";
+  document.getElementById("cancelEdit").style.display = on ? "" : "none";
+  if (!on) editingId = null;
+  updateMonthHint();
+}
+function startEdit(id) {
+  const rec = records.find(r => r.id === id);
+  if (!rec) return;
+  editingId = id;
+  revenueInput.value = rec.revenue.toLocaleString("pl-PL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  selMonth.value = rec.month; selYear.value = rec.year;
+  setEditMode(true, rec); renderCalc();
+  document.getElementById("calcPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/* ════════════════════════ derived data ════════════════════════ */
+function computedRecords() {
+  return records
+    .slice().sort((a, b) => a.year - b.year || a.month - b.month)
+    .map(rec => Object.assign({ id: rec.id, year: rec.year, month: rec.month }, calc(rec.year, rec.month, rec.revenue)));
+}
+function chartData() {
+  let data = computedRecords();
+  if (chartRange === -1) { const y = new Date().getFullYear(); data = data.filter(d => d.year === y); }
+  else if (chartRange > 0) data = data.slice(-chartRange);
+  return data;
+}
+
+/* ════════════════════════ stat tiles ════════════════════════ */
+function renderTiles() {
+  const y = new Date().getFullYear();
+  const yr = computedRecords().filter(d => d.year === y);
+  const el = document.getElementById("tiles");
+  if (!yr.length) { el.innerHTML = ""; return; }
+  const sum = k => yr.reduce((a, d) => a + d[k], 0);
+  const rev = sum("revenue"), th = sum("takeHome");
+  el.innerHTML = `
+    <div class="panel tile"><div class="t-label">${y} revenue (YTD)</div><div class="t-value">${zl0(rev)}</div><div class="t-sub">${yr.length} month${yr.length > 1 ? "s" : ""} recorded</div></div>
+    <div class="panel tile"><div class="t-label">${y} take-home (YTD)</div><div class="t-value" style="color:#4fd2a2">${zl0(th)}</div><div class="t-sub">avg ${zl0(th / yr.length)}/mo</div></div>
+    <div class="panel tile"><div class="t-label">Tax + ZUS paid (YTD)</div><div class="t-value">${zl0(rev - th)}</div><div class="t-sub">tax ${zl0(sum("tax"))} · ZUS ${zl0(sum("social") + sum("health"))}</div></div>
+    <div class="panel tile"><div class="t-label">Effective deduction rate</div><div class="t-value">${pct(rev > 0 ? (rev - th) / rev : 0)}</div><div class="t-sub">of revenue, ${y} to date</div></div>`;
+}
+
+/* ════════════════════════ charts (hand-rolled SVG) ════════════════════════ */
+const tooltip = document.getElementById("tooltip");
+function showTip(html, x, y) {
+  tooltip.innerHTML = html; tooltip.style.display = "block";
+  const r = tooltip.getBoundingClientRect();
+  tooltip.style.left = Math.min(x + 14, innerWidth - r.width - 10) + "px";
+  tooltip.style.top = Math.max(8, y - r.height - 12) + "px";
+}
+function hideTip() { tooltip.style.display = "none"; }
+
+function niceTicks(max, n) {
+  if (max <= 0) return [0, 1];
+  const raw = max / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => max / s <= n) || 10 * mag;
+  const ticks = [];
+  for (let v = 0; v <= max + step * 0.001; v += step) ticks.push(v);
+  return ticks;
+}
+const SURFACE = "#161022";
+
+function renderTrend() {
+  const box = document.getElementById("trendChart");
+  const data = chartData();
+  if (data.length < 2) {
+    box.innerHTML = `<div class="empty-note">Save at least two months to see the trend${records.length === 0 ? ' — or <a id="sampleLink">load sample data</a> to preview' : ""}.</div>`;
+    const a = document.getElementById("sampleLink");
+    if (a) a.onclick = loadSample;
+    return;
+  }
+  const W = 720, H = 300, L = 58, R = 74, T = 16, B = 34;
+  const pw = W - L - R, ph = H - T - B;
+  const maxV = Math.max(...data.map(d => Math.max(d.revenue, d.takeHome)));
+  const ticks = niceTicks(maxV * 1.08, 5);
+  const yMax = ticks[ticks.length - 1];
+  const xs = i => L + (data.length === 1 ? pw / 2 : i * pw / (data.length - 1));
+  const ys = v => T + ph - (v / yMax) * ph;
+
+  let g = "";
+  for (const t of ticks) {
+    g += `<line x1="${L}" x2="${W - R}" y1="${ys(t)}" y2="${ys(t)}" stroke="var(--grid)" stroke-width="1"/>` +
+         `<text x="${L - 9}" y="${ys(t) + 4}" text-anchor="end" font-size="11" fill="var(--ink-3)" style="font-variant-numeric:tabular-nums">${compact(t)}</text>`;
+  }
+  g += `<line x1="${L}" x2="${W - R}" y1="${ys(0)}" y2="${ys(0)}" stroke="var(--axis)" stroke-width="1"/>`;
+  const labStep = Math.ceil(data.length / 8);
+  data.forEach((d, i) => {
+    if (i % labStep === 0 || i === data.length - 1)
+      g += `<text x="${xs(i)}" y="${H - 12}" text-anchor="middle" font-size="11" fill="var(--ink-3)">${monShort(d.year, d.month)}</text>`;
+  });
+
+  const path = key => data.map((d, i) => (i ? "L" : "M") + xs(i).toFixed(1) + " " + ys(d[key]).toFixed(1)).join(" ");
+  const area = path("takeHome") + ` L ${xs(data.length - 1).toFixed(1)} ${ys(0)} L ${xs(0).toFixed(1)} ${ys(0)} Z`;
+  g += `<path d="${area}" fill="var(--teal)" opacity="0.1"/>`;
+  g += `<path d="${path("revenue")}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  g += `<path d="${path("takeHome")}" fill="none" stroke="var(--teal)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const li = data.length - 1;
+  for (const [key, col] of [["revenue", "var(--accent)"], ["takeHome", "var(--teal)"]]) {
+    g += `<circle cx="${xs(li)}" cy="${ys(data[li][key])}" r="4.5" fill="${col}" stroke="${SURFACE}" stroke-width="2"/>` +
+         `<text x="${xs(li) + 10}" y="${ys(data[li][key]) + 4}" font-size="11.5" font-weight="600" fill="var(--ink-2)" style="font-variant-numeric:tabular-nums">${compact(data[li][key])}</text>`;
+  }
+  g += `<line id="xhair" x1="0" x2="0" y1="${T}" y2="${T + ph}" stroke="var(--ink-3)" stroke-width="1" opacity="0"/>`;
+  g += `<g id="hoverDots" opacity="0"><circle id="hd0" r="4.5" fill="var(--accent)" stroke="${SURFACE}" stroke-width="2"/><circle id="hd1" r="4.5" fill="var(--teal)" stroke="${SURFACE}" stroke-width="2"/></g>`;
+  g += `<rect id="hoverPad" x="${L}" y="${T}" width="${pw}" height="${ph}" fill="transparent"/>`;
+
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly revenue and take-home trend">${g}</svg>`;
+  const svg = box.querySelector("svg"), pad = svg.querySelector("#hoverPad");
+  const xhair = svg.querySelector("#xhair"), dots = svg.querySelector("#hoverDots");
+  pad.addEventListener("mousemove", ev => {
+    const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    let best = 0, bd = 1e9;
+    data.forEach((d, i) => { const dd = Math.abs(xs(i) - p.x); if (dd < bd) { bd = dd; best = i; } });
+    const d = data[best], x = xs(best);
+    xhair.setAttribute("x1", x); xhair.setAttribute("x2", x); xhair.setAttribute("opacity", "0.5");
+    dots.setAttribute("opacity", "1");
+    dots.querySelector("#hd0").setAttribute("cx", x); dots.querySelector("#hd0").setAttribute("cy", ys(d.revenue));
+    dots.querySelector("#hd1").setAttribute("cx", x); dots.querySelector("#hd1").setAttribute("cy", ys(d.takeHome));
+    showTip(`<div class="tt-title">${monLabel(d.year, d.month)}</div>
+      <div class="tt-row"><span><span class="sw" style="background:var(--accent)"></span>Revenue</span><b>${zl0(d.revenue)}</b></div>
+      <div class="tt-row"><span><span class="sw" style="background:var(--teal)"></span>Take-home</span><b>${zl0(d.takeHome)}</b></div>
+      <div class="tt-row"><span>Deductions</span><b>${pct(d.effRate)}</b></div>`, ev.clientX, ev.clientY);
+  });
+  pad.addEventListener("mouseleave", () => { hideTip(); xhair.setAttribute("opacity", "0"); dots.setAttribute("opacity", "0"); });
+}
+
+function renderStack() {
+  const box = document.getElementById("stackChart");
+  const data = chartData();
+  if (!data.length) { box.innerHTML = `<div class="empty-note">No saved months yet.</div>`; return; }
+  const W = 720, H = 280, L = 58, R = 18, T = 14, B = 34;
+  const pw = W - L - R, ph = H - T - B;
+  const maxV = Math.max(...data.map(d => d.revenue));
+  const ticks = niceTicks(maxV * 1.05, 5);
+  const yMax = ticks[ticks.length - 1];
+  const ys = v => T + ph - (v / yMax) * ph;
+  const slot = pw / data.length;
+  const bw = Math.min(24, slot * 0.62);
+  const SERIES = [
+    ["takeHome", "var(--teal)", "Take-home"],
+    ["social", "var(--gold)", "Social ZUS"],
+    ["tax", "var(--magenta)", "Tax (ryczałt)"],
+    ["health", "var(--blue)", "Health (NFZ)"],
+  ];
+  let g = "";
+  for (const t of ticks) {
+    g += `<line x1="${L}" x2="${W - R}" y1="${ys(t)}" y2="${ys(t)}" stroke="var(--grid)" stroke-width="1"/>` +
+         `<text x="${L - 9}" y="${ys(t) + 4}" text-anchor="end" font-size="11" fill="var(--ink-3)" style="font-variant-numeric:tabular-nums">${compact(t)}</text>`;
+  }
+  g += `<line x1="${L}" x2="${W - R}" y1="${ys(0)}" y2="${ys(0)}" stroke="var(--axis)" stroke-width="1"/>`;
+  const labStep = Math.ceil(data.length / 8);
+  data.forEach((d, i) => {
+    const cx = L + slot * (i + 0.5);
+    if (i % labStep === 0 || i === data.length - 1)
+      g += `<text x="${cx}" y="${H - 12}" text-anchor="middle" font-size="11" fill="var(--ink-3)">${monShort(d.year, d.month)}</text>`;
+    let acc = 0;
+    SERIES.forEach(([key, col, name], si) => {
+      const v = Math.max(0, d[key]);
+      const y1 = ys(acc + v), y0 = ys(acc);
+      const gap = si > 0 ? 2 : 0;                    // 2px surface gap between segments
+      const h = Math.max(0, y0 - y1 - gap);
+      const isTop = si === SERIES.length - 1;
+      if (h > 0.5) g += `<path d="${roundedTop(cx - bw / 2, y0 - gap - h, bw, h, isTop ? 4 : 0)}" fill="${col}" data-i="${i}" data-s="${si}" class="seg"/>`;
+      acc += v;
+    });
+  });
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly composition: take-home, social ZUS, tax and health">${g}</svg>`;
+  const svg = box.querySelector("svg");
+  svg.addEventListener("mousemove", ev => {
+    const seg = ev.target.closest(".seg");
+    if (!seg) { hideTip(); return; }
+    const d = data[+seg.dataset.i];
+    const rows = SERIES.map(([key, col, name]) =>
+      `<div class="tt-row"><span><span class="sw" style="background:${col}"></span>${name}</span><b>${zl0(d[key])}</b></div>`).join("");
+    showTip(`<div class="tt-title">${monLabel(d.year, d.month)} — ${zl0(d.revenue)}</div>${rows}`, ev.clientX, ev.clientY);
+  });
+  svg.addEventListener("mouseleave", hideTip);
+}
+function roundedTop(x, y, w, h, r) {
+  r = Math.min(r, h, w / 2);
+  if (r <= 0) return `M${x} ${y} h${w} v${h} h${-w} Z`;
+  return `M${x} ${y + r} a${r} ${r} 0 0 1 ${r} ${-r} h${w - 2 * r} a${r} ${r} 0 0 1 ${r} ${r} v${h - r} h${-w} Z`;
+}
+
+function renderRangeChips() {
+  const el = document.getElementById("rangeChips");
+  const chips = [[12, "12 months"], [24, "24 months"], [-1, "This year"], [0, "All"]];
+  el.innerHTML = chips.map(([v, l]) => `<button class="chip${chartRange === v ? " on" : ""}" data-r="${v}">${l}</button>`).join("");
+  el.querySelectorAll(".chip").forEach(c => c.onclick = () => { chartRange = +c.dataset.r; persist(); renderAll(); });
+}
+
+/* ════════════════════════ records table ════════════════════════ */
+function renderRecords() {
+  const area = document.getElementById("recordsArea");
+  const data = computedRecords();
+  if (!data.length) {
+    area.innerHTML = `<div class="empty-note">No months saved yet. Calculate a month on the left and hit <b>Save month</b>, or import a file with totals from another app.<br><br><a id="sampleLink2">Load sample data</a></div>`;
+    document.getElementById("sampleLink2").onclick = loadSample;
+    return;
+  }
+  const years = [...new Set(data.map(d => d.year))].sort((a, b) => b - a);
+  let html = "";
+  for (const y of years) {
+    const yr = data.filter(d => d.year === y).sort((a, b) => b.month - a.month);
+    const sum = k => yr.reduce((a, d) => a + d[k], 0);
+    html += `<table class="rec"><thead><tr>
+      <th>${y}</th><th>Revenue</th><th>Social ZUS</th><th>Health</th><th>Tax</th><th>Take-home</th><th>Deducted</th><th></th>
+    </tr></thead><tbody>`;
+    for (const d of yr) {
+      html += `<tr>
+        <td class="mon">${MONTHS[d.month - 1]}<span style="color:var(--ink-3)"> · T${d.tier + 1}</span></td>
+        <td>${zl(d.revenue)}</td><td>${zl(d.social)}</td><td>${zl(d.health)}</td><td>${zl(d.tax)}</td>
+        <td class="th">${zl(d.takeHome)}</td><td>${pct(d.effRate)}</td>
+        <td><span class="row-actions">
+          <button class="icon-btn" data-edit="${d.id}">✎ Edit</button>
+          <button class="icon-btn del" data-del="${d.id}">✕</button>
+        </span></td></tr>`;
+    }
+    html += `<tr class="yr-total"><td>Total ${y}</td>
+      <td>${zl0(sum("revenue"))}</td><td>${zl0(sum("social"))}</td><td>${zl0(sum("health"))}</td>
+      <td>${zl0(sum("tax"))}</td><td class="th">${zl0(sum("takeHome"))}</td>
+      <td>${pct(sum("revenue") > 0 ? 1 - sum("takeHome") / sum("revenue") : 0)}</td><td></td></tr>`;
+    html += `</tbody></table><div style="height:14px"></div>`;
+  }
+  area.innerHTML = html;
+  area.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => startEdit(b.dataset.edit));
+  area.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
+    const rec = records.find(r => r.id === b.dataset.del);
+    if (rec && confirm("Delete " + monLabel(rec.year, rec.month) + " (" + zl(rec.revenue) + ")?")) {
+      records = records.filter(r => r.id !== rec.id);
+      persist(); renderAll(); toast("Deleted " + monLabel(rec.year, rec.month));
+    }
+  });
+}
+
+/* ════════════════════════ import / export ════════════════════════ */
+let pendingImport = [];
+function parseMonthToken(tok) {
+  if (tok == null) return null;
+  const s = String(tok).trim();
+  let m = s.match(/^(\d{4})[-\/.](\d{1,2})(?:[-\/.]\d{1,2})?$/);          // 2026-03[-15]
+  if (m) return { year: +m[1], month: +m[2] };
+  m = s.match(/^(\d{1,2})[-\/.](\d{4})$/);                                // 03/2026
+  if (m) return { year: +m[2], month: +m[1] };
+  m = s.match(/^([A-Za-zżźćńółęąśŻŹĆŃÓŁĘĄŚ]+)[ ,]+(\d{4})$/);            // March 2026 / marzec 2026
+  if (m) {
+    const name = m[1].toLowerCase();
+    const en = MONTHS.findIndex(x => x.toLowerCase().startsWith(name.slice(0, 3)));
+    const plNames = ["styczeń","luty","marzec","kwiecień","maj","czerwiec","lipiec","sierpień","wrzesień","październik","listopad","grudzień"];
+    const pl = plNames.findIndex(x => name.startsWith(x.slice(0, 4)) || x.startsWith(name.slice(0, 4)));
+    const idx = en >= 0 ? en : pl;
+    if (idx >= 0) return { year: +m[2], month: idx + 1 };
+  }
+  const d = new Date(s);
+  if (!isNaN(d.getTime()) && s.length >= 6) return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  return null;
+}
+function parseImportText(text, filename) {
+  const out = [];
+  const push = (mt, amt) => { if (mt && amt !== null && amt > 0 && mt.month >= 1 && mt.month <= 12) out.push({ year: mt.year, month: mt.month, revenue: amt }); };
+  if (/\.json$/i.test(filename) || text.trim().startsWith("[") || text.trim().startsWith("{")) {
+    try {
+      let j = JSON.parse(text);
+      if (j.records) j = j.records;                 // our own backup format
+      if (Array.isArray(j)) {
+        for (const row of j) {
+          if (row.year && row.month) { push({ year: +row.year, month: +row.month }, parseAmount(row.revenue ?? row.amount ?? row.total)); continue; }
+          const keys = Object.keys(row);
+          const mk = keys.find(k => /month|date|period|miesi/i.test(k));
+          const vk = keys.find(k => /revenue|amount|total|income|przych|kwota/i.test(k));
+          if (mk && vk) push(parseMonthToken(row[mk]), parseAmount(row[vk]));
+        }
+        return out;
+      }
+    } catch (e) { /* fall through to CSV parsing */ }
+  }
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  for (const line of lines) {
+    const cells = line.split(/[;,\t]/).map(c => c.trim().replace(/^"|"$/g, ""));
+    // comma-delimited files with Polish decimals: "61 250,50" splits at the
+    // comma — rejoin a trailing 1–2 digit cell as the grosze part
+    for (let i = cells.length - 1; i >= 2; i--) {
+      if (/^\d{1,2}$/.test(cells[i]) && /^[\d\s ]{3,}$/.test(cells[i - 1])) {
+        cells.splice(i - 1, 2, cells[i - 1] + "." + cells[i]);
+      }
+    }
+    if (cells.length < 2) continue;
+    const mt = parseMonthToken(cells[0]) || parseMonthToken(cells[0] + " " + cells[1]);
+    let amt = null;
+    for (let i = cells.length - 1; i >= 1; i--) { const a = parseAmount(cells[i]); if (a !== null && a > 0) { amt = a; break; } }
+    push(mt, amt);
+  }
+  return out;
+}
+function openImportPreview(rows, filename) {
+  // de-dup within the file: last occurrence wins
+  const map = new Map();
+  for (const r of rows) map.set(r.year + "-" + r.month, r);
+  pendingImport = [...map.values()].sort((a, b) => a.year - b.year || a.month - b.month);
+  const dlg = document.getElementById("importDlg");
+  if (!pendingImport.length) {
+    toast("No monthly totals recognized in " + filename);
+    return;
+  }
+  document.getElementById("importSub").textContent =
+    filename + " — " + pendingImport.length + " month(s) recognized. Existing months will be overwritten.";
+  document.getElementById("importList").innerHTML =
+    `<table><thead><tr><th>Month</th><th>Status</th><th>Revenue</th></tr></thead><tbody>` +
+    pendingImport.map(r => {
+      const exists = records.some(x => x.year === r.year && x.month === r.month);
+      return `<tr><td>${monLabel(r.year, r.month)}</td><td><span class="badge ${exists ? "ow" : "new"}">${exists ? "overwrites" : "new"}</span></td><td>${zl(r.revenue)}</td></tr>`;
+    }).join("") + `</tbody></table>`;
+  dlg.showModal();
+}
+function confirmImport() {
+  let added = 0;
+  for (const r of pendingImport) {
+    records = records.filter(x => !(x.year === r.year && x.month === r.month));
+    records.push({ id: "i" + r.year + "-" + r.month + "-" + Math.floor(performance.now()), year: r.year, month: r.month, revenue: r.revenue });
+    added++;
+  }
+  records.sort((a, b) => a.year - b.year || a.month - b.month);
+  persist(); renderAll();
+  document.getElementById("importDlg").close();
+  toast("Imported " + added + " month(s) ✓");
+}
+function download(name, text, mime) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: mime }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+function exportCSV() {
+  const data = computedRecords();
+  if (!data.length) { toast("Nothing to export yet."); return; }
+  const head = "year,month,revenue,social_zus,health,health_tier,tax,take_home,effective_rate_pct";
+  const rows = data.map(d => [d.year, d.month, d.revenue.toFixed(2), d.social.toFixed(2), d.health.toFixed(2),
+    d.tier + 1, d.tax.toFixed(2), d.takeHome.toFixed(2), (d.effRate * 100).toFixed(2)].join(","));
+  download("ryczaltrx-export.csv", [head, ...rows].join("\n"), "text/csv");
+}
+function exportJSON() {
+  download("ryczaltrx-backup.json",
+    JSON.stringify({ app: "RyczałtRx", exported: new Date().toISOString(), records, settings: settings.years, opts }, null, 2),
+    "application/json");
+}
+
+/* ════════════════════════ settings modal ════════════════════════ */
+const settingsDlg = document.getElementById("settingsDlg");
+function openSettings() {
+  const sel = document.getElementById("setYear");
+  const now = new Date().getFullYear();
+  const ys = [...new Set([now, now - 1, now + 1, ...records.map(r => r.year), ...Object.keys(settings.years).map(Number)])].sort((a, b) => b - a);
+  sel.innerHTML = ys.map(y => `<option value="${y}">${y}</option>`).join("");
+  sel.value = selYear.value && ys.includes(+selYear.value) ? selYear.value : now;
+  fillSettingsForm(+sel.value);
+  sel.onchange = () => fillSettingsForm(+sel.value);
+  settingsDlg.showModal();
+}
+function fillSettingsForm(year) {
+  const r = ratesFor(year);
+  setTax.value = r.taxRate; setEmeryt.value = r.emerytalna; setRent.value = r.rentowa;
+  setWypad.value = r.wypadkowa; setFpfs.value = r.fpfs; setChorob.value = r.chorobowa;
+  setH1.value = r.h1; setH2.value = r.h2; setH3.value = r.h3;
+  setTierMode.value = r.tierMode;
+}
+function saveSettings() {
+  const y = +document.getElementById("setYear").value;
+  settings.years[y] = {
+    taxRate: +setTax.value || DEFAULT_RATES.taxRate,
+    emerytalna: +setEmeryt.value || 0, rentowa: +setRent.value || 0,
+    wypadkowa: +setWypad.value || 0, fpfs: +setFpfs.value || 0, chorobowa: +setChorob.value || 0,
+    h1: +setH1.value || 0, h2: +setH2.value || 0, h3: +setH3.value || 0,
+    thr1: DEFAULT_RATES.thr1, thr2: DEFAULT_RATES.thr2,
+    tierMode: setTierMode.value,
+  };
+  persist(); settingsDlg.close(); renderAll(); renderCalc();
+  toast("Rates for " + y + " saved ✓");
+}
+
+/* ════════════════════════ sample data ════════════════════════ */
+function loadSample() {
+  const now = new Date();
+  const vals = [58200, 61400, 55900, 67300, 63800, 71250, 66400, 69900, 64100, 72600, 68300, 74800];
+  const out = [];
+  for (let i = 12; i >= 1; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push({ id: "s" + d.getFullYear() + "-" + (d.getMonth() + 1), year: d.getFullYear(), month: d.getMonth() + 1, revenue: vals[12 - i] });
+  }
+  records = out; persist(); renderAll();
+  toast("Sample data loaded — delete or overwrite it any time.");
+}
+
+/* ════════════════════════ wiring ════════════════════════ */
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2600);
+}
+function renderAll() { renderTiles(); renderRangeChips(); renderTrend(); renderStack(); renderRecords(); updateMonthHint(); }
+
+load();
+tickClock(); setInterval(tickClock, 1000);
+initMonthPicker();
+document.getElementById("optChorobowe").checked = opts.chorobowe;
+document.getElementById("optDeductSocial").checked = opts.deductSocial;
+document.getElementById("optDeductHealth").checked = opts.deductHalfHealth;
+
+revenueInput.addEventListener("input", renderCalc);
+selMonth.addEventListener("change", () => { updateMonthHint(); renderCalc(); });
+selYear.addEventListener("change", () => { updateMonthHint(); renderCalc(); });
+for (const [id, key] of [["optChorobowe", "chorobowe"], ["optDeductSocial", "deductSocial"], ["optDeductHealth", "deductHalfHealth"]]) {
+  document.getElementById(id).addEventListener("change", e => { opts[key] = e.target.checked; persist(); renderAll(); renderCalc(); });
+}
+document.getElementById("saveBtn").onclick = saveMonth;
+document.getElementById("cancelEdit").onclick = () => { editingId = null; revenueInput.value = ""; setEditMode(false); renderCalc(); };
+revenueInput.addEventListener("keydown", e => { if (e.key === "Enter") saveMonth(); });
+
+document.getElementById("openSettings").onclick = openSettings;
+document.getElementById("setSave").onclick = saveSettings;
+document.getElementById("setCancel").onclick = () => settingsDlg.close();
+document.getElementById("setDefaults").onclick = () => { fillSettingsFormFromDefaults(); };
+function fillSettingsFormFromDefaults() {
+  const r = DEFAULT_RATES;
+  setTax.value = r.taxRate; setEmeryt.value = r.emerytalna; setRent.value = r.rentowa;
+  setWypad.value = r.wypadkowa; setFpfs.value = r.fpfs; setChorob.value = r.chorobowa;
+  setH1.value = r.h1; setH2.value = r.h2; setH3.value = r.h3; setTierMode.value = "auto";
+}
+
+document.getElementById("importBtn").onclick = () => document.getElementById("fileInput").click();
+document.getElementById("fileInput").addEventListener("change", e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => openImportPreview(parseImportText(String(reader.result), f.name), f.name);
+  reader.readAsText(f);
+  e.target.value = "";
+});
+document.getElementById("importConfirm").onclick = confirmImport;
+document.getElementById("importCancel").onclick = () => document.getElementById("importDlg").close();
+document.getElementById("exportCsvBtn").onclick = exportCSV;
+document.getElementById("exportJsonBtn").onclick = exportJSON;
+
+renderAll();
+renderCalc();
+</script>
+</body>
+</html>
