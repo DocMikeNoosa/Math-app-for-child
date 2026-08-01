@@ -140,6 +140,7 @@
     color: #4fd2a2; text-shadow: 0 0 28px rgba(25,158,112,.35);
     margin: 2px 0 4px;
   }
+  .hero.rev { color: #a99df2; text-shadow: 0 0 28px rgba(144,133,233,.4); }
   .hero-sub { font-size: .82rem; color: var(--ink-3); margin-bottom: 13px; }
   .bk { width: 100%; border-collapse: collapse; font-size: .87rem; }
   .bk td { padding: 5.5px 0; border-bottom: 1px solid rgba(180,150,255,.06); }
@@ -169,6 +170,8 @@
     border-radius: 999px; padding: 5px 13px;
   }
   .chip.on { background: rgba(144,133,233,.16); border-color: rgba(160,140,255,.45); color: var(--ink); font-weight: 600; }
+  .mode-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .mode-row .chip { flex: 1; text-align: center; white-space: nowrap; }
   .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: .8rem; color: var(--ink-2); margin-bottom: 8px; }
   .legend .key { display: flex; align-items: center; gap: 7px; }
   .legend .dot { width: 10px; height: 10px; border-radius: 4px; }
@@ -273,7 +276,12 @@
     <div class="panel" id="calcPanel">
       <h2>Calculator <button class="btn small ghost" id="openSettings">⚙ Rates &amp; ZUS</button></h2>
 
-      <label class="field" for="revenue">Total revenue for the month (przychód, gross)</label>
+      <div class="mode-row">
+        <button class="chip on" id="modeRev">Revenue → take-home</button>
+        <button class="chip" id="modeNet">Target take-home → revenue</button>
+      </div>
+
+      <label class="field" for="revenue" id="revLabel">Total revenue for the month (przychód, gross)</label>
       <div class="rev-input">
         <input type="text" id="revenue" inputmode="decimal" placeholder="0,00" autocomplete="off">
         <span class="unit">zł</span>
@@ -295,7 +303,7 @@
       </div>
 
       <div class="result">
-        <div class="hero-label">Estimated take-home</div>
+        <div class="hero-label" id="heroLabel">Estimated take-home</div>
         <div class="hero" id="heroTakeHome">0,00 zł</div>
         <div class="hero-sub" id="heroSub">Enter a revenue amount to calculate.</div>
         <table class="bk" id="breakdown"></table>
@@ -483,6 +491,20 @@ function calc(year, month, revenue, excludeId) {
   return { revenue, social, health, tier, cum, taxBase, tax, takeHome,
            effRate: revenue > 0 ? (revenue - takeHome) / revenue : 0, rates: r };
 }
+// Inverse: smallest revenue whose take-home reaches targetNet. No closed form —
+// the health tier jumps with cumulative revenue and tax rounds to whole zł —
+// so binary-search (take-home is non-decreasing in revenue between tier jumps).
+function solveRevenue(year, month, targetNet, excludeId) {
+  let lo = targetNet, hi = targetNet + 10000;
+  let guard = 0;
+  while (calc(year, month, hi, excludeId).takeHome < targetNet && guard++ < 40) hi = hi * 1.5 + 5000;
+  if (calc(year, month, hi, excludeId).takeHome < targetNet) return null;
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    if (calc(year, month, mid, excludeId).takeHome >= targetNet) hi = mid; else lo = mid;
+  }
+  return Math.ceil(hi * 100) / 100;   // round up to the grosz so the target is met
+}
 
 /* ════════════════════════ formatting ════════════════════════ */
 const fmtPLN = new Intl.NumberFormat("pl-PL", { style: "currency", currency: "PLN" });
@@ -546,21 +568,49 @@ const selMonth = document.getElementById("selMonth");
 const selYear = document.getElementById("selYear");
 const revenueInput = document.getElementById("revenue");
 
+function calcMode() { return opts.calcMode === "net" ? "net" : "rev"; }
+function updateModeUI() {
+  const net = calcMode() === "net";
+  document.getElementById("modeRev").classList.toggle("on", !net);
+  document.getElementById("modeNet").classList.toggle("on", net);
+  document.getElementById("revLabel").textContent = net
+    ? "Desired take-home pay for the month (net)"
+    : "Total revenue for the month (przychód, gross)";
+  document.getElementById("heroLabel").textContent = net ? "Required revenue (przychód)" : "Estimated take-home";
+  document.getElementById("heroTakeHome").classList.toggle("rev", net);
+}
 function renderCalc() {
   const v = parseAmount(revenueInput.value);
   const y = +selYear.value, m = +selMonth.value;
+  const net = calcMode() === "net";
   const bk = document.getElementById("breakdown");
   const hero = document.getElementById("heroTakeHome");
   if (v === null || v <= 0) {
     hero.textContent = zl(0);
-    document.getElementById("heroSub").textContent = "Enter a revenue amount to calculate.";
+    document.getElementById("heroSub").textContent =
+      net ? "Enter a desired take-home amount to calculate." : "Enter a revenue amount to calculate.";
     bk.innerHTML = ""; document.getElementById("tierNote").textContent = "";
     return null;
   }
-  const c = calc(y, m, v, editingId);
-  hero.textContent = zl(c.takeHome);
-  document.getElementById("heroSub").textContent =
-    monLabel(y, m) + " · effective deductions " + pct(c.effRate);
+  let c;
+  if (net) {
+    const required = solveRevenue(y, m, v, editingId);
+    if (required === null) {
+      hero.textContent = "—";
+      document.getElementById("heroSub").textContent = "No revenue reaches that take-home — check the amount.";
+      bk.innerHTML = ""; document.getElementById("tierNote").textContent = "";
+      return null;
+    }
+    c = calc(y, m, required, editingId);
+    hero.textContent = zl(required);
+    document.getElementById("heroSub").textContent =
+      "revenue needed in " + monLabel(y, m) + " to take home " + zl(c.takeHome) + " · deductions " + pct(c.effRate);
+  } else {
+    c = calc(y, m, v, editingId);
+    hero.textContent = zl(c.takeHome);
+    document.getElementById("heroSub").textContent =
+      monLabel(y, m) + " · effective deductions " + pct(c.effRate);
+  }
   bk.innerHTML = `
     <tr><td><span class="sw" style="background:var(--accent)"></span>Revenue (przychód)</td><td>${zl(c.revenue)}</td></tr>
     <tr class="neg"><td><span class="sw" style="background:var(--gold)"></span>Social ZUS${opts.chorobowe ? " (incl. chorobowe)" : ""}</td><td>− ${zl(c.social)}</td></tr>
@@ -576,9 +626,13 @@ function renderCalc() {
 }
 
 function saveMonth() {
-  const v = parseAmount(revenueInput.value);
-  if (v === null || v <= 0) { toast("Enter a revenue amount first."); revenueInput.focus(); return; }
+  let v = parseAmount(revenueInput.value);
+  if (v === null || v <= 0) { toast("Enter an amount first."); revenueInput.focus(); return; }
   const y = +selYear.value, m = +selMonth.value;
+  if (calcMode() === "net") {           // input is a take-home target — save the revenue that produces it
+    v = solveRevenue(y, m, v, editingId);
+    if (v === null) { toast("No revenue reaches that take-home amount."); return; }
+  }
   const existing = records.find(r => r.year === y && r.month === m && r.id !== editingId);
   if (existing && !confirm(monLabel(y, m) + " is already saved (" + zl(existing.revenue) + "). Overwrite it?")) return;
   if (existing) records = records.filter(r => r.id !== existing.id);
@@ -596,7 +650,7 @@ function saveMonth() {
 }
 function setEditMode(on, rec) {
   document.getElementById("saveBtn").textContent = on ? "Update " + monLabel(rec.year, rec.month) : "Save month";
-  document.getElementById("cancelEdit").style.display = on ? "" : "none";
+  document.getElementById("cancelEdit").style.display = on ? "inline-block" : "none";
   if (!on) editingId = null;
   updateMonthHint();
 }
@@ -604,6 +658,7 @@ function startEdit(id) {
   const rec = records.find(r => r.id === id);
   if (!rec) return;
   editingId = id;
+  if (calcMode() === "net") { opts.calcMode = "rev"; persist(); updateModeUI(); }  // records store revenue
   revenueInput.value = rec.revenue.toLocaleString("pl-PL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   selMonth.value = rec.month; selYear.value = rec.year;
   setEditMode(true, rec); renderCalc();
@@ -811,7 +866,7 @@ function renderRecords() {
         <td class="th">${zl(d.takeHome)}</td><td>${pct(d.effRate)}</td>
         <td><span class="row-actions">
           <button class="icon-btn" data-edit="${d.id}">✎ Edit</button>
-          <button class="icon-btn del" data-del="${d.id}">✕</button>
+          <button class="icon-btn del" data-del="${d.id}">🗑 Delete</button>
         </span></td></tr>`;
     }
     html += `<tr class="yr-total"><td>Total ${y}</td>
@@ -824,7 +879,7 @@ function renderRecords() {
   area.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => startEdit(b.dataset.edit));
   area.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
     const rec = records.find(r => r.id === b.dataset.del);
-    if (rec && confirm("Delete " + monLabel(rec.year, rec.month) + " (" + zl(rec.revenue) + ")?")) {
+    if (rec && confirm("Are you sure you want to delete this entry?\n\n" + monLabel(rec.year, rec.month) + " — " + zl(rec.revenue) + " revenue")) {
       records = records.filter(r => r.id !== rec.id);
       persist(); renderAll(); toast("Deleted " + monLabel(rec.year, rec.month));
     }
@@ -1009,6 +1064,9 @@ selYear.addEventListener("change", () => { updateMonthHint(); renderCalc(); });
 for (const [id, key] of [["optChorobowe", "chorobowe"], ["optDeductSocial", "deductSocial"], ["optDeductHealth", "deductHalfHealth"]]) {
   document.getElementById(id).addEventListener("change", e => { opts[key] = e.target.checked; persist(); renderAll(); renderCalc(); });
 }
+document.getElementById("modeRev").onclick = () => { opts.calcMode = "rev"; persist(); updateModeUI(); renderCalc(); };
+document.getElementById("modeNet").onclick = () => { opts.calcMode = "net"; persist(); updateModeUI(); renderCalc(); };
+updateModeUI();
 document.getElementById("saveBtn").onclick = saveMonth;
 document.getElementById("cancelEdit").onclick = () => { editingId = null; revenueInput.value = ""; setEditMode(false); renderCalc(); };
 revenueInput.addEventListener("keydown", e => { if (e.key === "Enter") saveMonth(); });
