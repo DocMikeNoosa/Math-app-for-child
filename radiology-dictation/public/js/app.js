@@ -1,50 +1,56 @@
-import { TEMPLATES, getTemplate, reportFromTemplate } from './templates.js';
-import { convertSpoken, tidy, scrubIdentifiers, localMerge, wordDiff, reportToText } from './polish-text.js';
+import { TEMPLATES, GROUPS, SNIPPETS, SNIPPET_GROUPS, getTemplate, regionLabel, templatesByRegion, reportFromTemplate, reportToText } from './templates.js';
+import { convertSpoken, tidy, scrubIdentifiers, wordDiff } from './polish-text.js';
+import { localMerge, findConflicts, applyConflicts } from './crosscheck.js';
 import { Dictation, LevelMeter, speechSupported } from './speech.js';
 
 const $ = (id) => document.getElementById(id);
-const els = {
-  templates: $('templates'), recWrap: $('recWrap'), recBtn: $('recBtn'), recViz: $('recViz'),
-  recState: $('recState'), recTimer: $('recTimer'), dictation: $('dictation'), interim: $('interim'),
-  instruction: $('instruction'), processBtn: $('processBtn'), autoProcess: $('autoProcess'),
-  clearDictation: $('clearDictation'), speechBadge: $('speechBadge'), aiStatus: $('aiStatus'),
-  undoBtn: $('undoBtn'), redoBtn: $('redoBtn'), acceptBtn: $('acceptBtn'), resetBtn: $('resetBtn'),
-  labelsToggle: $('labelsToggle'), copyBtn: $('copyBtn'), modalityBadge: $('modalityBadge'),
-  examTitle: $('examTitle'), technique: $('technique'), sections: $('sections'), conclusion: $('conclusion'),
-  warnings: $('warnings'), warningsList: $('warningsList'), processing: $('processing'), processingText: $('processingText'),
-  footWords: $('footWords'), footSource: $('footSource'), footSaved: $('footSaved'), reportScroll: $('reportScroll'),
-  settings: $('settings'), settingsBtn: $('settingsBtn'), closeSettings: $('closeSettings'), overlay: $('overlay'),
-  stylePrefs: $('stylePrefs'), speechInfo: $('speechInfo'), helpBtn: $('helpBtn'), helpModal: $('helpModal'), closeHelp: $('closeHelp'),
-  toasts: $('toasts'),
-};
+const els = Object.fromEntries(
+  [
+    'tplCurrent', 'tplGroupChip', 'tplRegion', 'tplTitle', 'aiStatus', 'helpBtn', 'settingsBtn',
+    'recWrap', 'recBtn', 'recViz', 'recState', 'recTimer', 'dictation', 'interim', 'instruction', 'processBtn', 'autoProcess',
+    'clearDictation', 'speechBadge', 'snippetsBtn', 'snippetsPop',
+    'undoBtn', 'redoBtn', 'acceptBtn', 'resetBtn', 'copyBtn', 'examHeader', 'bodyText', 'bodyLabel', 'conclusion', 'paper',
+    'conflicts', 'conflictsList', 'fixAllBtn', 'corrections', 'correctionsList', 'correctionsTitle', 'warnings', 'warningsList',
+    'processing', 'processingText', 'footWords', 'footSource', 'footSaved', 'reportScroll',
+    'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
+    'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
+  ].map((id) => [id, $(id)]),
+);
 
 // ---------------------------------------------------------------- state
-const STORE_KEY = 'radvox.v1';
+const STORE_KEY = 'radvox.v2';
+const DEFAULT_TEMPLATE = 'ct_head_normal';
 const state = {
   ai: false,
   model: null,
-  report: reportFromTemplate(TEMPLATES[0]),
-  baseline: null, // report snapshot that highlights are computed against (null = no highlights)
+  report: reportFromTemplate(getTemplate(DEFAULT_TEMPLATE)),
+  baseline: null, // snapshot that highlights are computed against
   history: [],
   future: [],
   warnings: [],
+  corrections: [],
+  ignore: [], // template sentences the radiologist chose to keep despite a conflict
+  recent: [],
   source: 'Szablon',
   busy: false,
   recording: false,
 };
 const clone = (o) => JSON.parse(JSON.stringify(o));
-const sameReport = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const template = () => getTemplate(state.report.templateId) || getTemplate(DEFAULT_TEMPLATE);
 
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
     if (!saved) return;
-    const tpl = getTemplate(saved.report?.templateId);
-    if (tpl && saved.report.sections?.length === tpl.sections.length) state.report = saved.report;
+    if (saved.report && getTemplate(saved.report.templateId) && ['header', 'body', 'conclusion'].every((k) => typeof saved.report[k] === 'string')) {
+      state.report = saved.report;
+    }
     els.dictation.value = saved.dictation || '';
     els.stylePrefs.value = saved.style || '';
     els.autoProcess.checked = saved.autoProcess !== false;
-    els.labelsToggle.checked = Boolean(saved.labels);
+    state.recent = (saved.recent || []).filter((id) => getTemplate(id));
+    state.ignore = Array.isArray(saved.ignore) ? saved.ignore : [];
   } catch { /* storage unavailable — start fresh */ }
 }
 
@@ -54,11 +60,8 @@ function save() {
   saveTimer = setTimeout(() => {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify({
-        report: state.report,
-        dictation: els.dictation.value,
-        style: els.stylePrefs.value,
-        autoProcess: els.autoProcess.checked,
-        labels: els.labelsToggle.checked,
+        report: state.report, dictation: els.dictation.value, style: els.stylePrefs.value,
+        autoProcess: els.autoProcess.checked, recent: state.recent, ignore: state.ignore,
       }));
       els.footSaved.textContent = 'Zapisano lokalnie';
     } catch {
@@ -69,18 +72,15 @@ function save() {
 
 // ---------------------------------------------------------------- helpers
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fold = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l');
 
 function highlighted(oldText, newText) {
   if (oldText == null || oldText === newText) return esc(newText);
-  return wordDiff(oldText, newText)
-    .map((seg) => (seg.added ? `<mark class="add">${esc(seg.text)}</mark>` : esc(seg.text)))
-    .join('');
+  return wordDiff(oldText, newText).map((seg) => (seg.added ? `<mark class="add">${esc(seg.text)}</mark>` : esc(seg.text))).join('');
 }
-
 function readEditable(el) {
   return el.innerText.replace(/ /g, ' ').replace(/\n+$/, '');
 }
-
 function toast(message, kind = 'info', ms = 2800) {
   const t = document.createElement('div');
   t.className = `toast ${kind}`;
@@ -92,91 +92,87 @@ function toast(message, kind = 'info', ms = 2800) {
   }, ms);
 }
 
-function currentTemplate() {
-  return getTemplate(state.report.templateId);
-}
-
 // ---------------------------------------------------------------- rendering
-function renderTemplates() {
-  els.templates.innerHTML = '';
-  TEMPLATES.forEach((t, i) => {
-    const b = document.createElement('button');
-    b.className = 'tpl';
-    b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', String(t.id === state.report.templateId));
-    b.dataset.id = t.id;
-    b.innerHTML = `<span class="tpl-mod mod-${t.modality}">${t.modality}</span>
-      <span class="tpl-text"><div class="tpl-name">${esc(t.name)}</div><div class="tpl-sub">${esc(t.subtitle)}</div></span>
-      <span class="tpl-key">${i + 1}</span>`;
-    b.addEventListener('click', () => { selectTemplate(t.id); b.blur(); });
-    els.templates.appendChild(b);
-  });
+function renderTemplateButton() {
+  const t = template();
+  const trauma = t.group === 'Trauma';
+  els.tplGroupChip.textContent = trauma ? 'URAZ' : 'BEZ URAZU';
+  els.tplGroupChip.classList.toggle('trauma', trauma);
+  els.tplRegion.textContent = regionLabel(t.section);
+  els.tplTitle.textContent = t.title;
+  els.tplCurrent.title = `${t.exam} — zmień szablon (T)`;
 }
 
-function renderReport({ flash = [] } = {}) {
+function renderReport() {
   const r = state.report;
   const base = state.baseline;
-  const tpl = currentTemplate();
-  [...els.templates.children].forEach((b) => b.setAttribute('aria-checked', String(b.dataset.id === r.templateId)));
-
-  els.modalityBadge.textContent = tpl.modality;
-  els.modalityBadge.className = `modality-badge mod-${tpl.modality}`;
-  els.examTitle.textContent = r.title;
-  els.technique.innerHTML = highlighted(base?.technique, r.technique);
-
-  els.sections.innerHTML = '';
-  r.sections.forEach((s, i) => {
-    const oldText = base ? base.sections[i]?.text : null;
-    const changed = base && oldText !== s.text;
-    const row = document.createElement('div');
-    row.className = `sec${changed ? ' changed' : ''}${s.text.trim() ? '' : ' empty'}${flash.includes(s.id) ? ' flash' : ''}`;
-    row.dataset.id = s.id;
-    row.innerHTML = `<div class="sec-label">${esc(s.label)}</div>
-      <div class="editable" contenteditable="true" spellcheck="true" lang="pl" data-sec="${i}">${highlighted(oldText, s.text)}</div>`;
-    els.sections.appendChild(row);
-  });
-
-  const conclChanged = base && base.conclusion !== r.conclusion;
+  renderTemplateButton();
+  els.examHeader.textContent = r.header;
+  els.bodyText.innerHTML = highlighted(base?.body, r.body);
   els.conclusion.innerHTML = highlighted(base?.conclusion, r.conclusion);
-  els.conclusion.parentElement.classList.toggle('changed', Boolean(conclChanged));
-
-  renderWarnings();
+  els.conclusion.parentElement.classList.toggle('changed', Boolean(base && base.conclusion !== r.conclusion));
+  renderPanels();
   renderMeta();
 }
 
-function renderWarnings() {
+function renderPanels() {
+  // corrections (what the cross-check removed / rewrote)
+  els.correctionsList.innerHTML = state.corrections
+    .map((c) => `<li><del>${esc(c.removed)}</del>${c.replacement ? `<span class="arrow">→</span><ins>${esc(c.replacement)}</ins>` : '<span class="arrow">→</span><ins><em>usunięto</em></ins>'}${c.reason ? `<span class="why">${esc(c.reason)}</span>` : ''}</li>`)
+    .join('');
+  els.corrections.hidden = state.corrections.length === 0;
+  els.correctionsTitle.textContent = `Skorygowano szablon (${state.corrections.length})`;
+  // warnings
   els.warningsList.innerHTML = state.warnings.map((w) => `<li>${esc(w)}</li>`).join('');
   els.warnings.hidden = state.warnings.length === 0;
+  renderConflicts();
+}
+
+let liveConflicts = [];
+function renderConflicts() {
+  liveConflicts = findConflicts(template(), state.report, { ignore: state.ignore });
+  els.conflicts.hidden = liveConflicts.length === 0;
+  els.conflictsList.innerHTML = liveConflicts
+    .map((c, i) => `<li>
+      <span class="c-old">„${esc(c.original)}”</span>
+      <span class="c-why">sprzeczne z: „${esc(c.trigger || '')}” · ${c.replacement ? `zmienić na: „${esc(c.replacement)}”` : 'usunąć'}</span>
+      <span class="c-actions"><button class="mini-btn strong" data-fix="${i}">Popraw</button><button class="mini-btn" data-keep="${i}" title="Zostaw bez zmian">Pomiń</button></span>
+    </li>`)
+    .join('');
 }
 
 function renderMeta() {
   els.undoBtn.disabled = state.history.length === 0;
   els.redoBtn.disabled = state.future.length === 0;
-  els.acceptBtn.disabled = !state.baseline && state.warnings.length === 0;
-  const words = reportToText(state.report).split(/\s+/).filter(Boolean).length;
+  els.acceptBtn.disabled = !state.baseline && !state.warnings.length && !state.corrections.length;
+  const words = reportToText(state.report, template()).split(/\s+/).filter(Boolean).length;
   els.footWords.textContent = `${words} słów`;
   els.footSource.textContent = state.source;
 }
 
 // ---------------------------------------------------------------- report mutations
-function commit(next, { baseline = null, warnings = [], source, flash = [] } = {}) {
+function commit(next, { baseline = null, warnings = [], corrections = [], source } = {}) {
   state.history.push(clone(state.report));
   if (state.history.length > 100) state.history.shift();
   state.future = [];
   state.report = next;
   state.baseline = baseline;
   state.warnings = warnings;
+  state.corrections = corrections;
   if (source) state.source = source;
-  renderReport({ flash });
+  renderReport();
   save();
 }
 
 function selectTemplate(id) {
-  if (id === state.report.templateId) return;
-  const tpl = getTemplate(id);
-  const wasEdited = !sameReport(state.report, reportFromTemplate(currentTemplate()));
-  commit(reportFromTemplate(tpl), { source: 'Szablon' });
-  toast(wasEdited ? `Szablon: ${tpl.name} — „Cofnij” przywróci poprzedni opis` : `Szablon: ${tpl.name}`, 'info');
+  const t = getTemplate(id);
+  if (!t) return;
+  state.recent = [id, ...state.recent.filter((x) => x !== id)].slice(0, 6);
+  if (id === state.report.templateId) { save(); return; }
+  const wasEdited = !same(state.report, reportFromTemplate(template()));
+  state.ignore = [];
+  commit(reportFromTemplate(t), { source: 'Szablon' });
+  toast(wasEdited ? `${t.title} — „Cofnij” przywróci poprzedni opis` : t.title, 'info');
 }
 
 function undo() {
@@ -185,54 +181,61 @@ function undo() {
   state.report = state.history.pop();
   state.baseline = null;
   state.warnings = [];
+  state.corrections = [];
   renderReport();
   save();
 }
-
 function redo() {
   if (!state.future.length) return;
   state.history.push(clone(state.report));
   state.report = state.future.pop();
   state.baseline = null;
   state.warnings = [];
+  state.corrections = [];
   renderReport();
   save();
 }
-
 function acceptChanges() {
   state.baseline = null;
   state.warnings = [];
+  state.corrections = [];
   renderReport();
   toast('Zmiany zaakceptowane', 'ok', 1600);
 }
-
 function resetReport() {
-  commit(reportFromTemplate(currentTemplate()), { source: 'Szablon' });
+  state.ignore = [];
+  commit(reportFromTemplate(template()), { source: 'Szablon' });
   toast('Nowy opis z szablonu — „Cofnij” przywróci poprzedni', 'info');
 }
 
-// Manual edits in the report: sync DOM → state, record one undo step per focus session.
+function fixConflicts(list) {
+  if (!list.length) return;
+  const next = applyConflicts(template(), state.report, list);
+  const corrections = [...state.corrections, ...list.map((c) => ({ removed: c.original, replacement: c.replacement, reason: `sprzeczne z: „${c.trigger}”` }))];
+  commit(next, { baseline: clone(state.report), warnings: state.warnings, corrections, source: state.source });
+}
+
+// Manual edits: DOM → state, one undo step per focus session, live conflict check.
 let editSnapshot = null;
+let conflictTimer = null;
 function onEditFocus() { editSnapshot = clone(state.report); }
 function onEditInput(e) {
   const el = e.target;
-  if (el === els.examTitle) state.report.title = readEditable(el).replace(/\n/g, ' ');
-  else if (el === els.technique) state.report.technique = readEditable(el);
+  if (el === els.examHeader) state.report.header = readEditable(el).replace(/\n/g, ' ');
+  else if (el === els.bodyText) state.report.body = readEditable(el);
   else if (el === els.conclusion) state.report.conclusion = readEditable(el);
-  else if (el.dataset.sec != null) {
-    const s = state.report.sections[Number(el.dataset.sec)];
-    s.text = readEditable(el);
-    el.parentElement.classList.toggle('empty', !s.text.trim());
-  }
   renderMeta();
   save();
+  clearTimeout(conflictTimer);
+  conflictTimer = setTimeout(renderConflicts, 450);
 }
 function onEditBlur() {
-  if (editSnapshot && !sameReport(editSnapshot, state.report)) {
+  if (editSnapshot && !same(editSnapshot, state.report)) {
     state.history.push(editSnapshot);
     state.future = [];
-    state.source = state.source.includes('edycja') ? state.source : `${state.source} + edycja`;
+    if (!state.source.includes('edycja')) state.source = `${state.source} + edycja`;
     renderMeta();
+    renderConflicts();
   }
   editSnapshot = null;
 }
@@ -241,7 +244,7 @@ function onEditBlur() {
 async function process() {
   if (state.busy) return;
   if (state.recording) await stopRecording({ auto: false });
-  if (document.activeElement && document.activeElement.isContentEditable) document.activeElement.blur();
+  if (document.activeElement?.isContentEditable) document.activeElement.blur();
 
   const dictation = scrubIdentifiers(els.dictation.value.trim());
   const instruction = scrubIdentifiers(els.instruction.value.trim());
@@ -251,11 +254,10 @@ async function process() {
     return;
   }
 
-  const template = currentTemplate();
+  const t = template();
   const before = clone(state.report);
   let result = null;
   let source = '';
-
   setBusy(true);
   try {
     if (state.ai) {
@@ -263,7 +265,7 @@ async function process() {
         const res = await fetch('/api/format', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ templateId: template.id, report: before, dictation, instruction, style: els.stylePrefs.value }),
+          body: JSON.stringify({ templateId: t.id, report: before, dictation, instruction, style: els.stylePrefs.value }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
@@ -278,38 +280,37 @@ async function process() {
         toast('Polecenia dla AI wymagają połączenia z Claude.', 'warn');
         return;
       }
-      result = localMerge(template, before, dictation);
+      result = localMerge(t, before, dictation);
       source = 'Tryb lokalny';
     }
   } finally {
     setBusy(false);
   }
 
-  const flash = [...(result.changed || [])];
-  commit(result.report, { baseline: before, warnings: result.warnings || [], source, flash });
+  commit(result.report, { baseline: before, warnings: result.warnings || [], corrections: result.corrections || [], source });
   els.dictation.value = '';
   els.instruction.value = '';
   save();
 
-  const nChanged = (result.changed || []).length + (result.conclusionChanged ? 1 : 0);
-  toast(nChanged ? `Opis zaktualizowany (${nChanged} ${nChanged === 1 ? 'zmiana' : 'zmiany'}) — sprawdź podświetlenia` : 'Brak zmian w opisie', nChanged ? 'ok' : 'warn');
-  const first = els.sections.querySelector('.sec.changed') || (result.conclusionChanged ? els.conclusion : null);
-  first?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const n = (result.corrections || []).length;
+  toast(n ? `Opis zaktualizowany · usunięto/zmieniono ${n} ${n === 1 ? 'zdanie' : 'zdania'} szablonu` : 'Opis zaktualizowany — sprawdź podświetlenia', 'ok', 3600);
+  const firstMark = els.paper.querySelector('mark.add');
+  firstMark?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function setBusy(busy) {
   state.busy = busy;
   els.processBtn.disabled = busy;
   els.processBtn.classList.toggle('busy', busy);
-  els.processBtn.querySelector('.btn-label').textContent = busy ? 'Opracowywanie' : state.ai ? 'Opracuj z AI' : 'Wstaw do szablonu';
+  els.processBtn.querySelector('.btn-label').textContent = busy ? 'Opracowywanie…' : state.ai ? 'Opracuj z AI' : 'Wstaw do szablonu';
   els.processing.hidden = !busy;
   els.processingText.textContent = state.ai ? 'Claude opracowuje opis…' : 'Wstawianie do szablonu…';
 }
 
 // ---------------------------------------------------------------- copy
 async function copyReport() {
-  if (document.activeElement && document.activeElement.isContentEditable) document.activeElement.blur();
-  const text = reportToText(state.report, { labels: els.labelsToggle.checked });
+  if (document.activeElement?.isContentEditable) document.activeElement.blur();
+  const text = reportToText(state.report, template());
   let ok = false;
   try {
     await navigator.clipboard.writeText(text);
@@ -331,17 +332,140 @@ async function copyReport() {
       els.copyBtn.classList.remove('done');
       els.copyBtn.querySelector('.btn-label').textContent = 'Kopiuj opis';
     }, 1800);
-    toast('Skopiowano do schowka — wklej do systemu RIS (Ctrl+V)', 'ok');
+    toast(liveConflicts.length ? 'Skopiowano — uwaga: w opisie są nierozwiązane sprzeczności' : 'Skopiowano do schowka — wklej do RIS (Ctrl+V)', liveConflicts.length ? 'warn' : 'ok', 3600);
   } else {
     toast('Nie udało się skopiować — zaznacz tekst ręcznie.', 'err');
   }
+}
+
+// ---------------------------------------------------------------- template picker
+const REGION_ICONS = {
+  'CT Head': '<circle cx="12" cy="10" r="7"/><path d="M9 21h6M12 17v4"/>',
+  'Facial bones': '<path d="M6 8a6 6 0 0 1 12 0v4a6 6 0 0 1-12 0z"/><path d="M9 10h.01M15 10h.01M10 15h4"/>',
+  'Vascular / Neuro': '<path d="M12 3v6M12 9c-4 0-6 3-6 6v6M12 9c4 0 6 3 6 6v6"/>',
+  Spine: '<rect x="9" y="2.5" width="6" height="4" rx="1.5"/><rect x="9" y="10" width="6" height="4" rx="1.5"/><rect x="9" y="17.5" width="6" height="4" rx="1.5"/>',
+  'Chest / Thorax': '<path d="M12 3v18M12 7c-3 0-7 1-7 6v6M12 7c3 0 7 1 7 6v6M5 13h14"/>',
+  'Aorta / Vascular': '<path d="M9 21V9a3 3 0 0 1 6 0v1M9 12H6M15 13h3"/>',
+  'Abdomen / Pelvis': '<path d="M5 6c0 8 3 14 7 14s7-6 7-14"/><path d="M8 11h8M9 15h6"/>',
+  Combined: '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
+};
+const picker = { group: 'Non-trauma', active: 0, items: [] };
+
+function openPicker() {
+  picker.group = template().group;
+  els.pickerSearch.value = '';
+  els.picker.hidden = false;
+  renderPicker();
+  setTimeout(() => els.pickerSearch.focus(), 0);
+}
+function closePicker() { els.picker.hidden = true; }
+
+function itemButton(t, { tag = '' } = {}) {
+  const cur = t.id === state.report.templateId;
+  return `<button class="t-item${cur ? ' current' : ''}" data-id="${t.id}" title="${esc(t.exam)}">${esc(t.title)}${tag ? `<span class="tag">${esc(tag)}</span>` : ''}</button>`;
+}
+
+function renderPicker() {
+  const q = fold(els.pickerSearch.value.trim());
+  els.pickerTabs.innerHTML = GROUPS.map((g) => {
+    const n = TEMPLATES.filter((t) => t.group === g.id).length;
+    const trauma = g.id === 'Trauma';
+    return `<button class="tab${trauma ? ' trauma' : ''}" role="tab" aria-selected="${!q && picker.group === g.id}" data-group="${g.id}"><span class="dotc"></span>${g.label}<span class="count">${n}</span></button>`;
+  }).join('');
+  const recent = state.recent.map(getTemplate).filter(Boolean);
+  els.pickerRecent.innerHTML = recent.length && !q
+    ? `<span class="lbl">Ostatnie</span>${recent.map((t) => `<button class="chip-btn" data-id="${t.id}">${esc(t.title)}</button>`).join('')}`
+    : '';
+
+  if (q) {
+    const tokens = q.split(/\s+/);
+    const scored = TEMPLATES.map((t) => {
+      const title = fold(`${t.title} ${t.exam}`);
+      const meta = fold(`${regionLabel(t.section)} ${t.section} ${GROUPS.find((g) => g.id === t.group)?.label} ${t.group}`);
+      const body = fold(t.body);
+      let score = 0;
+      for (const tok of tokens) {
+        if (title.includes(tok)) score += 10;
+        else if (meta.includes(tok)) score += 5;
+        else if (body.includes(tok)) score += 1;
+        else return null;
+      }
+      return { t, score };
+    }).filter(Boolean).sort((a, b) => b.score - a.score || a.t.priority - b.t.priority);
+    els.pickerBody.innerHTML = scored.length
+      ? `<div class="results">${scored.map(({ t }) => itemButton(t, { tag: `${t.group === 'Trauma' ? 'Uraz' : 'Bez urazu'} · ${regionLabel(t.section)}` })).join('')}</div>`
+      : '<div class="no-results">Brak szablonów — spróbuj innego słowa.</div>';
+  } else {
+    const regions = templatesByRegion(picker.group);
+    els.pickerBody.innerHTML = `<div class="regions${picker.group === 'Trauma' ? ' trauma-mode' : ''}">${regions
+      .map((r) => `<section class="region">
+        <div class="region-head"><span class="region-icon"><svg viewBox="0 0 24 24">${REGION_ICONS[r.id] || ''}</svg></span>${esc(r.label)}<span class="region-count">${r.templates.length}</span></div>
+        ${r.templates.map((t) => itemButton(t)).join('')}
+      </section>`)
+      .join('')}</div>`;
+  }
+  picker.items = [...els.pickerBody.querySelectorAll('.t-item')];
+  picker.active = q ? 0 : Math.max(0, picker.items.findIndex((b) => b.dataset.id === state.report.templateId));
+  markActive();
+}
+function markActive() {
+  picker.items.forEach((b, i) => b.classList.toggle('active', i === picker.active));
+  picker.items[picker.active]?.scrollIntoView({ block: 'nearest' });
+}
+function pickerKey(e) {
+  if (e.key === 'Escape') { e.preventDefault(); closePicker(); return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!picker.items.length) return;
+    picker.active = (picker.active + (e.key === 'ArrowDown' ? 1 : -1) + picker.items.length) % picker.items.length;
+    markActive();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const b = picker.items[picker.active];
+    if (b) { selectTemplate(b.dataset.id); closePicker(); }
+  } else if (e.key === 'Tab' && document.activeElement === els.pickerSearch && !els.pickerSearch.value) {
+    e.preventDefault();
+    picker.group = picker.group === 'Trauma' ? 'Non-trauma' : 'Trauma';
+    renderPicker();
+  }
+}
+
+// ---------------------------------------------------------------- snippets
+function renderSnippets() {
+  els.snippetsPop.innerHTML = SNIPPET_GROUPS.map((g) => {
+    const items = SNIPPETS.filter((s) => s.section === g.id);
+    if (!items.length) return '';
+    return `<div class="pop-group">${g.label}</div>${items
+      .map((s) => `<button class="pop-item" role="menuitem" data-snippet="${s.id}">${esc(s.title)}<small>${esc(s.text)}</small></button>`)
+      .join('')}`;
+  }).join('');
+}
+function toggleSnippets(open = els.snippetsPop.hidden) {
+  els.snippetsPop.hidden = !open;
+  els.snippetsBtn.setAttribute('aria-expanded', String(open));
+  if (open) els.snippetsPop.querySelector('.pop-item')?.focus();
+}
+function insertSnippet(id) {
+  const s = SNIPPETS.find((x) => x.id === id);
+  if (!s) return;
+  const ta = els.dictation;
+  const start = ta.selectionStart ?? ta.value.length;
+  const end = ta.selectionEnd ?? ta.value.length;
+  const before = ta.value.slice(0, start);
+  const sep = before && !/\s$/.test(before) ? ' ' : '';
+  const text = sep + s.text;
+  ta.value = before + text + ta.value.slice(end);
+  const caret = start + text.length;
+  toggleSnippets(false);
+  ta.focus();
+  ta.setSelectionRange(caret, caret);
+  save();
 }
 
 // ---------------------------------------------------------------- recording
 const meter = new LevelMeter();
 let timerStart = 0;
 let timerId = null;
-
 const dictationEngine = new Dictation({
   lang: 'pl-PL',
   onFinal: (text) => {
@@ -357,7 +481,7 @@ const dictationEngine = new Dictation({
   onError: (msg) => toast(msg, 'err', 5000),
 });
 
-async function startRecording() {
+function startRecording() {
   if (!speechSupported) {
     toast('Rozpoznawanie mowy działa w Chrome lub Edge. Możesz wpisać tekst ręcznie.', 'warn', 5000);
     els.dictation.focus();
@@ -372,10 +496,9 @@ async function startRecording() {
   }
   state.recording = true;
   document.body.classList.add('recording');
-  els.recWrap.parentElement.classList.add('recording');
   els.recBtn.setAttribute('aria-pressed', 'true');
   els.recBtn.setAttribute('aria-label', 'Zatrzymaj dyktowanie');
-  els.recState.textContent = 'Nagrywanie… mów teraz';
+  els.recState.textContent = 'Nagrywanie… mów';
   timerStart = Date.now();
   timerId = setInterval(tick, 250);
   tick();
@@ -392,7 +515,6 @@ async function stopRecording({ auto = true } = {}) {
   clearInterval(timerId);
   state.recording = false;
   stopping = false;
-  els.recWrap.parentElement.classList.remove('recording');
   document.body.classList.remove('recording');
   els.recBtn.setAttribute('aria-pressed', 'false');
   els.recBtn.setAttribute('aria-label', 'Rozpocznij dyktowanie');
@@ -400,12 +522,7 @@ async function stopRecording({ auto = true } = {}) {
   els.interim.textContent = '';
   if (auto && els.autoProcess.checked && els.dictation.value.trim()) process();
 }
-
-function toggleRecording() {
-  if (state.recording) stopRecording({ auto: true });
-  else startRecording();
-}
-
+const toggleRecording = () => (state.recording ? stopRecording({ auto: true }) : startRecording());
 function tick() {
   const s = Math.floor((Date.now() - timerStart) / 1000);
   els.recTimer.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -416,11 +533,11 @@ function drawViz() {
   const c = els.recViz;
   const ctx = c.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  const size = c.clientWidth * dpr;
-  if (c.width !== size) { c.width = size; c.height = size; }
-  ctx.clearRect(0, 0, size, size);
-  const cx = size / 2;
-  const r0 = size * 0.355;
+  const size = Math.round(c.clientWidth * dpr);
+  if (size && c.width !== size) { c.width = size; c.height = size; }
+  ctx.clearRect(0, 0, c.width, c.height);
+  const cx = c.width / 2;
+  const r0 = c.width * 0.355;
   const bars = 72;
   const bins = meter.bins();
   const t = performance.now() / 1000;
@@ -429,22 +546,18 @@ function drawViz() {
     const a = (i / bars) * Math.PI * 2 - Math.PI / 2;
     let v;
     if (bins) {
-      const k = Math.floor((i < bars / 2 ? i : bars - i) / (bars / 2) * (bins.length * 0.7));
+      const k = Math.floor(((i < bars / 2 ? i : bars - i) / (bars / 2)) * (bins.length * 0.7));
       v = bins[k] / 255;
     } else {
       v = rec ? 0.08 + 0.05 * Math.sin(t * 3 + i * 0.5) : 0.04 + 0.025 * Math.sin(t * 1.2 + i * 0.35);
     }
-    const len = size * (0.012 + v * 0.11);
-    const x1 = cx + Math.cos(a) * r0;
-    const y1 = cx + Math.sin(a) * r0;
-    const x2 = cx + Math.cos(a) * (r0 + len);
-    const y2 = cx + Math.sin(a) * (r0 + len);
+    const len = c.width * (0.012 + v * 0.11);
     ctx.strokeStyle = rec ? `rgba(255, ${110 + v * 60}, ${125 + v * 40}, ${0.35 + v * 0.65})` : `rgba(89, 212, 255, ${0.18 + v * 2})`;
-    ctx.lineWidth = size * 0.009;
+    ctx.lineWidth = c.width * 0.009;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
+    ctx.moveTo(cx + Math.cos(a) * r0, cx + Math.sin(a) * r0);
+    ctx.lineTo(cx + Math.cos(a) * (r0 + len), cx + Math.sin(a) * (r0 + len));
     ctx.stroke();
   }
   requestAnimationFrame(drawViz);
@@ -460,11 +573,10 @@ async function checkStatus() {
   } catch {
     state.ai = false;
   }
-  const label = els.aiStatus.querySelector('.label');
   els.aiStatus.classList.toggle('ok', state.ai);
   els.aiStatus.classList.toggle('local', !state.ai);
-  label.textContent = state.ai ? `AI: Claude` : 'Tryb lokalny (bez AI)';
-  els.aiStatus.title = state.ai ? `Model: ${state.model}` : 'Brak klucza ANTHROPIC_API_KEY na serwerze — dyktat jest wstawiany do szablonu regułami lokalnymi.';
+  els.aiStatus.querySelector('.label').textContent = state.ai ? 'AI: Claude' : 'Tryb lokalny (bez AI)';
+  els.aiStatus.title = state.ai ? `Model: ${state.model}` : 'Brak klucza ANTHROPIC_API_KEY na serwerze — dyktat jest wstawiany i sprawdzany regułami lokalnymi.';
   setBusy(false);
 }
 
@@ -475,12 +587,10 @@ function openSettings(open) {
   els.overlay.hidden = !open;
   if (open) els.stylePrefs.focus();
 }
-function openHelp(open) { els.helpModal.hidden = !open; }
+const openHelp = (open) => { els.helpModal.hidden = !open; };
 
 // ---------------------------------------------------------------- events
-function isTyping(el) {
-  return el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.isContentEditable);
-}
+const isTyping = (el) => el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.isContentEditable);
 
 function bind() {
   els.recBtn.addEventListener('click', toggleRecording);
@@ -494,7 +604,6 @@ function bind() {
   els.dictation.addEventListener('input', save);
   els.stylePrefs.addEventListener('input', save);
   els.autoProcess.addEventListener('change', save);
-  els.labelsToggle.addEventListener('change', save);
   els.settingsBtn.addEventListener('click', () => openSettings(true));
   els.closeSettings.addEventListener('click', () => openSettings(false));
   els.overlay.addEventListener('click', () => openSettings(false));
@@ -502,28 +611,60 @@ function bind() {
   els.closeHelp.addEventListener('click', () => openHelp(false));
   els.helpModal.addEventListener('click', (e) => { if (e.target === els.helpModal) openHelp(false); });
 
-  const paper = $('paper');
-  paper.addEventListener('focusin', (e) => { if (e.target.isContentEditable) onEditFocus(); });
-  paper.addEventListener('focusout', (e) => { if (e.target.isContentEditable) onEditBlur(); });
-  paper.addEventListener('input', (e) => { if (e.target.isContentEditable) onEditInput(e); });
-  paper.addEventListener('paste', (e) => {
+  // template picker
+  els.tplCurrent.addEventListener('click', openPicker);
+  els.closePicker.addEventListener('click', closePicker);
+  els.picker.addEventListener('click', (e) => {
+    if (e.target === els.picker) return closePicker();
+    const tab = e.target.closest('[data-group]');
+    if (tab) { picker.group = tab.dataset.group; els.pickerSearch.value = ''; renderPicker(); els.pickerSearch.focus(); return; }
+    const item = e.target.closest('[data-id]');
+    if (item) { selectTemplate(item.dataset.id); closePicker(); }
+  });
+  els.pickerSearch.addEventListener('input', renderPicker);
+  els.picker.addEventListener('keydown', pickerKey);
+
+  // snippets
+  els.snippetsBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleSnippets(); });
+  els.snippetsPop.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-snippet]');
+    if (b) insertSnippet(b.dataset.snippet);
+  });
+  document.addEventListener('click', (e) => {
+    if (!els.snippetsPop.hidden && !e.target.closest('.pop-wrap')) toggleSnippets(false);
+  });
+
+  // conflicts
+  els.conflictsList.addEventListener('click', (e) => {
+    const fix = e.target.closest('[data-fix]');
+    const keep = e.target.closest('[data-keep]');
+    if (fix) fixConflicts([liveConflicts[Number(fix.dataset.fix)]]);
+    if (keep) {
+      state.ignore.push(liveConflicts[Number(keep.dataset.keep)].original);
+      save();
+      renderConflicts();
+    }
+  });
+  els.fixAllBtn.addEventListener('click', () => fixConflicts(liveConflicts));
+
+  // report editing
+  els.paper.addEventListener('focusin', (e) => { if (e.target.isContentEditable) onEditFocus(); });
+  els.paper.addEventListener('focusout', (e) => { if (e.target.isContentEditable) onEditBlur(); });
+  els.paper.addEventListener('input', (e) => { if (e.target.isContentEditable) onEditInput(e); });
+  els.paper.addEventListener('paste', (e) => {
     if (!e.target.closest('[contenteditable]')) return;
     e.preventDefault();
-    const text = (e.clipboardData || window.clipboardData).getData('text/plain');
-    document.execCommand('insertText', false, text);
+    document.execCommand('insertText', false, (e.clipboardData || window.clipboardData).getData('text/plain'));
   });
-  els.examTitle.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); els.examTitle.blur(); } });
+  els.examHeader.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); els.examHeader.blur(); } });
 
-  els.dictation.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); process(); }
-  });
-  els.instruction.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); process(); }
-  });
+  els.dictation.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); process(); } });
+  els.instruction.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); process(); } });
 
   document.addEventListener('keydown', (e) => {
+    if (!els.picker.hidden) return; // picker handles its own keys
     const typing = isTyping(document.activeElement);
-    if (e.key === 'Escape') { openSettings(false); openHelp(false); return; }
+    if (e.key === 'Escape') { openSettings(false); openHelp(false); toggleSnippets(false); return; }
     if (e.key === 'F2') { e.preventDefault(); toggleRecording(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); process(); return; }
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'C' || e.key === 'c')) { e.preventDefault(); copyReport(); return; }
@@ -531,19 +672,18 @@ function bind() {
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo(); return; }
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && (e.key === 'z' || e.key === 'Z')))) { e.preventDefault(); redo(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === ' ' && document.activeElement !== els.recBtn) { e.preventDefault(); toggleRecording(); return; }
-    if (e.key === '?') { openHelp(true); return; }
-    const n = Number(e.key);
-    if (n >= 1 && n <= TEMPLATES.length) selectTemplate(TEMPLATES[n - 1].id);
+    if (e.key === ' ' && document.activeElement !== els.recBtn && !document.activeElement?.closest('button')) { e.preventDefault(); toggleRecording(); return; }
+    if (e.key === 't' || e.key === 'T') { e.preventDefault(); openPicker(); return; }
+    if (e.key === 'w' || e.key === 'W') { e.preventDefault(); toggleSnippets(); return; }
+    if (e.key === '?') openHelp(true);
   });
-
   window.addEventListener('beforeunload', () => { if (state.recording) dictationEngine.stop(); });
 }
 
 // ---------------------------------------------------------------- init
 function init() {
   load();
-  renderTemplates();
+  renderSnippets();
   renderReport();
   bind();
   if (!speechSupported) {
@@ -551,7 +691,7 @@ function init() {
     els.speechBadge.classList.add('off');
     els.speechInfo.textContent = 'Ta przeglądarka nie obsługuje rozpoznawania mowy (Web Speech API). Użyj Chrome lub Edge, albo wpisuj tekst ręcznie.';
   } else {
-    els.speechInfo.textContent = 'Używane jest wbudowane rozpoznawanie mowy przeglądarki (język: polski). W Chrome dźwięk jest przetwarzany przez serwery Google i wymaga internetu.';
+    els.speechInfo.textContent = 'Wbudowane rozpoznawanie mowy przeglądarki (język polski). W Chrome dźwięk jest przetwarzany przez serwery Google i wymaga internetu.';
   }
   checkStatus();
   requestAnimationFrame(drawViz);

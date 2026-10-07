@@ -121,9 +121,9 @@ export function convertSpoken(raw) {
   // units
   const NUM = '(\\d+(?:,\\d+)?)';
   text = text
-    .replace(new RegExp(`${NUM}\\s*(?:milimetr\\p{L}*|mm\\.?)(?!\\p{L})`, 'giu'), '$1 mm')
-    .replace(new RegExp(`${NUM}\\s*(?:centymetr\\p{L}*|cm\\.?)(?!\\p{L})`, 'giu'), '$1 cm')
-    .replace(new RegExp(`${NUM}\\s*(?:mililitr\\p{L}*|ml\\.?)(?!\\p{L})`, 'giu'), '$1 ml')
+    .replace(new RegExp(`${NUM}\\s*(?:milimetr\\p{L}*|mm)(?!\\p{L})`, 'giu'), '$1 mm')
+    .replace(new RegExp(`${NUM}\\s*(?:centymetr\\p{L}*|cm)(?!\\p{L})`, 'giu'), '$1 cm')
+    .replace(new RegExp(`${NUM}\\s*(?:mililitr\\p{L}*|ml)(?!\\p{L})`, 'giu'), '$1 ml')
     .replace(new RegExp(`${NUM}\\s*(?:jednost\\p{L}*\\s+hounsfield\\p{L}*|jednost\\p{L}*\\s+h\\b|jednost\\p{L}*|j\\.?\\s?h\\.?)(?!\\p{L})`, 'giu'), '$1 j.H.')
     .replace(new RegExp(`${NUM}\\s*(?:procent\\p{L}*)(?!\\p{L})`, 'giu'), '$1%');
   // "12 na 8 mm" → "12 x 8 mm"
@@ -169,84 +169,6 @@ export function scrubIdentifiers(text) {
   return String(text || '').replace(/(?<!\d)\d{11}(?!\d)/g, '[PESEL]');
 }
 
-// ---------------------------------------------------------------- local engine
-const CONCLUSION_RE = /^(wnios\p{L}*|podsumow\p{L}*|konkluzj\p{L}*)[\s:,–-]*/iu;
-const REST_NORMAL_RE = /^(poza tym|pozostał\p{L}*|reszta|w pozostałym zakresie)\b.*(bez (zmian|odchyleń|istotnych)|w normie|prawidłow\p{L}*)/iu;
-
-function splitSentences(text) {
-  return text
-    .split(/(?<=[.!?])\s+|\n+/u)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 1);
-}
-
-function routeSentence(template, sentence) {
-  const lc = sentence.toLowerCase();
-  let best = null;
-  let bestScore = 0;
-  for (const s of template.sections) {
-    let score = 0;
-    for (const k of s.keywords || []) if (lc.includes(k)) score += k.length > 6 ? 2 : 1;
-    if (score > bestScore) { best = s; bestScore = score; }
-  }
-  return best ? best.id : 'other';
-}
-
-/**
- * Non-AI fallback: put dictated sentences into the matching template sections.
- * Returns { report, warnings, changed: [sectionIds], conclusionChanged }.
- */
-export function localMerge(template, report, dictation) {
-  const text = normalizeDictation(dictation);
-  const sentences = splitSentences(text);
-  const bySection = new Map();
-  const conclusion = [];
-  let inConclusion = false;
-  for (let s of sentences) {
-    if (CONCLUSION_RE.test(s)) {
-      inConclusion = true;
-      s = tidy(s.replace(CONCLUSION_RE, ''));
-      if (!s || s === '.') continue;
-    }
-    if (inConclusion) { conclusion.push(s); continue; }
-    if (REST_NORMAL_RE.test(s)) continue;
-    const id = routeSentence(template, s);
-    if (!bySection.has(id)) bySection.set(id, []);
-    bySection.get(id).push(s);
-  }
-
-  const warnings = [];
-  const changed = [];
-  const sections = report.sections.map((sec) => {
-    const add = bySection.get(sec.id);
-    if (!add) return { ...sec };
-    const tpl = template.sections.find((t) => t.id === sec.id);
-    const isDefault = !sec.text.trim() || (tpl && sec.text.trim() === tpl.normal.trim());
-    changed.push(sec.id);
-    if (isDefault && tpl && tpl.normal) {
-      warnings.push(`„${sec.label}”: tekst prawidłowy zastąpiono dyktowanym — sprawdź, czy nic nie pominięto.`);
-    }
-    return { ...sec, text: isDefault ? add.join(' ') : `${sec.text.trim()} ${add.join(' ')}` };
-  });
-
-  let newConclusion = report.conclusion;
-  let conclusionChanged = false;
-  if (conclusion.length) {
-    const isDefault = !report.conclusion.trim() || report.conclusion.trim() === template.conclusion.trim();
-    newConclusion = isDefault ? conclusion.join(' ') : `${report.conclusion.trim()} ${conclusion.join(' ')}`;
-    conclusionChanged = true;
-  } else if (changed.length && report.conclusion.trim() === template.conclusion.trim()) {
-    warnings.push('Opis zawiera zmiany, a wnioski nadal są prawidłowe — uzupełnij wnioski.');
-  }
-
-  return {
-    report: { ...report, sections, conclusion: newConclusion },
-    warnings,
-    changed,
-    conclusionChanged,
-  };
-}
-
 // ---------------------------------------------------------------- diff
 function tokens(s) { return String(s || '').match(/\s+|[^\s]+/g) || []; }
 
@@ -286,17 +208,4 @@ export function wordDiff(oldText, newText) {
     else merged.push({ ...seg });
   }
   return merged;
-}
-
-// ---------------------------------------------------------------- export
-export function reportToText(report, { labels = false } = {}) {
-  const out = [];
-  if (report.title) out.push(report.title.trim());
-  if (report.technique && report.technique.trim()) out.push(`Technika badania: ${report.technique.trim()}`);
-  const body = report.sections
-    .filter((s) => s.text && s.text.trim())
-    .map((s) => (labels ? `${s.label}: ${s.text.trim()}` : s.text.trim()));
-  if (body.length) out.push(`Opis:\n${body.join('\n')}`);
-  if (report.conclusion && report.conclusion.trim()) out.push(`Wnioski:\n${report.conclusion.trim()}`);
-  return out.join('\n\n');
 }

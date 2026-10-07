@@ -71,22 +71,20 @@ test('serves the app and blocks path traversal', async () => {
   assert.notEqual(bad.status, 200);
 });
 
-test('format: sends a well-formed Claude request and merges the result', async () => {
-  const tpl = getTemplate('ct-head');
+test('format: sends a well-formed Claude request and applies the cross-check safety net', async () => {
+  const tpl = getTemplate('ct_head_normal');
   const report = reportFromTemplate(tpl);
-  const aiSections = tpl.sections.map((s) => ({
-    id: s.id,
-    text: s.id === 'parenchyma' ? 'W prawym płacie czołowym obszar hipodensyjny o wymiarze 12 mm, bez efektu masy. Zróżnicowanie istoty szarej i białej poza tym zachowane.' : s.normal,
-  }));
+  // Claude adds the bleed but (deliberately, for this test) forgets to remove "bez cech krwawienia".
   nextReply = {
     json: message(JSON.stringify({
-      technique: report.technique,
-      sections: aiSections,
-      conclusion: 'Obszar hipodensyjny w prawym płacie czołowym — obraz może odpowiadać przebytemu niedokrwieniu.',
-      warnings: ['Nie podano wieku zmiany.'],
+      header: report.header,
+      body: report.body + '\nKrwiak podtwardówkowy nad lewą półkulą mózgu grubości 8 mm.',
+      conclusion: '- Krwiak podtwardówkowy nad lewą półkulą mózgu (8 mm).',
+      corrections: [{ removed: 'x', replacement: '', reason: 'test' }],
+      warnings: ['Nie podano wieku krwiaka.'],
     })),
   };
-  const res = await post({ templateId: 'ct-head', report, dictation: 'obszar hipodensyjny 12 mm w prawym płacie czołowym', instruction: '', style: 'Wnioski numeruj.' });
+  const res = await post({ templateId: 'ct_head_normal', report, dictation: 'krwiak podtwardówkowy osiem milimetrów', instruction: '', style: 'Wnioski numeruj.' });
   const data = await res.json();
   assert.equal(res.status, 200, JSON.stringify(data));
 
@@ -98,48 +96,39 @@ test('format: sends a well-formed Claude request and merges the result', async (
   assert.equal(b.model, 'claude-opus-5-5');
   assert.equal(b.fallbacks, 'default');
   assert.equal(b.output_config.format.type, 'json_schema');
-  assert.deepEqual(b.output_config.format.schema.properties.sections.items.properties.id.enum, tpl.sections.map((s) => s.id));
+  assert.deepEqual(b.output_config.format.schema.required, ['header', 'body', 'conclusion', 'corrections', 'warnings']);
   assert.equal(b.output_config.effort, 'medium');
+  assert.match(b.system, /CROSS-CHECK/);
   assert.ok(!('betas' in b), 'betas go in the header, not the body');
   const userPayload = JSON.parse(b.messages[0].content);
-  assert.equal(userPayload.dictation, 'obszar hipodensyjny 12 mm w prawym płacie czołowym');
+  assert.equal(userPayload.template.body, tpl.body);
+  assert.equal(userPayload.dictation, 'krwiak podtwardówkowy osiem milimetrów');
   assert.equal(userPayload.style_preferences, 'Wnioski numeruj.');
 
-  // merged result
-  assert.deepEqual(data.changed, ['parenchyma']);
-  assert.equal(data.conclusionChanged, true);
-  assert.equal(data.report.sections[0].text, aiSections[0].text);
-  assert.deepEqual(data.warnings, ['Nie podano wieku zmiany.']);
-});
-
-test('format: sections missing from the AI reply are kept and flagged', async () => {
-  const tpl = getTemplate('ct-chest');
-  const report = reportFromTemplate(tpl);
-  nextReply = {
-    json: message(JSON.stringify({ technique: report.technique, sections: [{ id: 'lungs', text: 'Guzek 6 mm w segmencie 6 płuca prawego.' }], conclusion: report.conclusion, warnings: [] })),
-  };
-  const data = await (await post({ templateId: 'ct-chest', report, dictation: 'guzek sześć milimetrów w szóstym segmencie płuca prawego' })).json();
-  assert.equal(data.report.sections.find((s) => s.id === 'pleura').text, report.sections.find((s) => s.id === 'pleura').text);
-  assert.ok(data.warnings.some((w) => w.includes('nie zwróciło sekcji')));
+  // safety net removed the contradiction Claude left in
+  assert.ok(!/bez cech krwawienia/i.test(data.report.body), data.report.body);
+  assert.ok(data.corrections.some((c) => c.reason.includes('kontrola automatyczna')));
+  assert.equal(data.report.conclusion, '- Krwiak podtwardówkowy nad lewą półkulą mózgu (8 mm).', "Claude's own conclusion is kept");
+  assert.deepEqual(data.warnings, ['Nie podano wieku krwiaka.']);
 });
 
 test('format: refusal and auth errors become readable messages', async () => {
-  const report = reportFromTemplate(getTemplate('ct-head'));
+  const report = reportFromTemplate(getTemplate('ct_head_normal'));
   nextReply = { json: message('', 'refusal') };
-  let res = await post({ templateId: 'ct-head', report, dictation: 'x' });
+  let res = await post({ templateId: 'ct_head_normal', report, dictation: 'x' });
   assert.equal(res.status, 422);
 
   nextReply = { status: 401, json: { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } } };
-  res = await post({ templateId: 'ct-head', report, dictation: 'x' });
+  res = await post({ templateId: 'ct_head_normal', report, dictation: 'x' });
   assert.equal(res.status, 401);
   assert.match((await res.json()).error, /klucz API/);
 });
 
 test('format: input validation', async () => {
-  const report = reportFromTemplate(getTemplate('ct-head'));
+  const report = reportFromTemplate(getTemplate('ct_head_normal'));
   assert.equal((await post({ templateId: 'nope', report, dictation: 'x' })).status, 400);
-  assert.equal((await post({ templateId: 'ct-chest', report, dictation: 'x' })).status, 400, 'report must match template');
-  assert.equal((await post({ templateId: 'ct-head', report, dictation: '  ' })).status, 400);
+  assert.equal((await post({ templateId: 'ct_head_normal', report: { header: 1 }, dictation: 'x' })).status, 400);
+  assert.equal((await post({ templateId: 'ct_head_normal', report, dictation: '  ' })).status, 400);
   const bad = await fetch(`${appUrl}/api/format`, { method: 'POST', body: '{not json' });
   assert.equal(bad.status, 400);
 });

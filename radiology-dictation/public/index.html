@@ -19,11 +19,22 @@
       <div class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
       </div>
-      <div>
+      <div class="brand-text">
         <div class="brand-name">RadVox</div>
         <div class="brand-sub">Dyktowanie opisów radiologicznych</div>
       </div>
     </div>
+
+    <button class="tpl-current" id="tplCurrent" title="Zmień szablon (T)" aria-haspopup="dialog">
+      <span class="tpl-chip" id="tplGroupChip">Bez urazu</span>
+      <span class="tpl-current-text">
+        <span class="tpl-current-region" id="tplRegion">Głowa</span>
+        <span class="tpl-current-title" id="tplTitle">CT Head normal</span>
+      </span>
+      <svg class="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+      <kbd class="hide-sm">T</kbd>
+    </button>
+
     <div class="topbar-right">
       <div class="status-pill" id="aiStatus" title="Status AI">
         <span class="dot"></span><span class="label">Sprawdzanie AI…</span>
@@ -38,10 +49,8 @@
   </header>
 
   <main class="layout">
-    <!-- ============ LEFT: dictation ============ -->
+    <!-- ============ dictation ============ -->
     <section class="panel dictation" aria-label="Dyktowanie">
-      <div class="templates" id="templates" role="radiogroup" aria-label="Szablony badań"></div>
-
       <div class="recorder">
         <div class="rec-wrap" id="recWrap">
           <canvas class="rec-viz" id="recViz" width="360" height="360" aria-hidden="true"></canvas>
@@ -58,99 +67,109 @@
         </div>
       </div>
 
-      <div class="field">
-        <div class="field-head">
-          <label for="dictation">Dyktat</label>
-          <div class="field-tools">
-            <span class="badge-soft" id="speechBadge">pl-PL</span>
-            <button class="link-btn" id="clearDictation" title="Wyczyść dyktat">Wyczyść</button>
+      <div class="dict-fields">
+        <div class="field">
+          <div class="field-head">
+            <label for="dictation">Dyktat</label>
+            <div class="field-tools">
+              <span class="badge-soft" id="speechBadge">pl-PL</span>
+              <div class="pop-wrap">
+                <button class="link-btn" id="snippetsBtn" aria-haspopup="menu" title="Wstaw gotowy fragment tekstu (W)">
+                  <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/><path d="M18 15v6M15 18h6"/></svg>Wstawki
+                </button>
+                <div class="popover" id="snippetsPop" role="menu" hidden></div>
+              </div>
+              <button class="link-btn" id="clearDictation" title="Wyczyść dyktat">Wyczyść</button>
+            </div>
+          </div>
+          <div class="dictation-box">
+            <textarea id="dictation" spellcheck="true" lang="pl" placeholder="Dyktuj lub wpisz… np. „krwiak podtwardówkowy nad lewą półkulą grubości 8 mm, reszta bez zmian”"></textarea>
+            <div class="interim" id="interim" aria-live="polite"></div>
           </div>
         </div>
-        <div class="dictation-box">
-          <textarea id="dictation" spellcheck="true" lang="pl" placeholder="Dyktuj lub wpisz tekst… np. „w prawym płacie czołowym obszar hipodensyjny 12 mm bez efektu masy, reszta bez zmian”"></textarea>
-          <div class="interim" id="interim" aria-live="polite"></div>
+
+        <div class="field">
+          <input id="instruction" type="text" placeholder="Polecenie dla AI (opcjonalnie) — np. skróć wnioski" autocomplete="off" aria-label="Polecenie dla AI" />
         </div>
-      </div>
 
-      <div class="field">
-        <div class="field-head">
-          <label for="instruction">Polecenie dla AI <span class="muted">(opcjonalnie)</span></label>
+        <div class="actions">
+          <button class="btn btn-primary btn-xl" id="processBtn">
+            <svg viewBox="0 0 24 24"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
+            <span class="btn-label">Opracuj z AI</span>
+            <kbd class="kbd-in">Ctrl ↵</kbd>
+          </button>
+          <label class="switch" title="Po zatrzymaniu nagrywania tekst zostanie automatycznie opracowany">
+            <input type="checkbox" id="autoProcess" checked />
+            <span class="track"><span class="thumb"></span></span>
+            <span>Auto po zatrzymaniu</span>
+          </label>
         </div>
-        <input id="instruction" type="text" placeholder="np. skróć wnioski · dodaj zalecenie kontroli · popraw styl" autocomplete="off" />
-      </div>
 
-      <div class="actions">
-        <button class="btn btn-primary btn-xl" id="processBtn">
-          <svg viewBox="0 0 24 24"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
-          <span class="btn-label">Opracuj z AI</span>
-          <kbd class="kbd-in">Ctrl ↵</kbd>
-        </button>
-        <label class="switch" title="Po zatrzymaniu nagrywania tekst zostanie automatycznie opracowany">
-          <input type="checkbox" id="autoProcess" checked />
-          <span class="track"><span class="thumb"></span></span>
-          <span>Opracuj automatycznie po zatrzymaniu</span>
-        </label>
+        <p class="privacy">
+          <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/></svg>
+          Nie dyktuj danych osobowych. Numery PESEL są usuwane przed wysłaniem do AI.
+        </p>
       </div>
-
-      <p class="privacy">
-        <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/></svg>
-        Nie dyktuj danych osobowych pacjenta. Numery PESEL są automatycznie usuwane przed wysłaniem do AI.
-      </p>
     </section>
 
-    <!-- ============ RIGHT: report ============ -->
+    <!-- ============ report ============ -->
     <section class="panel report" aria-label="Raport">
       <div class="report-toolbar">
         <div class="tb-group">
           <button class="tb-btn" id="undoBtn" title="Cofnij (Ctrl+Z poza polem tekstu)" disabled>
             <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span>Cofnij</span>
           </button>
-          <button class="tb-btn" id="redoBtn" title="Ponów" disabled>
+          <button class="tb-btn" id="redoBtn" title="Ponów (Ctrl+Y)" disabled>
             <svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg><span>Ponów</span>
           </button>
           <span class="tb-sep"></span>
           <button class="tb-btn" id="acceptBtn" title="Akceptuj zmiany (usuń podświetlenia)" disabled>
-            <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Akceptuj zmiany</span>
+            <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Akceptuj</span>
           </button>
           <button class="tb-btn" id="resetBtn" title="Przywróć czysty szablon">
             <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span>Nowy opis</span>
           </button>
         </div>
-        <div class="tb-group">
-          <label class="switch small" title="Dołącz nazwy narządów w kopiowanym tekście">
-            <input type="checkbox" id="labelsToggle" />
-            <span class="track"><span class="thumb"></span></span>
-            <span>Nagłówki</span>
-          </label>
-          <button class="btn btn-copy" id="copyBtn" title="Kopiuj do schowka (Ctrl+Shift+C)">
-            <svg class="ic-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
-            <svg class="ic-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
-            <span class="btn-label">Kopiuj opis</span>
-          </button>
-        </div>
+        <button class="btn btn-copy" id="copyBtn" title="Kopiuj do schowka (Ctrl+Shift+C)">
+          <svg class="ic-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+          <svg class="ic-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+          <span class="btn-label">Kopiuj opis</span>
+        </button>
       </div>
 
       <div class="report-scroll" id="reportScroll">
         <article class="paper" id="paper">
           <div class="paper-head">
-            <div class="modality-badge" id="modalityBadge">TK</div>
-            <h1 class="exam-title" id="examTitle" contenteditable="true" spellcheck="true" lang="pl"></h1>
+            <h1 class="exam-title" id="examHeader" contenteditable="true" spellcheck="true" lang="pl"></h1>
+          </div>
+
+          <div class="conflicts" id="conflicts" hidden>
+            <div class="conflicts-head">
+              <svg viewBox="0 0 24 24"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4.5M12 17.5h.01"/></svg>
+              <span>Sprzeczność z szablonem</span>
+              <button class="mini-btn strong" id="fixAllBtn">Popraw wszystkie</button>
+            </div>
+            <ul id="conflictsList"></ul>
           </div>
 
           <div class="block">
-            <div class="block-label">Technika badania</div>
-            <div class="editable technique" id="technique" contenteditable="true" spellcheck="true" lang="pl"></div>
-          </div>
-
-          <div class="block">
-            <div class="block-label">Opis</div>
-            <div class="sections" id="sections"></div>
+            <div class="block-label" id="bodyLabel">Opis</div>
+            <div class="editable body-text" id="bodyText" contenteditable="true" spellcheck="true" lang="pl"></div>
           </div>
 
           <div class="block conclusion-block">
             <div class="block-label">Wnioski</div>
             <div class="editable conclusion" id="conclusion" contenteditable="true" spellcheck="true" lang="pl"></div>
           </div>
+
+          <details class="corrections" id="corrections" hidden open>
+            <summary>
+              <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg>
+              <span id="correctionsTitle">Skorygowano szablon</span>
+              <span class="hint-inline">dyktat ma pierwszeństwo</span>
+            </summary>
+            <ul id="correctionsList"></ul>
+          </details>
 
           <div class="warnings" id="warnings" hidden>
             <div class="warnings-head">
@@ -177,19 +196,34 @@
     </section>
   </main>
 
+  <!-- Template picker -->
+  <div class="modal picker-modal" id="picker" hidden role="dialog" aria-label="Wybór szablonu">
+    <div class="picker">
+      <div class="picker-head">
+        <div class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="pickerSearch" type="text" placeholder="Szukaj szablonu… np. KUB, żebra, angio" autocomplete="off" />
+        </div>
+        <button class="icon-btn" id="closePicker" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="picker-tabs" role="tablist" id="pickerTabs"></div>
+      <div class="picker-recent" id="pickerRecent"></div>
+      <div class="picker-body" id="pickerBody"></div>
+      <div class="picker-foot mono"><kbd>↑</kbd><kbd>↓</kbd> wybór · <kbd>↵</kbd> otwórz · <kbd>Esc</kbd> zamknij</div>
+    </div>
+  </div>
+
   <!-- Settings drawer -->
   <div class="overlay" id="overlay" hidden></div>
   <aside class="drawer" id="settings" aria-hidden="true" aria-label="Ustawienia">
     <div class="drawer-head">
       <h3>Ustawienia</h3>
-      <button class="icon-btn" id="closeSettings" aria-label="Zamknij">
-        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
+      <button class="icon-btn" id="closeSettings" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
     <div class="drawer-body">
       <div class="field">
         <div class="field-head"><label for="stylePrefs">Mój styl opisu</label></div>
-        <textarea id="stylePrefs" rows="7" placeholder="Wskazówki dla AI, np.:&#10;– Wnioski numeruj.&#10;– Używaj „bez zmian ogniskowych” zamiast „bez zmian patologicznych”.&#10;– Poziomy kręgosłupa zapisuj jako L4/L5."></textarea>
+        <textarea id="stylePrefs" rows="7" placeholder="Wskazówki dla AI, np.:&#10;– Wnioski numeruj.&#10;– Poziomy kręgosłupa zapisuj jako L4/L5."></textarea>
         <p class="hint">Wysyłane do AI przy każdym opracowaniu. Zapisywane tylko w tej przeglądarce.</p>
       </div>
       <div class="field">
@@ -199,12 +233,9 @@
       <div class="field">
         <div class="field-head"><label>Polecenia głosowe</label></div>
         <div class="cmd-grid">
-          <span>„kropka”</span><span>.</span>
-          <span>„przecinek”</span><span>,</span>
+          <span>„kropka” / „przecinek”</span><span>. ,</span>
           <span>„dwukropek”</span><span>:</span>
-          <span>„nowa linia”</span><span>↵</span>
-          <span>„nowy akapit”</span><span>↵↵</span>
-          <span>„otwórz / zamknij nawias”</span><span>( )</span>
+          <span>„nowa linia” / „nowy akapit”</span><span>↵ ↵↵</span>
           <span>„dwa przecinek pięć”</span><span>2,5</span>
           <span>„dwanaście na osiem milimetrów”</span><span>12 x 8 mm</span>
           <span>„l cztery l pięć”</span><span>L4/L5</span>
@@ -221,12 +252,12 @@
         <button class="icon-btn" id="closeHelp" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
       <dl class="shortcuts">
-        <dt><kbd>Spacja</kbd></dt><dd>Start / stop dyktowania (poza polem tekstu)</dd>
-        <dt><kbd>F2</kbd></dt><dd>Start / stop dyktowania (zawsze)</dd>
+        <dt><kbd>Spacja</kbd> / <kbd>F2</kbd></dt><dd>Start / stop dyktowania</dd>
+        <dt><kbd>T</kbd></dt><dd>Wybór szablonu</dd>
+        <dt><kbd>W</kbd></dt><dd>Wstawki</dd>
         <dt><kbd>Ctrl</kbd> <kbd>↵</kbd></dt><dd>Opracuj z AI</dd>
         <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>C</kbd></dt><dd>Kopiuj opis do schowka</dd>
-        <dt><kbd>Ctrl</kbd> <kbd>Z</kbd></dt><dd>Cofnij zmianę raportu (poza polem tekstu)</dd>
-        <dt><kbd>1</kbd>–<kbd>4</kbd></dt><dd>Wybór szablonu (poza polem tekstu)</dd>
+        <dt><kbd>Ctrl</kbd> <kbd>Z</kbd> / <kbd>Y</kbd></dt><dd>Cofnij / ponów (poza polem tekstu)</dd>
         <dt><kbd>?</kbd></dt><dd>Ta pomoc</dd>
       </dl>
     </div>

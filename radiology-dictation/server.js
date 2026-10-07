@@ -45,15 +45,12 @@ function readBody(req) {
   });
 }
 
-function validReport(report, template) {
+function validReport(report) {
   return (
     report &&
     typeof report === 'object' &&
-    Array.isArray(report.sections) &&
-    report.sections.length === template.sections.length &&
-    report.sections.every((s, i) => s && s.id === template.sections[i].id && typeof s.text === 'string') &&
-    typeof report.conclusion === 'string' &&
-    typeof report.technique === 'string'
+    ['header', 'body', 'conclusion'].every((k) => typeof report[k] === 'string') &&
+    report.header.length + report.body.length + report.conclusion.length < 60000
   );
 }
 
@@ -68,7 +65,7 @@ async function handleFormat(req, res) {
   }
   const template = getTemplate(body.templateId);
   if (!template) return sendJson(res, 400, { error: 'Nieznany szablon.' });
-  if (!validReport(body.report, template)) return sendJson(res, 400, { error: 'Nieprawidłowa struktura raportu.' });
+  if (!validReport(body.report)) return sendJson(res, 400, { error: 'Nieprawidłowa struktura raportu.' });
   const dictation = String(body.dictation || '').slice(0, 20000);
   const instruction = String(body.instruction || '').slice(0, 2000);
   if (!dictation.trim() && !instruction.trim()) return sendJson(res, 400, { error: 'Brak dyktowanego tekstu.' });

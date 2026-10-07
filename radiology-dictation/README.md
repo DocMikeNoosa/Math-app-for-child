@@ -1,10 +1,10 @@
 # RadVox — Polish radiology dictation (prototype)
 
-A dark, web-based dictation app for Polish radiology reports. You dictate in Polish,
-and the text goes into a structured report template (TK głowy, TK klatki piersiowej,
-MR kręgosłupa L-S, USG jamy brzusznej). Claude rewrites it in radiological language and
-puts each finding in the right section. You check the highlighted changes, edit anything
-inline, and copy the finished report into your RIS.
+A dark, web-based dictation app for Polish radiology reports. You pick one of your own templates
+(trauma / non-trauma, by anatomical region) and dictate in Polish. Claude rewrites the dictation in
+radiological language, inserts it in the right place, **removes every template statement the
+dictation contradicts**, and writes a short conclusion from the pathological findings. You check
+the highlighted changes, edit anything inline, and copy the report into your RIS.
 
 ## Quick start
 
@@ -24,44 +24,87 @@ sentences go into template sections by keyword rules, without AI rewriting.
 
 ## How to use
 
-1. Choose a template (or press keys `1`–`4`).
-2. Click the big microphone button (or press `Space` / `F2`) and dictate. For example:
-   *"w prawym płacie czołowym obszar hipodensyjny dwanaście milimetrów bez efektu masy kropka
-   reszta bez zmian kropka wnioski podejrzenie przebytego udaru"*
-3. Stop recording. With "Opracuj automatycznie" switched on, the text is processed
-   straight away (otherwise press **Opracuj z AI** or `Ctrl+Enter`).
-4. Changed text is highlighted in blue. Anything Claude was unsure about appears under
-   **Do sprawdzenia**.
-5. Click into any section to edit it by hand. **Cofnij / Ponów** undo and redo, and
-   **Akceptuj zmiany** clears the highlights.
-6. **Kopiuj opis** (`Ctrl+Shift+C`) copies plain text ready to paste into the RIS. The
-   **Nagłówki** switch adds organ names in front of each line.
+1. **Choose a template**: click the template button in the top bar (or press `T`). Templates are
+   grouped **Uraz / Bez urazu** (trauma / non-trauma) and then by anatomical region. Typing
+   searches every template (e.g. "kub", "żebra"), recently used ones are listed first, and the
+   arrow keys plus Enter work too.
+2. Click the big microphone button (or press `Space` / `F2`) and dictate in Polish.
+3. Stop recording. With "Auto po zatrzymaniu" switched on, the text is processed straight away
+   (otherwise press **Opracuj z AI** or `Ctrl+Enter`).
+4. Changed text is highlighted. **Skorygowano szablon** lists every template sentence that was
+   removed or rewritten, and why. **Do sprawdzenia** lists anything to verify.
+5. Edit the report directly. **Cofnij / Ponów** undo and redo, and **Akceptuj** clears the highlights.
+6. **Kopiuj opis** (`Ctrl+Shift+C`) copies the report in exactly the template's own layout
+   (Badanie / Opis / Wnioski).
 
-You can dictate more later: new dictation is merged into the existing report. You can also
-type an instruction (e.g. *"skróć wnioski"*). Under ⚙ **Mój styl opisu** you can save
-personal style rules that are sent with every request.
+**Wstawki** (`W`) inserts ready-made fragments (snippets) into the dictation box. You can dictate
+again later and the new dictation is merged into the report. Type an instruction ("skróć wnioski")
+for the AI, and set personal style rules under ⚙.
 
-Voice commands: `kropka`, `przecinek`, `dwukropek`, `nowa linia`, `nowy akapit`,
-`otwórz/zamknij nawias`. Numbers and units are converted automatically
-("dwa przecinek pięć milimetra" → "2,5 mm", "l cztery l pięć" → "L4/L5").
+## Cross-check: dictation always beats the template
+
+Every template sentence is a default "normal" statement. After each dictation the whole report is
+checked, and any template statement contradicted by a dictated finding is removed. If only part of
+a list sentence is contradicted, only that part goes and the rest is re-joined grammatically:
+
+| Dictated | Template before → after |
+|---|---|
+| subdural haematoma | "Struktury mózgowia bez zmian ogniskowych, bez cech krwawienia śródczaszkowego, ostrych zmian niedokrwiennych…" → "Struktury mózgowia bez zmian ogniskowych, bez cech ostrych zmian niedokrwiennych…" |
+| left ureteric stone | "Nie stwierdza się złogów w układzie moczowym." → removed ("Bez cech wodonercza" stays, because a stone alone doesn't imply hydronephrosis) |
+| rib fracture | "Nie uwidoczniono złamań mostka, żeber i kręgosłupa piersiowego." → "Nie uwidoczniono złamań mostka i kręgosłupa piersiowego." |
+| splenic laceration | "Bez cech urazu wątroby, śledziony, trzustki…" → "Bez cech urazu wątroby, trzustki…" |
+| old lacunar infarcts | "bez zmian ogniskowych" removed; "Bez cech ostrej patologii" kept (old ≠ acute) |
+
+This works in two layers:
+- **Claude** gets a mandatory cross-check instruction and returns a list of what it changed.
+- **A deterministic checker** (`public/js/crosscheck.js`) runs afterwards as a safety net, and is
+  also the whole engine in local mode. It uses a Polish radiology vocabulary of finding types,
+  organs (with hierarchy, e.g. ureter ⊂ urinary tract ⊂ abdomen), sides, negation ("bez", "nie
+  stwierdza się"), uncertainty ("nie można wykluczyć" counts as a finding), acute vs old changes,
+  and sub-headings such as "Klatka piersiowa:".
+
+If you type a finding by hand, the checker does not change your text. Instead a red
+**Sprzeczność z szablonem** (conflict with the template) panel appears, with **Popraw** (fix) /
+**Pomiń** (skip) per sentence and **Popraw wszystkie** (fix all).
+
+## Conclusions (Wnioski)
+
+When the report contains pathology, the conclusion is written automatically: a short form of each
+relevant pathological finding, most urgent first (bleed, mass effect, pneumothorax… before old or
+minor findings), in the template's own style ("- …" or "1. …"). Template conclusion lines that are
+still true (e.g. "Bez wewnątrzczaszkowych zmian pourazowych") are kept underneath, and
+contradicted ones are removed. Dictating "wnioski …" yourself replaces the automatic conclusion.
+Claude writes these conclusions in proper radiological shorthand; local mode reuses your own
+sentences, shortened.
+
+## Layouts
+
+- **Full screen**: dictation panel on the left, report on the right.
+- **Half screen** (about 700–1180 px wide): the dictation becomes a compact strip above the report.
+- **Phone**: everything stacks.
+
+## Templates
+
+`public/js/template-data.js` holds your 45 entries (35 report templates and 10 snippets), plus
+MR L-S and USG abdomen from the first prototype (47 in total). To add or change a template, edit
+that file. The text format is the same as in your template manager (first line =
+examination, `Opis:`, body, `Wnioski:`, conclusion lines).
 
 ## How it works
 
 | Part | File |
 |---|---|
 | Speech recognition (Web Speech API, pl-PL) + microphone visualiser | `public/js/speech.js` |
-| Templates (normal text per section) | `public/js/templates.js` |
-| Polish text: numbers, units, voice commands, local fallback, diff, export | `public/js/polish-text.js` |
+| Templates: parsing, trauma/region catalogue, snippets, export | `public/js/templates.js`, `public/js/template-data.js` |
+| Cross-check, local merge, conclusions | `public/js/crosscheck.js` |
+| Polish text: numbers, units, voice commands, diff | `public/js/polish-text.js` |
 | UI | `public/index.html`, `public/styles.css`, `public/js/app.js` |
 | Server (static files + `/api/format`) | `server.js` |
-| Claude prompt, JSON schema, merge | `lib/claude.js` |
+| Claude prompt, JSON schema, safety-net merge | `lib/claude.js` |
 
-Claude (default `claude-opus-5-5`, effort `medium`) gets the template, the current report,
-the dictation and your style rules. It returns structured JSON (`output_config.format`,
-validated against a schema). It is instructed **never to invent findings or change
-measurements, sides or levels**, and to report doubts as warnings. The server merges the
-result into the report section by section, so no section can be lost. The server-side
-refusal fallback (`fallbacks: "default"`) is on; set `CLAUDE_FALLBACKS=0` to turn it off.
+Claude (default `claude-opus-5-5`, effort `medium`) returns structured JSON (`output_config.format`)
+containing the header, body, conclusion, corrections and warnings. The refusal fallback
+(`fallbacks: "default"`) is on; set `CLAUDE_FALLBACKS=0` to turn it off.
 
 ## Privacy — read before clinical use
 
@@ -82,6 +125,6 @@ refusal fallback (`fallbacks: "default"`) is on; set `CLAUDE_FALLBACKS=0` to tur
 npm test
 ```
 
-The tests cover the Polish text processing, the local fallback, the diff, the export, the
+The tests cover the Polish text processing, all 35 templates (parsing and an exact export round trip), the cross-check and conclusions on real templates, the
 server, and the Claude call path (against a mock Anthropic API that checks the request shape
 and error handling).
