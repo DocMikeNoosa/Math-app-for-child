@@ -1,6 +1,15 @@
 @echo off
 title RadVox
 cd /d "%~dp0"
+if not exist "package.json" (
+  echo.
+  echo This file was opened from inside the ZIP file, so it cannot run.
+  echo Right-click the ZIP file, choose "Extract All...", then "Extract",
+  echo and start this file again from the extracted folder.
+  echo.
+  pause
+  exit /b 1
+)
 where node >nul 2>nul
 if errorlevel 1 (
   echo.
@@ -17,6 +26,12 @@ if not exist ".env" (
 if not exist "node_modules" (
   echo Installing - first start only, please wait...
   call npm install --no-audit --no-fund
+  if errorlevel 1 (
+    echo.
+    echo Installation failed. Send a screenshot of this window.
+    pause
+    exit /b 1
+  )
 )
 echo.
 echo RadVox is running. Keep this window open. Close it to stop RadVox.
