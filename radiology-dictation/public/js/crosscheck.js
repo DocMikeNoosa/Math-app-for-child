@@ -613,6 +613,8 @@ export const moveFindingsToTop = arrangeFindings;
  * Returns { report, corrections, warnings }.
  */
 export function enforceConsistency(template, report) {
+  const extracted = extractRecommendations(report, template.bullet);
+  report = extracted.report;
   const conflicts = findConflicts(template, report);
   let next = applyConflicts(template, report, conflicts);
   const corrections = conflicts.map((c) => ({
@@ -634,7 +636,67 @@ export function enforceConsistency(template, report) {
     warnings.push('Wnioski utworzono automatycznie z opisanych zmian — zweryfikuj je.');
   }
   next = arrangeFindings(template, next);
+  next = { ...next, conclusion: appendRecommendations(next.conclusion, extracted.recs) };
   return { report: next, corrections, warnings };
+}
+
+// ---------------------------------------------------------------- consultation recommendations
+// "Wskazana pilna konsultacja neurochirurgiczna." never belongs in the description: it goes on
+// one line directly under the conclusion, without a bullet.
+export const RECOMMEND_RE = /konsultacj|skonsultowa|konsultowa|consultation|\bconsult\b|referral/iu;
+const REC_CLAUSE_RE = /^(.*?\S)\s*[,;–]\s*([^,;–]*(?:konsultacj|skonsultowa|konsultowa|consultation|consult|referral)[^,;–]*?)[.!]?$/iu;
+const capFirst = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+const endDot = (s) => (/[.!?]$/.test(s) ? s : `${s}.`);
+
+/** Split one sentence into { keep, rec }: the recommendation part and what is left. */
+function splitRecommendation(sentence) {
+  if (!RECOMMEND_RE.test(sentence)) return { keep: sentence, rec: null };
+  const m = sentence.match(REC_CLAUSE_RE);
+  if (m && !RECOMMEND_RE.test(m[1])) return { keep: endDot(m[1].trim()), rec: endDot(capFirst(m[2].trim())) };
+  return { keep: null, rec: endDot(capFirst(sentence.trim())) };
+}
+
+/** Take consultation recommendations out of the body and the conclusion bullets. */
+export function extractRecommendations(report, style = 'dash') {
+  const recs = [];
+  const take = (line, bulleted) => {
+    if (!RECOMMEND_RE.test(line)) return line;
+    const bullet = bulleted ? (line.match(/^\s*(?:[-–•]|\d+[.)])\s*/) || [''])[0] : '';
+    const sentences = splitSentences(bullet ? line.slice(bullet.length) : line);
+    const kept = [];
+    for (const s of sentences) {
+      const { keep, rec } = splitRecommendation(s);
+      if (rec) recs.push(rec);
+      if (keep) kept.push(keep);
+    }
+    return kept.length ? bullet + kept.join(' ') : null;
+  };
+  // conclusion first (the AI's wording), then the body; urgent recommendations lead
+  const conclusion = renumber(report.conclusion.split('\n').map((l) => take(l, true)).filter((l) => l !== null).join('\n').replace(/\n{2,}/g, '\n').trim(), style);
+  const body = report.body.split('\n').map((l) => take(l, false)).filter((l) => l !== null).join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\s+$/g, '');
+  const urgent = (r) => (/piln|natychmiast|niezwłoczn|urgent|immediate/iu.test(r) ? 0 : 1);
+  recs.sort((a, b) => urgent(a) - urgent(b));
+  const seen = new Set();
+  const unique = recs.filter((r) => {
+    const k = r.toLowerCase().replace(/[^\p{L}\d]+/gu, ' ').trim();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  return { report: { ...report, body, conclusion }, recs: unique };
+}
+
+/** The conclusion with the recommendation(s) on one line underneath, no bullet. */
+export function appendRecommendations(conclusion, recs) {
+  if (!recs?.length) return conclusion;
+  const base = String(conclusion || '').replace(/\s+$/, '');
+  return base ? `${base}\n${recs.join(' ')}` : recs.join(' ');
+}
+
+/** Language-independent: move recommendations under the conclusion. */
+export function placeRecommendations(report, style = 'dash') {
+  const { report: r, recs } = extractRecommendations(report, style);
+  return { ...r, conclusion: appendRecommendations(r.conclusion, recs) };
 }
 
 // ---------------------------------------------------------------- local (non-AI) merge

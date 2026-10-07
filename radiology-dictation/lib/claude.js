@@ -1,6 +1,6 @@
 // Claude-powered report formatting with a mandatory cross-check against the template.
 import Anthropic from '@anthropic-ai/sdk';
-import { enforceConsistency } from '../public/js/crosscheck.js';
+import { enforceConsistency, placeRecommendations } from '../public/js/crosscheck.js';
 import { fidelityWarnings } from '../public/js/polish-text.js';
 import { applyEdits } from './edits.js';
 
@@ -23,6 +23,7 @@ You receive JSON with:
 - "dictation": new raw dictation (may contain speech-recognition errors, missing punctuation, spelled-out numbers).
 - "instruction": an optional editing command from the radiologist (e.g. "skróć wnioski").
 - "style_preferences": optional personal style rules. Follow them.
+- "style_examples": optional pairs {"ai": your earlier wording, "final": the radiologist's corrected version of it}, learned from reports they edited before copying. Learn their preferences (word choice, abbreviations, phrasing, punctuation, sentence length) and write new text in that style. They are style examples only: never copy findings, numbers or sides from them into this report.
 - "input_language": the language of the dictation ("pl" or "en").
 - "output_language": the language the report must be written in ("pl" or "en").
 - "task": "merge" (merge the dictation into the report) or "translate" (translate current_report only).
@@ -37,7 +38,7 @@ LANGUAGES:
 
 Your job:
 1. Correct obvious speech-recognition errors and grammar, and rewrite the dictation in concise, professional Polish radiological language with standard terminology and accepted abbreviations (mm, cm, j.H., L4/L5, …). Numbers as digits, Polish decimal comma, dimensions "12 x 8 mm".
-2. ORDER OF FINDINGS (clinical logic, decided by you):
+2. ORDER OF FINDINGS (clinical logic, decided by you). The radiologist may dictate findings in any order, mixed with normal statements and corrections — the order of the dictation does not matter; you arrange everything:
    - LEADING findings — clinically critical or the primary finding of the study — go at the TOP of the body, right below the template's technique / comparison lines (e.g. "Badanie wykonano w trybie ostrodyżurowym."), most urgent first. Examples: intracranial haemorrhage, mass effect / herniation, acute ischaemia, cerebral oedema, pneumothorax, active bleeding, aortic dissection, vessel occlusion, free air, solid-organ laceration, the obstructing stone (and its hydronephrosis) in a KUB, disc herniation in a spine MR, a suspicious mass.
    - SECONDARY findings stay in their ANATOMICAL place in the template, next to the statements about the same structure (in the template's head-to-toe order): a skull fracture stays with the bones, old lacunes / small-vessel change with the brain parenchyma, a simple cyst with its organ, degenerative change with the spine, sinus mucosal thickening with the sinuses.
    - LINKED findings: when a secondary finding belongs to a leading one, put it directly after that leading finding at the top — e.g. an epidural haematoma and the skull fracture beneath it; a pneumothorax / haemothorax and the rib fractures on the same side; a pelvic fracture with active bleeding. Use your clinical judgement for other such links.
@@ -54,6 +55,19 @@ The dictation ALWAYS has priority over the template. After merging, check every 
 - Dictated hydronephrosis → remove "Bez cech wodonercza".
 Partially contradicted sentences: remove only the contradicted part and re-join the rest in correct Polish (carry over a governing "bez cech …" when you remove the item that held it). Old / chronic findings (e.g. "przebyte ogniska lakunarne") do not contradict statements about acute changes ("bez cech świeżego udaru"), but do contradict "bez zmian ogniskowych".
 Do not add consequences that were not dictated (a stone does not mean hydronephrosis) — only remove or adjust what has become untrue.
+CLASSIFICATIONS — when the dictation contains what a standard system needs, add the category to that finding's conclusion line (short form, e.g. "(Bosniak IIF)"):
+- Incidental solid pulmonary nodule on CT (Fleischner 2017): needs size (mm), solid / part-solid / ground-glass, single / multiple; give the follow-up category and, if the risk level (low / high) was not dictated, give both options or add a warning. Not for patients < 35 y, known cancer, immunosuppression or a screening CT — warn instead.
+- Renal cystic lesion (Bosniak 2019): needs wall / septa features, enhancement, calcification, size.
+- Thyroid nodule on US (ACR TI-RADS): needs composition, echogenicity, shape, margin and echogenic foci; give the points and the TR category.
+- Liver observation in a patient at risk of HCC (LI-RADS v2018): needs size, arterial phase hyperenhancement, washout, capsule, threshold growth.
+- Acute ischaemic stroke on CT (ASPECTS): give the score only if the affected regions were dictated (10 minus the number of affected regions).
+- White-matter hyperintensities on MR (Fazekas 0–3): only if the extent was dictated.
+Compute the category only from dictated data. If something needed is missing, do not guess: give no category and add a warning in Polish naming what is missing (e.g. "Bosniak: brak informacji o wzmocnieniu kontrastowym."). Never invent features to complete a classification.
+
+CONSULTATION / RECOMMENDATION LINE:
+- A dictated recommendation of an urgent surgical or other specialty consultation (e.g. "Wskazana pilna konsultacja neurochirurgiczna.") never goes into the body. Put it as the LAST line of the conclusion, on its own line, WITHOUT a bullet or number. Several such recommendations go together on that one line.
+- Only include a recommendation when it was dictated or requested.
+
 CONCLUSION ("Wnioski") — always formulate it:
 - Whenever the report contains pathological findings, write the conclusion yourself: a SHORT version of each clinically relevant pathological finding (the essence: what, where, key size or grade — not the full description), most urgent / important first, one finding per line, in the template's conclusion style ("- …" bullets or "1. …" numbering, as in the template). Example: body "Krwiak podtwardówkowy nad lewą półkulą mózgu, grubości do 8 mm, powodujący przemieszczenie struktur linii pośrodkowej w prawo o 4 mm." → conclusion "- Krwiak podtwardówkowy nad lewą półkulą mózgu (8 mm) z przemieszczeniem linii pośrodkowej o 4 mm."
 - Related findings may be combined into one line (e.g. a ureteric stone with the resulting hydronephrosis). Incidental, clinically minor findings may be left out of the conclusion or listed last.
@@ -67,7 +81,7 @@ Strict safety rules — never break these:
 - Never invent findings, measurements, sides, levels, locations or diagnoses that were not dictated or already present.
 - Never change a dictated number, unit, side (prawy/lewy), vertebral level or anatomical location. If speech recognition clearly garbled one of these and the intended value is not certain, keep it as dictated and add a warning.
 - Never silently drop a dictated finding.
-- Do not add recommendations unless dictated or requested.
+- Do not add recommendations unless dictated or requested (see CONSULTATION above).
 - If something is ambiguous or clinically inconsistent (side not given, contradictory statements), add a short warning in Polish instead of guessing.
 
 OUTPUT FORMAT — the JSON field "output_mode" in the input says which one to use:
@@ -135,8 +149,10 @@ export function outputModeFor({ report, outputLang = 'pl', translate = false }) 
  * The user turn as two content blocks: the template (stable per template → cached together with
  * the system prompt) and the per-request part. Both are JSON objects.
  */
-export function buildUserContent({ template, report, dictation, instruction, style, inputLang = 'pl', outputLang = 'pl', translate = false }) {
+export function buildUserContent({ template, report, dictation, instruction, style, styleExamples = [], inputLang = 'pl', outputLang = 'pl', translate = false }) {
+  // the learned style examples change rarely → part of the cached block
   const fixed = { template: { header: template.header, body: template.body, conclusion: template.conclusion } };
+  if (styleExamples.length && !translate) fixed.style_examples = styleExamples;
   const variable = {
     task: translate ? 'translate' : 'merge',
     output_mode: outputModeFor({ report, outputLang, translate }),
@@ -157,7 +173,7 @@ const str = (v, fallback) => (typeof v === 'string' && v.trim() ? v.replace(/\s+
 
 /** Shared tail: rule-based cross-check (Polish), fidelity check, warnings. */
 function finish(template, next, aiCorrections, aiWarnings, { outputLang, source }) {
-  const checked = outputLang === 'pl' ? enforceConsistency(template, next) : { report: next, corrections: [], warnings: [] };
+  const checked = outputLang === 'pl' ? enforceConsistency(template, next) : { report: placeRecommendations(next, template.bullet), corrections: [], warnings: [] };
   const final = { ...checked.report, lang: outputLang };
   const fidelity = source ? fidelityWarnings(source, `${final.header}\n${final.body}\n${final.conclusion}`) : [];
   return {
@@ -213,7 +229,7 @@ function getClient() {
 }
 
 /** Build the request for a speed mode. */
-export function buildRequest({ template, report, dictation, instruction, style, inputLang, outputLang, translate, mode = 'fast' }) {
+export function buildRequest({ template, report, dictation, instruction, style, styleExamples, inputLang, outputLang, translate, mode = 'fast' }) {
   const m = MODES[mode] || MODES.fast;
   const params = {
     model: MODEL,
@@ -224,7 +240,7 @@ export function buildRequest({ template, report, dictation, instruction, style, 
       effort: process.env.CLAUDE_EFFORT || m.effort,
       format: { type: 'json_schema', schema: outputModeFor({ report, outputLang, translate }) === 'edits' ? EDITS_SCHEMA : OUTPUT_SCHEMA },
     },
-    messages: [{ role: 'user', content: buildUserContent({ template, report, dictation, instruction, style, inputLang, outputLang, translate }) }],
+    messages: [{ role: 'user', content: buildUserContent({ template, report, dictation, instruction, style, styleExamples, inputLang, outputLang, translate }) }],
   };
   const betas = [];
   if (USE_FALLBACKS) {
@@ -244,8 +260,8 @@ async function send(req) {
   return req.beta ? getClient().beta.messages.create(req.params, req.options) : getClient().messages.create(req.params, req.options);
 }
 
-export async function formatWithClaude({ template, report, dictation, instruction, style, inputLang = 'pl', outputLang = 'pl', translate = false, mode = 'fast' }) {
-  const args = { template, report, dictation, instruction, style, inputLang, outputLang, translate };
+export async function formatWithClaude({ template, report, dictation, instruction, style, styleExamples = [], inputLang = 'pl', outputLang = 'pl', translate = false, mode = 'fast' }) {
+  const args = { template, report, dictation, instruction, style, styleExamples, inputLang, outputLang, translate };
   let response;
   try {
     try {

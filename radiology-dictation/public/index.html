@@ -37,6 +37,11 @@
     </button>
 
     <div class="topbar-right">
+      <time class="clock mono" id="clock" aria-label="Data i godzina"></time>
+      <button class="today-btn" id="todayBtn" title="Dzisiejsze opisy (D)" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>
+        <span class="hide-sm">Dzisiaj</span><span class="count" id="todayCount">0</span>
+      </button>
       <div class="status-pill" id="aiStatus" title="Status AI">
         <span class="dot"></span><span class="label">Sprawdzanie AI…</span>
       </div>
@@ -64,7 +69,7 @@
         <div class="rec-meta">
           <div class="rec-state" id="recState">Naciśnij, aby dyktować</div>
           <div class="rec-timer mono" id="recTimer">00:00</div>
-          <div class="rec-hint"><kbd>Spacja</kbd> start / stop</div>
+          <div class="rec-hint"><kbd>Spacja</kbd> start / stop<span id="micHint"></span></div>
         </div>
       </div>
 
@@ -101,14 +106,10 @@
         <div class="actions">
           <button class="btn btn-primary btn-xl" id="processBtn">
             <svg viewBox="0 0 24 24"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
-            <span class="btn-label">Opracuj z AI</span>
+            <span class="btn-label">Przygotuj opis</span>
             <kbd class="kbd-in">Ctrl ↵</kbd>
           </button>
-          <label class="switch" title="Po zatrzymaniu nagrywania tekst zostanie automatycznie opracowany">
-            <input type="checkbox" id="autoProcess" checked />
-            <span class="track"><span class="thumb"></span></span>
-            <span>Auto po zatrzymaniu</span>
-          </label>
+          <span class="prep-state" id="prepState" hidden></span>
         </div>
 
         <p class="privacy">
@@ -310,6 +311,46 @@
         <p class="hint" id="aiModeHint"></p>
       </div>
       <div class="field">
+        <label class="switch">
+          <input type="checkbox" id="bgProcess" checked />
+          <span class="track"><span class="thumb"></span></span>
+          <span>Opracowuj w tle podczas dyktowania</span>
+        </label>
+        <p class="hint">W przerwach w mówieniu AI przygotowuje opis z dotychczasowego dyktatu, więc „Przygotuj opis” jest zwykle natychmiastowe. Każda przerwa to osobne zapytanie — koszt AI rośnie mniej więcej 2–4 razy (instrukcje i szablon są buforowane).</p>
+      </div>
+      <div class="field">
+        <div class="field-head">
+          <label class="switch">
+            <input type="checkbox" id="learnStyle" checked />
+            <span class="track"><span class="thumb"></span></span>
+            <span>Ucz się mojego stylu</span>
+          </label>
+          <span class="count-soft" id="styleCount"></span>
+        </div>
+        <p class="hint">Gdy poprawisz tekst AI przed skopiowaniem, RadVox zapamiętuje parę „AI → moja wersja” (do 50) i pokazuje ją AI jako przykład stylu. Zapisywane tylko w tej przeglądarce.</p>
+        <ul class="style-list" id="styleList"></ul>
+        <button class="link-btn" id="clearStyle" hidden>Zapomnij wszystkie przykłady</button>
+      </div>
+      <div class="field">
+        <div class="field-head"><label>Przycisk mikrofonu (np. Nuance PowerMic)</label></div>
+        <p class="hint" id="micStatus"></p>
+        <div class="btn-row">
+          <button class="btn btn-small" id="micConnect">Połącz PowerMic</button>
+          <button class="btn btn-small" id="micConnectAny" title="Pokaż wszystkie urządzenia HID">Inne urządzenie…</button>
+          <button class="btn btn-small" id="micLearn" hidden>Naucz przycisk</button>
+          <button class="btn btn-small" id="micForget" hidden>Odłącz</button>
+        </div>
+        <div class="field-head key-head">
+          <label>Klawisz nagrywania</label>
+          <span class="count-soft" id="keyStatus"></span>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-small" id="keyLearn">Przypisz klawisz…</button>
+          <button class="btn btn-small" id="keyClear" hidden>Usuń</button>
+        </div>
+        <p class="hint">Jeden przycisk: naciśnij — dyktujesz, naciśnij ponownie — stop. Zatrzymanie nie tworzy opisu: opis powstaje po „Przygotuj opis”. Jeśli przeglądarka nie widzi mikrofonu, ustaw w programie Nuance (PowerMic Manager) przycisk tak, by wysyłał klawisz, np. F9, i przypisz go tutaj.</p>
+      </div>
+      <div class="field">
         <div class="field-head"><label>Rozpoznawanie mowy</label></div>
         <p class="hint" id="speechInfo"></p>
       </div>
@@ -323,10 +364,34 @@
           <span>„dwanaście na osiem milimetrów”</span><span>12 x 8 mm</span>
           <span>„l cztery l pięć”</span><span>L4/L5</span>
           <span>„wnioski …”</span><span>→ Wnioski</span>
+          <span>„skasuj ostatnie zdanie”</span><span>usuwa zdanie</span>
+          <span>„skasuj ostatnie słowo”</span><span>usuwa słowo</span>
+          <span>„cofnij to”</span><span>usuwa ostatni fragment</span>
+          <span>„wyczyść dyktat”</span><span>czyści dyktat</span>
+          <span>„przygotuj opis”</span><span>tworzy opis</span>
+          <span>„kopiuj opis”</span><span>kopiuje</span>
+          <span>„zakończ dyktowanie”</span><span>stop</span>
+          <span>„zmień… / popraw… / dodaj do wniosków… / usuń z opisu…”</span><span>→ polecenie dla AI</span>
+          <span>„polecenie …”</span><span>→ polecenie dla AI</span>
         </div>
+        <p class="hint">Po angielsku: “delete last sentence”, “scratch that”, “prepare report”, “copy report”.</p>
       </div>
     </div>
   </aside>
+
+  <!-- Today's reports -->
+  <div class="modal" id="todayModal" hidden role="dialog" aria-label="Dzisiejsze opisy">
+    <div class="modal-card today-card">
+      <div class="drawer-head"><h3 id="todayTitle">Dzisiejsze opisy</h3>
+        <button class="icon-btn" id="closeToday" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <ul class="today-list" id="todayList"></ul>
+      <div class="today-foot">
+        <span class="hint">Zapisywane tylko w tej przeglądarce i tylko z dzisiaj (po skopiowaniu lub „Nowy opis”).</span>
+        <button class="link-btn" id="todayClear">Wyczyść listę</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Shortcuts dialog -->
   <div class="modal" id="helpModal" hidden role="dialog" aria-label="Skróty klawiszowe">
@@ -339,7 +404,8 @@
         <dt><kbd>T</kbd></dt><dd>Wybór szablonu</dd>
         <dt><kbd>W</kbd></dt><dd>Wstawki</dd>
         <dt><kbd>L</kbd></dt><dd>Język dyktowania PL / EN</dd>
-        <dt><kbd>Ctrl</kbd> <kbd>↵</kbd></dt><dd>Opracuj z AI</dd>
+        <dt><kbd>Ctrl</kbd> <kbd>↵</kbd></dt><dd>Przygotuj opis</dd>
+        <dt><kbd>D</kbd></dt><dd>Dzisiejsze opisy</dd>
         <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>C</kbd></dt><dd>Kopiuj opis do schowka</dd>
         <dt><kbd>Alt</kbd> <kbd>N</kbd></dt><dd>Nowy opis (następny pacjent)</dd>
         <dt><kbd>Ctrl</kbd> <kbd>Z</kbd> / <kbd>Y</kbd></dt><dd>Cofnij / ponów (poza polem tekstu)</dd>

@@ -2,12 +2,15 @@ import { TEMPLATES, GROUPS, REGIONS, SNIPPETS, SNIPPET_GROUPS, SECTION_LABELS, g
 import { convertSpokenFor, tidy, scrubIdentifiers, wordDiff } from './polish-text.js';
 import { localMerge, findConflicts, applyConflicts } from './crosscheck.js';
 import { Dictation, LevelMeter, speechSupported } from './speech.js';
+import { parseVoiceCommands, dropLastSentence, dropLastWord, COMMAND_LABELS } from './voice-commands.js';
+import { styleExamplesFrom, addStyleExamples } from './style-learning.js';
+import { MicButton } from './mic-button.js';
 
 const $ = (id) => document.getElementById(id);
 const els = Object.fromEntries(
   [
     'tplCurrent', 'tplGroupChip', 'tplRegion', 'tplTitle', 'aiStatus', 'helpBtn', 'settingsBtn',
-    'recWrap', 'recBtn', 'recViz', 'recState', 'recTimer', 'dictation', 'interim', 'instruction', 'processBtn', 'autoProcess',
+    'recWrap', 'recBtn', 'recViz', 'recState', 'recTimer', 'dictation', 'interim', 'instruction', 'processBtn', 'prepState', 'micHint',
     'clearDictation', 'speechBadge', 'snippetsBtn', 'snippetsPop',
     'undoBtn', 'redoBtn', 'acceptBtn', 'resetBtn', 'copyBtn', 'examHeader', 'bodyText', 'bodyLabel', 'conclusion', 'paper',
     'conflicts', 'conflictsList', 'fixAllBtn', 'corrections', 'correctionsList', 'correctionsTitle', 'warnings', 'warningsList',
@@ -17,6 +20,9 @@ const els = Object.fromEntries(
     'tplDelete', 'tplDuplicate', 'tplCancel', 'tplSave',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
+    'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
+    'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
+    'micStatus', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'keyLearn', 'keyClear', 'keyStatus',
   ].map((id) => [id, $(id)]),
 );
 
@@ -41,7 +47,11 @@ const state = {
   source: 'Szablon',
   busy: false,
   recording: false,
+  reportId: newId(), // identifies this report in today's list
+  lastAI: null, // the report as the AI produced it (for style learning)
+  recordKey: null, // keyboard key bound to start / stop dictation (e.g. F9 sent by a PowerMic)
 };
+function newId() { return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; }
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const template = () => getTemplate(state.report.templateId) || getTemplate(DEFAULT_TEMPLATE);
@@ -80,7 +90,10 @@ function load() {
     state.aiMode = ['fast', 'accurate', 'turbo'].includes(saved.aiMode) ? saved.aiMode : 'fast';
     els.dictation.value = saved.dictation || '';
     els.stylePrefs.value = saved.style || '';
-    els.autoProcess.checked = saved.autoProcess !== false;
+    els.bgProcess.checked = saved.bgProcess !== false;
+    els.learnStyle.checked = saved.learnStyle !== false;
+    state.recordKey = typeof saved.recordKey === 'string' ? saved.recordKey : null;
+    if (typeof saved.reportId === 'string') state.reportId = saved.reportId;
     state.recent = (saved.recent || []).filter((id) => getTemplate(id));
     state.ignore = Array.isArray(saved.ignore) ? saved.ignore : [];
   } catch { /* storage unavailable — start fresh */ }
@@ -93,7 +106,8 @@ function save() {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify({
         report: state.report, dictation: els.dictation.value, style: els.stylePrefs.value,
-        autoProcess: els.autoProcess.checked, recent: state.recent, ignore: state.ignore,
+        bgProcess: els.bgProcess.checked, learnStyle: els.learnStyle.checked, recordKey: state.recordKey, reportId: state.reportId,
+        recent: state.recent, ignore: state.ignore,
         inputLang: state.inputLang, outputLang: state.outputLang, aiMode: state.aiMode,
       }));
       els.footSaved.textContent = 'Zapisano lokalnie';
@@ -209,6 +223,9 @@ function selectTemplate(id) {
   if (id === state.report.templateId) { save(); return; }
   const wasEdited = !same(state.report, reportFromTemplate(template()));
   state.ignore = [];
+  if (wasEdited) archiveCurrent();
+  state.reportId = newId();
+  state.lastAI = null;
   commit(reportFromTemplate(t), { source: 'Szablon' });
   toast(wasEdited ? `${t.title} — „Cofnij” przywróci poprzedni opis` : t.title, 'info');
   if (state.outputLang === 'en') translateReport('en');
@@ -281,13 +298,89 @@ function onEditBlur() {
 }
 
 // ---------------------------------------------------------------- AI processing
+/** Everything the server needs for one "prepare report" call. */
+function formatPayload() {
+  const t = template();
+  return {
+    templateId: t.id,
+    template: rawOf(t),
+    report: clone(state.report),
+    dictation: scrubIdentifiers(els.dictation.value.trim()),
+    instruction: scrubIdentifiers(els.instruction.value.trim()),
+    style: els.stylePrefs.value,
+    styleExamples: els.learnStyle.checked ? styleExamples.slice(-12).map(({ ai, final }) => ({ ai, final })) : [],
+    inputLang: state.inputLang,
+    outputLang: state.outputLang,
+    mode: state.aiMode,
+  };
+}
+const payloadKey = (p) => JSON.stringify(p);
+
+async function callFormat(payload) {
+  const res = await fetch('/api/format', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
+  return data;
+}
+
+// Background preparation while dictating: in each pause the current dictation is sent to the AI,
+// so that "Przygotuj opis" can show the result at once. One request at a time; the latest wins.
+const prefetch = { key: null, promise: null, result: null, inflight: false, again: false, timer: null };
+const PREFETCH_DELAY = 1800;
+
+function bgEnabled() { return els.bgProcess.checked && state.ai; }
+function schedulePrefetch(delay = PREFETCH_DELAY) {
+  clearTimeout(prefetch.timer);
+  if (!bgEnabled()) return;
+  prefetch.timer = setTimeout(runPrefetch, delay);
+}
+function runPrefetch() {
+  if (!bgEnabled() || state.busy) return;
+  const payload = formatPayload();
+  if (!payload.dictation && !payload.instruction) return;
+  const key = payloadKey(payload);
+  if (key === prefetch.key) return;
+  if (prefetch.inflight) { prefetch.again = true; return; }
+  prefetch.key = key;
+  prefetch.result = null;
+  prefetch.inflight = true;
+  renderPrepState();
+  prefetch.promise = callFormat(payload)
+    .then((data) => { if (prefetch.key === key) prefetch.result = data; return data; })
+    .finally(() => {
+      prefetch.inflight = false;
+      renderPrepState();
+      if (prefetch.again) { prefetch.again = false; runPrefetch(); }
+    });
+  prefetch.promise.catch(() => { if (prefetch.key === key) prefetch.key = null; }); // retried by "Przygotuj opis"
+}
+function renderPrepState() {
+  const p = formatPayload();
+  const has = Boolean(p.dictation || p.instruction);
+  const current = has && prefetch.key === payloadKey(p);
+  const ready = current && prefetch.result;
+  const working = current && prefetch.inflight;
+  els.prepState.hidden = !(bgEnabled() && has && (ready || working));
+  els.prepState.className = `prep-state${ready ? ' ready' : working ? ' working' : ''}`;
+  els.prepState.textContent = ready ? 'Opis gotowy' : working ? 'AI przygotowuje w tle…' : '';
+}
+function onDictationChanged() {
+  save();
+  renderPrepState();
+  schedulePrefetch();
+}
+
 async function process() {
   if (state.busy) return;
-  if (state.recording) await stopRecording({ auto: false });
+  if (state.recording) await stopRecording();
   if (document.activeElement?.isContentEditable) document.activeElement.blur();
 
-  const dictation = scrubIdentifiers(els.dictation.value.trim());
-  const instruction = scrubIdentifiers(els.instruction.value.trim());
+  const payload = formatPayload();
+  const { dictation, instruction } = payload;
   if (!dictation && !instruction) {
     toast('Brak tekstu do opracowania — podyktuj lub wpisz opis.', 'warn');
     els.dictation.focus();
@@ -303,18 +396,19 @@ async function process() {
   }
   let result = null;
   let source = '';
+  let instant = false;
   const started = performance.now();
+  clearTimeout(prefetch.timer);
+  const key = payloadKey(payload);
+  if (state.ai && prefetch.key === key && prefetch.result) instant = true;
   setBusy(true);
   try {
     if (state.ai) {
       try {
-        const res = await fetch('/api/format', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ templateId: t.id, template: rawOf(t), report: before, dictation, instruction, style: els.stylePrefs.value, inputLang: state.inputLang, outputLang: state.outputLang, mode: state.aiMode }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
+        let data = null;
+        if (prefetch.key === key && prefetch.result) data = prefetch.result;
+        else if (prefetch.key === key && prefetch.inflight) data = await prefetch.promise.catch(() => null);
+        if (!data) data = await callFormat(payload);
         result = data;
         source = `Claude · ${data.model || state.model}`;
       } catch (err) {
@@ -338,13 +432,18 @@ async function process() {
   }
 
   commit(result.report, { baseline: before, warnings: result.warnings || [], corrections: result.corrections || [], source });
+  state.lastAI = source.startsWith('Claude') ? clone(result.report) : state.lastAI;
   els.dictation.value = '';
   els.instruction.value = '';
+  chunkStack.length = 0;
+  prefetch.key = null;
+  prefetch.result = null;
+  renderPrepState();
   save();
 
   const n = (result.corrections || []).length;
   const secs = ((performance.now() - started) / 1000).toFixed(1).replace('.', ',');
-  toast(`${n ? `Opis zaktualizowany · zmieniono ${n} ${n === 1 ? 'zdanie' : 'zdania'} szablonu` : 'Opis zaktualizowany'} · ${secs} s`, 'ok', 3600);
+  toast(`${n ? `Opis gotowy · zmieniono ${n} ${n === 1 ? 'zdanie' : 'zdania'} szablonu` : 'Opis gotowy'} · ${instant ? 'przygotowany w tle' : `${secs} s`}`, 'ok', 3600);
   const firstMark = els.paper.querySelector('mark.add');
   firstMark?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
@@ -360,12 +459,17 @@ async function newReport() {
     const what = pending && (pristine || copied) ? 'Dyktat nie został opracowany.' : 'Bieżący opis nie został skopiowany.';
     if (!window.confirm(`${what}\nZakończyć ten opis i zacząć nowy?`)) return;
   }
-  if (state.recording) await stopRecording({ auto: false });
+  if (state.recording) await stopRecording();
+  if (!pristine) archiveCurrent();
   els.dictation.value = '';
   els.instruction.value = '';
   els.interim.textContent = '';
+  chunkStack.length = 0;
   state.ignore = [];
   state.copied = null;
+  state.lastAI = null;
+  state.reportId = newId();
+  renderPrepState();
   commit(reportFromTemplate(t), { source: 'Szablon' });
   els.reportScroll.scrollTo({ top: 0 });
   toast(`Nowy opis · ${t.title} — możesz dyktować (Cofnij przywróci poprzedni)`, 'ok', 3200);
@@ -402,7 +506,7 @@ function renderLangToggles() {
 async function setInputLang(lang) {
   if (lang === state.inputLang) return;
   if (lang === 'en' && !state.ai) return toast('Dyktowanie po angielsku wymaga AI (Claude).', 'warn');
-  if (state.recording) await stopRecording({ auto: false });
+  if (state.recording) await stopRecording();
   state.inputLang = lang;
   dictationEngine.lang = lang === 'en' ? 'en-US' : 'pl-PL';
   renderLangToggles();
@@ -465,7 +569,8 @@ function setBusy(busy, label) {
   state.busy = busy;
   els.processBtn.disabled = busy;
   els.processBtn.classList.toggle('busy', busy);
-  els.processBtn.querySelector('.btn-label').textContent = busy ? 'Opracowywanie…' : state.ai ? 'Opracuj z AI' : 'Wstaw do szablonu';
+  els.processBtn.querySelector('.btn-label').textContent = busy ? 'Przygotowuję…' : 'Przygotuj opis';
+  els.processBtn.title = state.ai ? 'AI wstawia dyktat do szablonu, sprawdza sprzeczności i pisze wnioski (Ctrl+Enter)' : 'Wstawia dyktat do szablonu regułami lokalnymi (Ctrl+Enter)';
   els.processing.hidden = !busy;
   els.processingText.textContent = label || (state.ai ? 'Claude opracowuje opis…' : 'Wstawianie do szablonu…');
 }
@@ -490,6 +595,8 @@ async function copyReport() {
   }
   if (ok) {
     state.copied = clone(state.report);
+    learnFromEdits();
+    archiveCurrent();
     els.copyBtn.classList.add('done');
     els.copyBtn.querySelector('.btn-label').textContent = 'Skopiowano';
     setTimeout(() => {
@@ -772,18 +879,56 @@ function insertSnippet(id) {
 const meter = new LevelMeter();
 let timerStart = 0;
 let timerId = null;
+const chunkStack = []; // dictation text before each recognised fragment (for "cofnij to")
+
+function appendDictation(text) {
+  const prev = els.dictation.value.replace(/\s+$/, '');
+  chunkStack.push(els.dictation.value);
+  if (chunkStack.length > 60) chunkStack.shift();
+  const chunk = convertSpokenFor(state.inputLang)(text);
+  els.dictation.value = tidy(prev ? `${prev} ${chunk}` : chunk, { closeSentences: false }) + ' ';
+  els.dictation.scrollTop = els.dictation.scrollHeight;
+}
+
+function setDictation(value) {
+  els.dictation.value = value;
+  while (chunkStack.length && chunkStack[chunkStack.length - 1].length >= value.length) chunkStack.pop();
+}
+
+/** Run a spoken command (see voice-commands.js). */
+function runVoiceCommand(part) {
+  const v = els.dictation.value;
+  switch (part.cmd) {
+    case 'deleteSentence': setDictation(dropLastSentence(v, chunkStack[chunkStack.length - 1] ?? '')); break;
+    case 'deleteWord': setDictation(dropLastWord(v)); break;
+    case 'undoChunk': setDictation(chunkStack.length ? chunkStack[chunkStack.length - 1] : ''); break;
+    case 'clear': setDictation(''); chunkStack.length = 0; break;
+    case 'instruction': {
+      const cur = els.instruction.value.trim();
+      els.instruction.value = cur ? `${cur}; ${part.text}` : part.text;
+      toast(`Polecenie dla AI: „${part.text}” — wykonane po „Przygotuj opis”`, 'info', 3600);
+      return;
+    }
+    case 'prepare': setTimeout(process, 0); break;
+    case 'copy': setTimeout(copyReport, 0); return;
+    case 'stop': setTimeout(stopRecording, 0); break;
+    default: return;
+  }
+  toast(COMMAND_LABELS[part.cmd], 'info', 1800);
+}
+
 const dictationEngine = new Dictation({
   lang: 'pl-PL',
   onFinal: (text) => {
     if (!text) return;
-    const prev = els.dictation.value.replace(/\s+$/, '');
-    const chunk = convertSpokenFor(state.inputLang)(text);
-    els.dictation.value = tidy(prev ? `${prev} ${chunk}` : chunk, { closeSentences: false }) + ' ';
-    els.dictation.scrollTop = els.dictation.scrollHeight;
-    save();
+    for (const part of parseVoiceCommands(text)) {
+      if (part.cmd) runVoiceCommand(part);
+      else appendDictation(part.text);
+    }
+    onDictationChanged();
   },
   onInterim: (text) => { els.interim.textContent = text; },
-  onStateChange: (on) => { if (!on && state.recording) stopRecording({ auto: true }); },
+  onStateChange: (on) => { if (!on && state.recording) stopRecording(); },
   onError: (msg) => toast(msg, 'err', 5000),
 });
 
@@ -812,7 +957,8 @@ function startRecording() {
 }
 
 let stopping = false;
-async function stopRecording({ auto = true } = {}) {
+// Stopping only ends the dictation; the report is made with "Przygotuj opis".
+async function stopRecording() {
   if (!state.recording || stopping) return;
   stopping = true;
   els.recState.textContent = 'Kończenie…';
@@ -826,9 +972,9 @@ async function stopRecording({ auto = true } = {}) {
   els.recBtn.setAttribute('aria-label', 'Rozpocznij dyktowanie');
   els.recState.textContent = 'Naciśnij, aby dyktować';
   els.interim.textContent = '';
-  if (auto && els.autoProcess.checked && els.dictation.value.trim()) process();
+  schedulePrefetch(300);
 }
-const toggleRecording = () => (state.recording ? stopRecording({ auto: true }) : startRecording());
+const toggleRecording = () => (state.recording ? stopRecording() : startRecording());
 function tick() {
   const s = Math.floor((Date.now() - timerStart) / 1000);
   els.recTimer.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -867,6 +1013,159 @@ function drawViz() {
     ctx.stroke();
   }
   requestAnimationFrame(drawViz);
+}
+
+// ---------------------------------------------------------------- clock
+const clockFmt = new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+const timeFmt = new Intl.DateTimeFormat('pl-PL', { hour: '2-digit', minute: '2-digit' });
+function tickClock() {
+  const now = new Date();
+  els.clock.textContent = `${clockFmt.format(now)} · ${timeFmt.format(now)}`;
+  els.clock.dateTime = now.toISOString();
+  if (today.date && today.date !== dayKey(now)) { loadToday(); renderTodayCount(); } // midnight: new day
+}
+
+// ---------------------------------------------------------------- today's reports
+const TODAY_KEY = 'radvox.today.v1';
+const dayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+let today = { date: dayKey(), items: [] };
+function loadToday() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TODAY_KEY) || 'null');
+    today = saved && saved.date === dayKey() && Array.isArray(saved.items) ? saved : { date: dayKey(), items: [] };
+  } catch { today = { date: dayKey(), items: [] }; }
+  if (today.date !== dayKey()) today = { date: dayKey(), items: [] };
+  saveToday();
+}
+function saveToday() {
+  try { localStorage.setItem(TODAY_KEY, JSON.stringify(today)); } catch { /* ignore */ }
+}
+/** Keep the current report in today's list (one entry per report, updated on each copy). */
+function archiveCurrent() {
+  if (today.date !== dayKey()) loadToday();
+  const t = template();
+  const report = clone(state.report);
+  if (same({ ...report, lang: 'pl' }, reportFromTemplate(t))) return;
+  const entry = { id: state.reportId, time: Date.now(), title: t.title, text: reportToText(report, t), report };
+  const i = today.items.findIndex((x) => x.id === entry.id);
+  if (i >= 0) today.items[i] = { ...entry, time: today.items[i].time };
+  else today.items.push(entry);
+  saveToday();
+  renderTodayCount();
+}
+function renderTodayCount() {
+  const n = today.items.length;
+  els.todayCount.textContent = String(n);
+  els.todayCount.classList.toggle('zero', n === 0);
+  els.todayBtn.title = `Dzisiejsze opisy: ${n} (D)`;
+}
+const summaryOf = (item) => {
+  const lines = item.report.conclusion.split('\n').map((l) => l.replace(/^\s*(?:[-–•]|\d+[.)])\s*/, '').trim()).filter(Boolean);
+  return lines.join(' · ') || item.report.body.split('\n').find((l) => l.trim()) || '';
+};
+function renderToday() {
+  const items = today.items.slice().sort((a, b) => b.time - a.time);
+  els.todayTitle.textContent = `Dzisiejsze opisy (${items.length}) · ${clockFmt.format(new Date())}`;
+  els.todayList.innerHTML = items.length
+    ? items.map((it) => `<li class="today-item">
+        <span class="time">${esc(timeFmt.format(new Date(it.time)))}</span>
+        <span class="what"><span class="title">${esc(it.title)}</span><span class="sum" title="${esc(summaryOf(it))}">${esc(summaryOf(it))}</span></span>
+        <span class="acts"><button class="mini-btn" data-today-copy="${esc(it.id)}">Kopiuj</button><button class="mini-btn accent" data-today-open="${esc(it.id)}">Otwórz</button></span>
+      </li>`).join('')
+    : '<li class="today-empty">Dziś nie skopiowano jeszcze żadnego opisu.</li>';
+}
+function openToday(open = true) {
+  if (open) { if (today.date !== dayKey()) loadToday(); renderToday(); }
+  els.todayModal.hidden = !open;
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+function openTodayItem(id) {
+  const it = today.items.find((x) => x.id === id);
+  if (!it) return;
+  if (!getTemplate(it.report.templateId)) { toast('Szablon tego opisu już nie istnieje.', 'warn'); return; }
+  archiveCurrent();
+  state.reportId = it.id;
+  state.lastAI = null;
+  state.copied = clone(it.report);
+  state.outputLang = it.report.lang === 'en' ? 'en' : 'pl';
+  commit(clone(it.report), { source: 'Dzisiejsze opisy' });
+  openToday(false);
+  toast(`Otwarto opis z ${timeFmt.format(new Date(it.time))} — „Cofnij” wraca do poprzedniego`, 'info', 3200);
+}
+
+// ---------------------------------------------------------------- learn my style
+const STYLE_KEY = 'radvox.style.v1';
+let styleExamples = [];
+function loadStyle() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STYLE_KEY) || '[]');
+    styleExamples = Array.isArray(saved) ? saved.filter((x) => x && typeof x.ai === 'string' && typeof x.final === 'string') : [];
+  } catch { styleExamples = []; }
+}
+function saveStyle() {
+  try { localStorage.setItem(STYLE_KEY, JSON.stringify(styleExamples)); } catch { /* ignore */ }
+  renderStyle();
+}
+/** On copy: sentences the radiologist reworded after the AI wrote them become style examples. */
+function learnFromEdits() {
+  if (!els.learnStyle.checked || !state.lastAI || state.lastAI.templateId !== state.report.templateId) return;
+  const pairs = styleExamplesFrom(state.lastAI, state.report);
+  state.lastAI = clone(state.report); // the same edits are not learned twice
+  if (!pairs.length) return;
+  styleExamples = addStyleExamples(styleExamples, pairs);
+  saveStyle();
+  toast(`Zapamiętano ${pairs.length} ${pairs.length === 1 ? 'poprawkę' : 'poprawki'} Twojego stylu`, 'info', 2400);
+}
+function renderStyle() {
+  const n = styleExamples.length;
+  els.styleCount.textContent = n ? `${n} / 50` : '';
+  els.clearStyle.hidden = !n;
+  els.styleList.innerHTML = styleExamples.slice().reverse().slice(0, 30).map((p, i) => `<li><del>${esc(p.ai)}</del><ins>${esc(p.final)}</ins><button data-style-del="${n - 1 - i}" title="Zapomnij ten przykład" aria-label="Usuń przykład"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></li>`).join('');
+}
+
+// ---------------------------------------------------------------- dictation button (PowerMic / key)
+const mic = new MicButton({
+  onPress: () => { if (!state.busy) toggleRecording(); },
+  onChange: () => renderMic(),
+});
+const KEY_NAMES = { Space: 'Spacja', Enter: 'Enter', Pause: 'Pause', ScrollLock: 'Scroll Lock', Insert: 'Insert' };
+const keyLabel = (code) => KEY_NAMES[code] || code.replace(/^Key|^Digit/, '').replace(/^Numpad/, 'Num ');
+let learningKey = false;
+
+function renderMic() {
+  if (!mic.supported) {
+    els.micStatus.textContent = 'Ta przeglądarka nie obsługuje WebHID (użyj Chrome lub Edge). Możesz przypisać klawisz poniżej.';
+    els.micConnect.disabled = els.micConnectAny.disabled = true;
+  } else if (mic.connected) {
+    els.micStatus.textContent = mic.bound ? `Połączono: ${mic.name}. Przycisk nauczony — naciśnij, aby zacząć / zakończyć dyktowanie.` : `Połączono: ${mic.name}. Kliknij „Naucz przycisk” i naciśnij przycisk nagrywania na mikrofonie.`;
+  } else if (mic.config) {
+    els.micStatus.textContent = `Zapamiętano: ${mic.name || 'urządzenie'} — niepodłączone. Podłącz mikrofon lub kliknij „Połącz PowerMic”.`;
+  } else {
+    els.micStatus.textContent = 'Nie połączono. Kliknij „Połącz PowerMic”, wybierz mikrofon z listy, a potem naucz przycisk.';
+  }
+  els.micLearn.hidden = !mic.connected;
+  els.micForget.hidden = !mic.config;
+  els.keyStatus.textContent = learningKey ? 'naciśnij klawisz…' : state.recordKey ? keyLabel(state.recordKey) : 'brak (Spacja / F2 zawsze działają)';
+  els.keyClear.hidden = !state.recordKey;
+  els.micHint.textContent = mic.connected && mic.bound ? 'mikrofon' : state.recordKey ? keyLabel(state.recordKey) : '';
+}
+async function connectMic(any) {
+  try {
+    if (await mic.connect({ any })) {
+      toast('Mikrofon połączony — naciśnij przycisk nagrywania, aby go nauczyć', 'info', 4000);
+      learnMicButton();
+    }
+  } catch (err) {
+    if (err?.name !== 'NotFoundError') toast(`Nie udało się połączyć: ${err.message}`, 'err', 5000);
+  }
+}
+async function learnMicButton() {
+  els.micStatus.textContent = 'Naciśnij teraz przycisk na mikrofonie, którym chcesz włączać i wyłączać dyktowanie…';
+  const ok = await mic.learn();
+  toast(ok ? 'Przycisk zapamiętany — naciśnij raz: dyktowanie, drugi raz: stop' : 'Nie wykryto naciśnięcia przycisku.', ok ? 'ok' : 'warn', 4000);
+  renderMic();
 }
 
 // ---------------------------------------------------------------- AI status
@@ -913,9 +1212,76 @@ function bind() {
   els.acceptBtn.addEventListener('click', acceptChanges);
   els.resetBtn.addEventListener('click', resetReport);
   els.clearDictation.addEventListener('click', () => { els.dictation.value = ''; save(); els.dictation.focus(); });
-  els.dictation.addEventListener('input', save);
+  els.dictation.addEventListener('input', () => { chunkStack.length = 0; onDictationChanged(); });
+  els.instruction.addEventListener('input', onDictationChanged);
   els.stylePrefs.addEventListener('input', save);
-  els.autoProcess.addEventListener('change', save);
+  els.bgProcess.addEventListener('change', () => { save(); renderPrepState(); schedulePrefetch(300); });
+  els.learnStyle.addEventListener('change', save);
+  els.clearStyle.addEventListener('click', () => {
+    if (!window.confirm('Zapomnieć wszystkie zapamiętane przykłady stylu?')) return;
+    styleExamples = [];
+    saveStyle();
+  });
+  els.styleList.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-style-del]');
+    if (!b) return;
+    styleExamples.splice(Number(b.dataset.styleDel), 1);
+    saveStyle();
+  });
+
+  // today's reports
+  els.todayBtn.addEventListener('click', () => openToday(true));
+  els.closeToday.addEventListener('click', () => openToday(false));
+  els.todayModal.addEventListener('click', async (e) => {
+    if (e.target === els.todayModal) return openToday(false);
+    const c = e.target.closest('[data-today-copy]');
+    if (c) {
+      const it = today.items.find((x) => x.id === c.dataset.todayCopy);
+      if (it) toast((await copyText(it.text)) ? `Skopiowano opis z ${timeFmt.format(new Date(it.time))}` : 'Nie udało się skopiować.', 'ok');
+      return;
+    }
+    const o = e.target.closest('[data-today-open]');
+    if (o) openTodayItem(o.dataset.todayOpen);
+  });
+  els.todayClear.addEventListener('click', () => {
+    if (!window.confirm('Usunąć listę dzisiejszych opisów z tej przeglądarki?')) return;
+    today.items = [];
+    saveToday();
+    renderToday();
+    renderTodayCount();
+  });
+
+  // dictation button
+  els.micConnect.addEventListener('click', () => connectMic(false));
+  els.micConnectAny.addEventListener('click', () => connectMic(true));
+  els.micLearn.addEventListener('click', learnMicButton);
+  els.micForget.addEventListener('click', async () => { await mic.disconnect(); toast('Mikrofon odłączony', 'info'); });
+  els.keyLearn.addEventListener('click', () => { learningKey = true; renderMic(); els.keyLearn.blur(); });
+  els.keyClear.addEventListener('click', () => { state.recordKey = null; save(); renderMic(); });
+  // capture phase: a learned key works everywhere, also while typing in the dictation box
+  document.addEventListener('keydown', (e) => {
+    if (learningKey) {
+      if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      learningKey = false;
+      if (e.key === 'Escape') { renderMic(); return; }
+      if (e.key.length === 1 && !/^F\d+$/.test(e.code)) {
+        toast('Wybierz klawisz, który nie wpisuje tekstu (np. F9, F10, Pause, Insert).', 'warn', 4000);
+      } else {
+        state.recordKey = e.code;
+        save();
+        toast(`Klawisz nagrywania: ${keyLabel(e.code)}`, 'ok');
+      }
+      renderMic();
+      return;
+    }
+    if (state.recordKey && e.code === state.recordKey && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!state.busy) toggleRecording();
+    }
+  }, true);
   els.settingsBtn.addEventListener('click', () => openSettings(true));
   els.closeSettings.addEventListener('click', () => openSettings(false));
   els.overlay.addEventListener('click', () => openSettings(false));
@@ -1019,7 +1385,7 @@ function bind() {
   document.addEventListener('keydown', (e) => {
     if (!els.picker.hidden || !els.tplEditor.hidden) return; // picker / editor handle their own keys
     const typing = isTyping(document.activeElement);
-    if (e.key === 'Escape') { openSettings(false); openHelp(false); toggleSnippets(false); return; }
+    if (e.key === 'Escape') { openSettings(false); openHelp(false); openToday(false); toggleSnippets(false); return; }
     if (e.key === 'F2') { e.preventDefault(); toggleRecording(); return; }
     if (e.altKey && (e.key === 'n' || e.key === 'N' || e.code === 'KeyN')) { e.preventDefault(); newReport(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); process(); return; }
@@ -1031,6 +1397,7 @@ function bind() {
     if (e.key === ' ' && document.activeElement !== els.recBtn && !document.activeElement?.closest('button')) { e.preventDefault(); toggleRecording(); return; }
     if (e.key === 't' || e.key === 'T') { e.preventDefault(); openPicker(); return; }
     if (e.key === 'w' || e.key === 'W') { e.preventDefault(); toggleSnippets(); return; }
+    if (e.key === 'd' || e.key === 'D') { e.preventDefault(); openToday(els.todayModal.hidden); return; }
     if (e.key === 'l' || e.key === 'L') { e.preventDefault(); setInputLang(state.inputLang === 'pl' ? 'en' : 'pl'); return; }
     if (e.key === '?') openHelp(true);
   });
@@ -1039,11 +1406,20 @@ function bind() {
 
 // ---------------------------------------------------------------- init
 function init() {
+  loadStyle();
+  loadToday();
   load();
   renderSnippets();
   renderReport();
   renderAiMode();
+  renderStyle();
+  renderTodayCount();
+  tickClock();
+  setInterval(tickClock, 10_000);
   bind();
+  renderMic();
+  mic.restore();
+  renderPrepState();
   if (!speechSupported) {
     els.speechBadge.hidden = false;
     els.speechInfo.textContent = 'Ta przeglądarka nie obsługuje rozpoznawania mowy (Web Speech API). Użyj Chrome lub Edge, albo wpisuj tekst ręcznie.';
@@ -1059,4 +1435,4 @@ function init() {
 init();
 
 // Exposed for automated UI tests.
-window.__radvox = { state, process, copyReport, selectTemplate };
+window.__radvox = { state, process, copyReport, selectTemplate, newReport, runVoiceCommand, onFinal: (t) => dictationEngine.onFinal(t), prefetch, styleExamples: () => styleExamples, today: () => today, mic };

@@ -80,6 +80,7 @@ async function handleFormat(req, res) {
       dictation,
       instruction,
       style: String(body.style || '').slice(0, 4000),
+      styleExamples: cleanStyleExamples(body.styleExamples),
       inputLang: lang(body.inputLang),
       outputLang: lang(body.outputLang),
       translate,
@@ -91,6 +92,15 @@ async function handleFormat(req, res) {
     console.error(err);
     sendJson(res, 500, { error: 'Błąd serwera.' });
   }
+}
+
+/** Learned style pairs from the browser: at most 20, each sentence at most 600 characters. */
+export function cleanStyleExamples(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((x) => x && typeof x.ai === 'string' && typeof x.final === 'string' && x.ai.trim() && x.final.trim())
+    .slice(-20)
+    .map((x) => ({ ai: x.ai.trim().slice(0, 600), final: x.final.trim().slice(0, 600) }));
 }
 
 async function serveStatic(req, res) {

@@ -236,3 +236,34 @@ test('format: accepts the user\'s own template sent by the browser', async () =>
   assert.equal(data.report.body, 'Złamanie kości łódeczkowatej.');
   assert.equal(data.corrections[0].removed, 'Kości bez złamań.');
 });
+
+test('format: learned style examples are sent (cleaned) in the cached block; prompt has the new rules', async () => {
+  const t = getTemplate('ct_head_normal');
+  nextReply = editsReply([], t.conclusion);
+  const styleExamples = [{ ai: 'Uwidoczniono krwiak.', final: 'Krwiak.' }, { ai: '', final: 'x' }, 'junk', ...Array.from({ length: 30 }, (_, i) => ({ ai: `a${i}`, final: `b${i}` }))];
+  const res = await post({ templateId: t.id, report: reportFromTemplate(t), dictation: 'krwiak', styleExamples });
+  assert.equal(res.status, 200);
+  const content = lastRequest.body.messages[0].content;
+  const cached = JSON.parse(content[0].text);
+  assert.equal(cached.style_examples.length, 20);
+  assert.deepEqual(cached.style_examples.at(-1), { ai: 'a29', final: 'b29' });
+  assert.ok(content[0].cache_control);
+  const system = lastRequest.body.system[0].text;
+  assert.match(system, /Fleischner/);
+  assert.match(system, /Bosniak/);
+  assert.match(system, /WITHOUT a bullet/);
+  assert.match(system, /order of the dictation does not matter/);
+});
+
+test('format: a consultation the AI left in the body is moved under the conclusion', async () => {
+  const t = getTemplate('ct_head_normal');
+  const report = reportFromTemplate(t);
+  nextReply = editsReply(
+    [{ op: 'insert', target: 'TOP', text: 'Krwiak nadtwardówkowy nad lewą półkulą grubości 12 mm. Wskazana pilna konsultacja neurochirurgiczna.', reason: '' }],
+    '- Krwiak nadtwardówkowy nad lewą półkulą (12 mm).',
+  );
+  const res = await post({ templateId: t.id, report, dictation: 'krwiak nadtwardówkowy 12 mm, wskazana pilna konsultacja neurochirurgiczna' });
+  const data = await res.json();
+  assert.doesNotMatch(data.report.body, /konsultacj/);
+  assert.equal(data.report.conclusion.split('\n').at(-1), 'Wskazana pilna konsultacja neurochirurgiczna.');
+});
