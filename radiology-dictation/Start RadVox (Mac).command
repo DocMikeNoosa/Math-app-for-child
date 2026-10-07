@@ -18,5 +18,8 @@ if [ ! -d node_modules ]; then
 fi
 echo ""
 echo "RadVox is running. Keep this window open. Close it to stop RadVox."
-(sleep 2; open "http://127.0.0.1:3000") &
+(sleep 4; open "http://127.0.0.1:3000") &
 node server.js
+echo ""
+echo "RadVox stopped. If you see an error above, send a screenshot of this window."
+read -r -p "Press Enter to close."

@@ -20,6 +20,9 @@ if not exist "node_modules" (
 )
 echo.
 echo RadVox is running. Keep this window open. Close it to stop RadVox.
-start "" "http://127.0.0.1:3000"
+rem Open the browser a few seconds later, once the server is listening.
+start "" /min cmd /c "timeout /t 4 /nobreak >nul & start "" http://127.0.0.1:3000"
 node server.js
+echo.
+echo RadVox stopped. If you see an error above, send a screenshot of this window.
 pause
