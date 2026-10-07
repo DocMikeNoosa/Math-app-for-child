@@ -112,8 +112,14 @@ async function serveStatic(req, res) {
   }
 }
 
+// When started by the desktop icon, stop after the app window has been closed for a while
+// (the page pings /api/status every minute). RADVOX_IDLE_EXIT_MIN=0 or unset → never.
+let lastSeen = Date.now();
+const IDLE_EXIT_MIN = Number(process.env.RADVOX_IDLE_EXIT_MIN) || 0;
+
 export function createServer() {
   return http.createServer(async (req, res) => {
+    lastSeen = Date.now();
     try {
       if (req.url === '/api/status' && req.method === 'GET') {
         return sendJson(res, 200, { ai: aiAvailable(), model: aiAvailable() ? MODEL : null });
@@ -132,6 +138,14 @@ export function createServer() {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const PORT = Number(process.env.PORT) || 3000;
   const HOST = process.env.HOST || '127.0.0.1';
+  if (IDLE_EXIT_MIN > 0) {
+    setInterval(() => {
+      if (Date.now() - lastSeen > IDLE_EXIT_MIN * 60_000) {
+        console.log('RadVox: okno zamknięte — zatrzymuję serwer.');
+        process.exit(0);
+      }
+    }, Math.min(30_000, (IDLE_EXIT_MIN * 60_000) / 2)).unref();
+  }
   createServer().listen(PORT, HOST, () => {
     console.log(`RadVox działa: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(aiAvailable() ? `AI: ${MODEL}` : 'AI: brak ANTHROPIC_API_KEY — tryb lokalny (bez AI)');

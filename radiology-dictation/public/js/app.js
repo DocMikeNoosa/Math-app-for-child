@@ -1051,6 +1051,8 @@ function init() {
     els.speechInfo.textContent = 'Wbudowane rozpoznawanie mowy przeglądarki (język polski). W Chrome dźwięk jest przetwarzany przez serwery Google i wymaga internetu.';
   }
   checkStatus();
+  // keep-alive for the desktop launcher (the background server stops when the window is closed)
+  setInterval(() => { fetch('/api/status', { cache: 'no-store' }).catch(() => {}); }, 60_000);
   requestAnimationFrame(drawViz);
 }
 

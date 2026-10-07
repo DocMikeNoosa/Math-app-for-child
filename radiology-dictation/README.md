@@ -22,6 +22,25 @@ Get an API key at <https://console.anthropic.com>. It is billed per use (roughly
 cents per report). If there is no key, the app still runs in **local mode**: dictated
 sentences go into template sections by keyword rules, without AI rewriting.
 
+## Desktop icon (Windows) — recommended for daily use
+
+1. Install Node.js (nodejs.org, LTS) once.
+2. Unzip RadVox, open the `radiology-dictation` folder and double-click
+   **Zainstaluj RadVox (Windows)**. It installs the components, asks for your API key once
+   (saved in `C:\Users\<you>\.radvox\.env`, so updates keep it) and creates a **RadVox** icon on
+   the desktop and in the Start menu.
+3. From then on just double-click **RadVox**. The app starts in the background with no console
+   window and opens in its own Chrome / Edge app window. It switches itself off about
+   20 minutes after you close the window.
+
+After downloading a new version, run **Zainstaluj RadVox (Windows)** from the new folder once;
+it points the icon at the new version and keeps your key. Your templates and settings live in
+the browser and stay as they are.
+
+Files: `launcher/RadVox.ps1` (starts the server hidden, waits for it, opens the app window),
+`launcher/install-shortcuts.ps1` (creates the icons), `public/icons/radvox.ico`. The server stops
+when idle if `RADVOX_IDLE_EXIT_MIN` is set (the launcher sets 20); the page pings it every minute.
+
 ## How to use
 
 1. **Choose a template**: click the template button in the top bar (or press `T`). Templates are
