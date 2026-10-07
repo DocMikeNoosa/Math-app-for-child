@@ -34,7 +34,10 @@ sentences go into template sections by keyword rules, without AI rewriting.
    20 minutes after you close the window.
 
 After downloading a new version, run **Zainstaluj RadVox (Windows)** from the new folder once;
-it points the icon at the new version and keeps your key. Your templates and settings live in
+it points the icon at the new version and keeps your key. If an older copy of RadVox is still
+running in the background, the icon stops it and starts the new one (it compares the folder
+and version reported by `/api/status`). The version and folder in use are shown at the bottom of
+⚙ Settings. Your templates and settings live in
 the browser and stay as they are.
 
 Files: `launcher/RadVox.ps1` (starts the server hidden, waits for it, opens the app window),

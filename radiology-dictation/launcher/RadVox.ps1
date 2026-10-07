@@ -16,6 +16,49 @@ function Test-RadVox {
   } catch { return $false }
 }
 
+function Get-RadVoxStatus {
+  try { return Invoke-RestMethod -Uri "$Url/api/status" -TimeoutSec 1 } catch { return $null }
+}
+
+# Stop the RadVox server (node) that is listening on port 3000.
+function Stop-RunningRadVox {
+  $ids = @()
+  try {
+    $ids = @(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess -Unique)
+  } catch {
+    $ids = @(netstat -ano -p tcp | Select-String ':3000\s+\S+\s+LISTENING\s+(\d+)' | ForEach-Object { [int]$_.Matches[0].Groups[1].Value } | Select-Object -Unique)
+  }
+  foreach ($id in $ids) {
+    $proc = Get-Process -Id $id -ErrorAction SilentlyContinue
+    if ($proc -and $proc.ProcessName -eq 'node') { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+  }
+  for ($i = 0; $i -lt 20; $i++) {
+    if (-not (Test-RadVox)) { return $true }
+    Start-Sleep -Milliseconds 250
+  }
+  return (-not (Test-RadVox))
+}
+
+function Same-Folder([string]$a, [string]$b) {
+  if (-not $a -or -not $b) { return $false }
+  try { return ([IO.Path]::GetFullPath($a).TrimEnd('\', '/') -ieq [IO.Path]::GetFullPath($b).TrimEnd('\', '/')) } catch { return $false }
+}
+
+# An older copy of RadVox (another folder or another version) may still be running in the
+# background - e.g. after an update. Replace it with this one.
+$myVersion = ''
+try { $myVersion = (Get-Content (Join-Path $App 'package.json') -Raw | ConvertFrom-Json).version } catch { }
+$running = Get-RadVoxStatus
+if ($running) {
+  $current = (Same-Folder $running.dir $App) -and ($running.version -eq $myVersion)
+  if (-not $current) {
+    if (-not (Stop-RunningRadVox)) {
+      Show-Message "W tle działa starsza wersja RadVox i nie udało się jej zamknąć.`nUruchom ponownie komputer i kliknij ikonę RadVox jeszcze raz."
+      exit 1
+    }
+  }
+}
+
 if (-not (Test-RadVox)) {
   $node = (Get-Command node -ErrorAction SilentlyContinue).Source
   if (-not $node) {

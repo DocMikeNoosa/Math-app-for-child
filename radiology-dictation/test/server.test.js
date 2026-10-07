@@ -65,7 +65,11 @@ const post = (body) =>
 
 test('status reports AI availability', async () => {
   const res = await fetch(`${appUrl}/api/status`);
-  assert.deepEqual(await res.json(), { ai: true, model: 'claude-opus-5-5' });
+  const data = await res.json();
+  assert.equal(data.ai, true);
+  assert.equal(data.model, 'claude-opus-5-5');
+  assert.match(data.version, /^\d+\.\d+\.\d+$/);
+  assert.ok(data.dir.endsWith('radiology-dictation'));
 });
 
 test('serves the app and blocks path traversal', async () => {

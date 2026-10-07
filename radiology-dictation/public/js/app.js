@@ -20,7 +20,7 @@ const els = Object.fromEntries(
     'tplDelete', 'tplDuplicate', 'tplCancel', 'tplSave',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
-    'emptyState', 'emptyRecent', 'emptyPick',
+    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
     'micStatus', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'keyLearn', 'keyClear', 'keyStatus',
@@ -1226,6 +1226,7 @@ async function checkStatus() {
     const data = await res.json();
     state.ai = Boolean(data.ai);
     state.model = data.model;
+    if (data.version) els.versionInfo.textContent = `RadVox ${data.version} · folder: ${data.dir || '?'}`;
   } catch {
     state.ai = false;
   }

@@ -1,12 +1,15 @@
 import './lib/env.js';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
 import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
+const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(APP_DIR, 'public');
+const VERSION = JSON.parse(readFileSync(path.join(APP_DIR, 'package.json'), 'utf8')).version;
 const MAX_BODY = 200 * 1024;
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -132,7 +135,8 @@ export function createServer() {
     lastSeen = Date.now();
     try {
       if (req.url === '/api/status' && req.method === 'GET') {
-        return sendJson(res, 200, { ai: aiAvailable(), model: aiAvailable() ? MODEL : null });
+        // version + folder let the desktop launcher replace an older copy that is still running
+        return sendJson(res, 200, { ai: aiAvailable(), model: aiAvailable() ? MODEL : null, version: VERSION, dir: APP_DIR });
       }
       if (req.url === '/api/format' && req.method === 'POST') return await handleFormat(req, res);
       if (req.method === 'GET' || req.method === 'HEAD') return await serveStatic(req, res);
