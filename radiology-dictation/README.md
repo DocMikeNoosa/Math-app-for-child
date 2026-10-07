@@ -128,7 +128,8 @@ for the AI, and set personal style rules under ⚙.
   data (e.g. "Bosniak: brak informacji o wzmocnieniu"). This is a prompt rule only: there is no
   separate calculator yet, so always check the category.
 - **Consultation recommendations** ("Wskazana pilna konsultacja neurochirurgiczna.") never stay in
-  the description. They go on one line directly under the conclusion, without a hyphen. Several
+  the description. They go on one line under the conclusion, after an empty line, without a
+  hyphen. Several
   recommendations share that line, urgent ones first.
   - Claude is instructed to do this.
   - The rule-based checker (`extractRecommendations` / `placeRecommendations` in `crosscheck.js`)
@@ -161,6 +162,12 @@ for the AI, and set personal style rules under ⚙.
     uninjured; intracranial bleed → oedema / mass effect, ventricles; ureteric stone →
     hydronephrosis statement. A liver / spleen injury is followed by the haemoperitoneum, in the
     description and in the conclusion.
+  - **Layout**: when the leading findings come from different body systems (e.g. a ruptured
+    spleen and a ureteric stone), each system's group, with its related normal statements, is
+    its own paragraph, separated by an empty line. The conclusion is grouped the same way:
+    brain/skull lines together, then abdominal organs, spine, chest wall…, an empty line between
+    groups, numbering continuing across them. The still-true normal lines come last, and the
+    consultation line sits under everything after one more empty line.
   - Claude follows these rules (and may add other clinical links). The rule-based checker
     (`findingRank`, `linkedTo`, `arrangeFindings` in `crosscheck.js`) enforces them as a safety
     net for Polish reports.

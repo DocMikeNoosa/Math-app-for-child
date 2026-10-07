@@ -136,7 +136,9 @@ test('dictated conclusions replace the default ones', () => {
 test('numbered conclusion style is preserved', () => {
   const { report } = merge('ct_total_body_trauma_normal', 'niewielka odma opłucnowa prawostronna');
   assert.match(lines(report.conclusion)[0], /^1\. Niewielka odma opłucnowa prawostronna\.$/);
-  assert.ok(lines(report.conclusion).every((l, i) => l.startsWith(`${i + 1}. `)));
+  // numbering runs on across the blank lines between groups
+  assert.ok(lines(report.conclusion).filter((l) => l.trim()).every((l, i) => l.startsWith(`${i + 1}. `)));
+  assert.match(report.conclusion, /\n\n/, 'pathology and the remaining normal lines are separate paragraphs');
 });
 
 // ---------------------------------------------------------------- manual edits
@@ -209,7 +211,7 @@ test('polytrauma: every finding in its section, relevant first, pertinent negati
   assert.match(head[0], /^Krwiak podtwardówkowy/);
   assert.match(head[1], /podpajęczynówkowego/);
   assert.match(head[2], /^Bez cech obrzęku mózgu/, 'brain statements follow the bleeds');
-  assert.equal(head.at(-1), 'Złamanie kości potylicznej po stronie lewej.', 'skull fracture with the bones');
+  assert.equal(head[head.indexOf('Złamanie kości potylicznej po stronie lewej.') - 1], 'Układ komorowy i przestrzenie płynowe przymózgowe w granicach normy.', 'skull fracture where the skull statement was, not on top');
   const cs = sec('Kręgosłup szyjny:');
   assert.equal(cs[0], 'Złamanie trzonu kręgu C3.');
   assert.equal(cs[1], 'Prawidłowe ustawienie trzonów kręgów oraz stawów międzywyrostkowych, bez cech zwichnięcia.', 'alignment is not contradicted by a fracture and follows it');

@@ -66,7 +66,8 @@ const CHRONIC = ['przebyt', 'stary', 'starego', 'starych', 'stare', 'przewlekł'
 const ORGANS = {
   head: { stems: ['głow'] },
   intracranial: { parents: ['head'], stems: ['wewnątrzczaszk', 'śródczaszk', 'mózg', 'mózgow', 'półkul', 'płat', 'płacie', 'płata', 'istota biał', 'istoty biał', 'istocie biał', 'istotę biał', 'istota szar', 'istoty szar', 'istocie szar', 'móżdż', 'pień mózgu', 'pnia mózgu', 'zewnątrzosiow', 'podtward', 'nadtward', 'podpajęczyn', 'jąder podstawy', 'jądrach podstawy', 'wzgórz', 'torebk', 'okołokomor', 'przymózgow', 'zbiorniki podstawy', 'śródmózgow'] },
-  ventricles: { parents: ['intracranial'], stems: ['komor', 'komór', 'układ komorow'] },
+  // not "komórki" (mastoid / ethmoid air cells)
+  ventricles: { parents: ['intracranial'], stems: ['komor', 'komór ', 'komór.', 'komór,', 'układ komorow'] },
   midline: { parents: ['intracranial'], stems: ['pośrodkow', 'linii środkowej', 'linia środkowa', 'linii pośrodkowej'] },
   skull: { parents: ['head', 'bone'], stems: ['czaszk', 'sklepien', 'pokryw', 'kości ciemieniow', 'kości czołow', 'kości skroniow', 'kości potylic', 'kość ciemieniow', 'kość czołow', 'kość skroniow', 'kość potylic', 'łuski'] },
   face: { parents: ['head', 'bone'], stems: ['twarzoczaszk', 'kości twarzy'] },
@@ -114,6 +115,25 @@ const ORGANS = {
   pelvicBone: { parents: ['pelvis', 'bone'], stems: ['kości miednic', 'talerz', 'panewk', 'kości łonow', 'spojeni', 'kości krzyżow', 'krzyżowo-biodr', 'kości kulszow'] },
   soft: { stems: ['tkank', 'mięś', 'podskórn', 'powłok'] },
 };
+// Body systems, for grouping findings: a blank line separates groups from different systems.
+const SYSTEM_OF = {
+  head: 'neuro', intracranial: 'neuro', ventricles: 'neuro', midline: 'neuro', skull: 'neuro', scalp: 'neuro',
+  face: 'face', orbit: 'face', zygoma: 'face', tmj: 'face', maxilla: 'face', nasal: 'face', sinus: 'face', mastoid: 'face',
+  spine: 'spine', ccj: 'spine', cspine: 'spine', tspine: 'spine', lspine: 'spine', disc: 'spine', canal: 'spine', cord: 'spine',
+  chest: 'thorax', lung: 'thorax', pleura: 'thorax', mediastinum: 'thorax', heart: 'thorax',
+  ribs: 'chestWall', sternum: 'chestWall', shoulderGirdle: 'chestWall',
+  abdomen: 'abdomen', liver: 'abdomen', biliary: 'abdomen', pancreas: 'abdomen', spleen: 'abdomen', adrenal: 'abdomen', bowel: 'abdomen',
+  urinary: 'urinary', kidney: 'urinary', ureter: 'urinary', bladder: 'urinary',
+  pelvis: 'pelvis', pelvicBone: 'pelvis',
+  vessels: 'vascular', venous: 'vascular', headArteries: 'vascular', aorta: 'vascular',
+  bone: 'bone', soft: 'soft',
+};
+/** The body system of a set of organs (the first organ that has one), or null. */
+export function systemOf(organs) {
+  for (const o of organs) if (SYSTEM_OF[o]) return SYSTEM_OF[o];
+  return null;
+}
+
 const RIGHT = ['prawa', 'prawej', 'prawy', 'prawym', 'prawego', 'prawą', 'prawe', 'prawych', 'prawostronn'];
 const LEFT = ['lewa', 'lewej', 'lewy', 'lewym', 'lewego', 'lewą', 'lewe', 'lewych', 'lewostronn'];
 
@@ -197,6 +217,8 @@ function organsIn(text) {
   if (out.has('headArteries') && out.has('cspine') && !/kręg|c\d/.test(lc)) out.delete('cspine');
   // "połączenie czaszkowo-szyjne" is the cranio-cervical junction, not the skull
   if (out.has('ccj')) out.delete('skull');
+  // "zatoka szczękowa" is the maxillary sinus, not the maxilla
+  if (out.has('sinus') && !/szczęk/u.test(lc.replace(/zato\p{L}*\s+szczęk\p{L}*/gu, ''))) out.delete('maxilla');
   // "kamica nerkowa" means the urinary tract as a whole
   if (out.has('urinary') && /kamic\p{L}* nerkow/u.test(lc)) out.delete('kidney');
   // keep the most specific organs ("kości podstawy czaszki" → skull, not every bone)
@@ -341,7 +363,7 @@ export function pruneSentence(sentence, findings, { wholeExam = false, context =
   const last = v[v.length - 1];
   const keptIdx = v.map((x, i) => (x.hit ? -1 : i)).filter((i) => i >= 0);
   if (last.hit) {
-    const m = last.text.match(/\s(o\s|bez\s|prawidłow|mają|ma\s|są\s|nie\s|w\s|–|-)(.*)$/u);
+    const m = last.text.match(/\s(o\s|bez\s|prawidłow|mają|ma\s|są\s|nie\s|w\s|–|-|powietrzn|upowietrzn|zachowan|drożn|gładk|symetryczn|niepowiększ|nieposzerz|niepogrubi|jednorodn)(.*)$/u);
     const k = v[keptIdx[keptIdx.length - 1]];
     if (m && !k.text.endsWith(last.text.slice(m.index))) k.text += last.text.slice(m.index);
   }
@@ -484,7 +506,8 @@ function renumber(conclusion, style) {
 const URGENCY = ['bleed', 'extravasation', 'mass', 'pneumothorax', 'dissection', 'occlusion', 'freeAir', 'ischemia', 'edema', 'fracture', 'dislocation', 'injury', 'aneurysm', 'consolidation', 'fluid', 'stone', 'dilatation', 'inflammation', 'focal', 'nodes', 'disc', 'enlargement'];
 function urgency(f) {
   const ranks = [...f.concepts].map((c) => URGENCY.indexOf(c)).filter((i) => i >= 0);
-  return (ranks.length ? Math.min(...ranks) : URGENCY.length) + (f.chronic ? 100 : 0);
+  // leading findings (organ rupture, bleed…) before secondary ones (fractures…), old ones last
+  return (ranks.length ? Math.min(...ranks) : URGENCY.length) + (findingRank(f) === 'lead' ? 0 : 50) + (f.chronic ? 100 : 0);
 }
 
 /** Short conclusion form of a finding sentence. */
@@ -757,11 +780,11 @@ export function arrangeFindings(template, report) {
     let rest = arr.filter((x) => typeof x === 'string' || !removed.has(x.order)).map((x) => (typeof x === 'string' ? x : x.line));
     rest = rest.filter((l, i) => !isHeader(l));
 
-    // pertinent negatives: sentences of the remaining normal statements, with the findings that
-    // sit right under them
-    const matchers = top.flatMap((x) => pertinentFor(x.f));
-    const negatives = [];
-    if (matchers.length) {
+    // pertinent negatives: sentences of the remaining normal statements (with the incidental
+    // findings that sit right under them) that answer the obvious question about a finding
+    const pullNegatives = (matchers) => {
+      const negatives = [];
+      if (!matchers.length) return negatives;
       const kept = [];
       for (let i = 0; i < rest.length; i++) {
         const l = rest[i];
@@ -778,15 +801,30 @@ export function arrangeFindings(template, report) {
         } else {
           negatives.push(l.trim());
         }
-        // incidental findings written under that statement (old lacunes…) travel with it
         while (i + 1 < rest.length && rest[i + 1].trim() && findingOf(rest[i + 1]) && relevance(findingOf(rest[i + 1])) === 'incidental') negatives.push(rest[++i].trim());
       }
       rest = kept;
+      return negatives;
+    };
+
+    // group the top findings by body system (a finding that follows another joins its group);
+    // each group is followed by its own pertinent negatives
+    const groups = [];
+    for (const x of top) {
+      const lead = top.find((y) => y !== x && top.indexOf(y) < top.indexOf(x) && follows(x.f, y.f));
+      let g = lead ? groups.find((gr) => gr.items.includes(lead)) : null;
+      if (!g) {
+        const sys = systemOf(x.f.organs) || 'other';
+        g = groups.find((gr) => gr.sys === sys);
+        if (!g) { g = { sys, items: [] }; groups.push(g); }
+      }
+      g.items.push(x);
     }
+    const blocks = groups.map((g) => [...g.items.map((x) => x.line), ...pullNegatives(g.items.flatMap((x) => pertinentFor(x.f)))].join('\n'));
     let restText = tidyLines(rest).join('\n').replace(/\n{3,}/g, '\n\n');
     for (const x of toPlace) restText = insertFinding(restText, x.line);
-    const head = [...top.map((x) => x.line), ...negatives];
-    return { header: sec.header, head, rest: restText.replace(/^\n+|\n+$/g, '') };
+    // several groups: a blank line between them, and before the rest of the section
+    return { header: sec.header, head: blocks.join('\n\n'), spaced: blocks.length > 1, rest: restText.replace(/^\n+|\n+$/g, '') };
   });
 
   // ---- reassemble
@@ -797,10 +835,10 @@ export function arrangeFindings(template, report) {
   if (preBlock.length) parts.push(preBlock.join('\n'));
   for (const sec of outSections) {
     if (sec.header) {
-      const body = [sec.head.join('\n'), sec.rest].filter(Boolean).join('\n');
+      const body = [sec.head, sec.rest].filter(Boolean).join(sec.spaced ? '\n\n' : '\n');
       if (body.trim()) parts.push(`${sec.header.trim()}\n${body}`);
     } else {
-      if (sec.head.length) parts.push(sec.head.join('\n'));
+      if (sec.head) parts.push(sec.head);
       if (sec.rest) parts.push(sec.rest);
     }
   }
@@ -840,8 +878,35 @@ export function enforceConsistency(template, report) {
     warnings.push('Wnioski utworzono automatycznie z opisanych zmian — zweryfikuj je.');
   }
   next = arrangeFindings(template, next);
-  next = { ...next, conclusion: appendRecommendations(next.conclusion, extracted.recs) };
+  next = { ...next, conclusion: appendRecommendations(layoutConclusion(next.conclusion, template.bullet), extracted.recs) };
   return { report: next, corrections, warnings };
+}
+
+// ---------------------------------------------------------------- conclusion layout
+/**
+ * Conclusion lines grouped for reading: pathology lines grouped by body system (systems in
+ * the order of their first, most urgent line), a blank line between groups; the remaining
+ * "normal" lines together after another blank line. Numbering continues across groups.
+ */
+export function layoutConclusion(conclusion, style = 'dash') {
+  const lines = String(conclusion || '').split('\n').filter((l) => l.trim());
+  if (!lines.length) return '';
+  const groups = [];
+  const normal = [];
+  let prev = null;
+  for (const line of lines) {
+    const text = stripBullet(line);
+    const f = analyseFinding(text);
+    if (!f.concepts.size) { normal.push(line); continue; }
+    const sys = systemOf(f.organs) || prev?.sys || null; // no organ: stays with the line before
+    let g = groups.find((x) => x.sys === sys);
+    if (!g) { g = { sys, lines: [] }; groups.push(g); }
+    g.lines.push(line);
+    prev = g;
+  }
+  const blocks = groups.map((g) => g.lines.join('\n'));
+  if (normal.length) blocks.push(normal.join('\n'));
+  return renumber(blocks.join('\n\n'), style);
 }
 
 // ---------------------------------------------------------------- consultation recommendations
@@ -876,7 +941,7 @@ export function extractRecommendations(report, style = 'dash') {
     return kept.length ? bullet + kept.join(' ') : null;
   };
   // conclusion first (the AI's wording), then the body; urgent recommendations lead
-  const conclusion = renumber(report.conclusion.split('\n').map((l) => take(l, true)).filter((l) => l !== null).join('\n').replace(/\n{2,}/g, '\n').trim(), style);
+  const conclusion = renumber(report.conclusion.split('\n').map((l) => take(l, true)).filter((l) => l !== null).join('\n').replace(/\n{3,}/g, '\n\n').trim(), style);
   const body = report.body.split('\n').map((l) => take(l, false)).filter((l) => l !== null).join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\s+$/g, '');
   const urgent = (r) => (/piln|natychmiast|niezwłoczn|urgent|immediate/iu.test(r) ? 0 : 1);
   recs.sort((a, b) => urgent(a) - urgent(b));
@@ -894,7 +959,7 @@ export function extractRecommendations(report, style = 'dash') {
 export function appendRecommendations(conclusion, recs) {
   if (!recs?.length) return conclusion;
   const base = String(conclusion || '').replace(/\s+$/, '');
-  return base ? `${base}\n${recs.join(' ')}` : recs.join(' ');
+  return base ? `${base}\n\n${recs.join(' ')}` : recs.join(' '); // its own paragraph under the conclusion
 }
 
 /** Language-independent: move recommendations under the conclusion. */
