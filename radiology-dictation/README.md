@@ -164,10 +164,10 @@ for the AI, and set personal style rules under ⚙.
     description and in the conclusion.
   - **Layout**: when the leading findings come from different body systems (e.g. a ruptured
     spleen and a ureteric stone), each system's group, with its related normal statements, is
-    its own paragraph, separated by an empty line. The conclusion is grouped the same way:
-    brain/skull lines together, then abdominal organs, spine, chest wall…, an empty line between
-    groups, numbering continuing across them. The still-true normal lines come last, and the
-    consultation line sits under everything after one more empty line.
+    its own paragraph, separated by an empty line. The conclusion is ordered the same way
+    (brain/skull lines together, then abdominal organs, spine, chest wall…) but without empty
+    lines between them. The still-true normal lines come last, and the consultation line sits
+    under everything after one empty line.
   - Claude follows these rules (and may add other clinical links). The rule-based checker
     (`findingRank`, `linkedTo`, `arrangeFindings` in `crosscheck.js`) enforces them as a safety
     net for Polish reports.

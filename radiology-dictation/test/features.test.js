@@ -112,7 +112,7 @@ test('HID reports: only bits that go from 0 to 1 count as a press', () => {
 });
 
 // ---------------------------------------------------------------- layout: groups by body system
-test('conclusion: findings grouped by body system with an empty line between groups', async () => {
+test('conclusion: findings grouped by body system, without empty lines', async () => {
   const { layoutConclusion } = await import('../public/js/crosscheck.js');
   const out = layoutConclusion([
     '1. Krwiak podtwardówkowy nad prawą półkulą mózgu (3 mm).',
@@ -124,13 +124,10 @@ test('conclusion: findings grouped by body system with an empty line between gro
   assert.equal(out, [
     '1. Krwiak podtwardówkowy nad prawą półkulą mózgu (3 mm).',
     '2. Złamanie kości potylicznej lewej.',
-    '',
     '3. Stłuczenie wątroby w segmencie IV z krwią w jamie otrzewnej.',
-    '',
     '4. Złamanie trzonu C3.',
-    '',
     '5. Bez cech zwichnięcia kręgosłupa szyjnego.',
-  ].join('\n'));
+  ].join('\n'), 'grouped by system, no empty lines');
   assert.equal(layoutConclusion('- Krwiak podtwardówkowy.\n- Obrzęk mózgu.', 'dash'), '- Krwiak podtwardówkowy.\n- Obrzęk mózgu.', 'one system: no empty lines');
 });
 
@@ -142,8 +139,7 @@ test('description: leading findings of different systems are separate paragraphs
   assert.ok(spleen.includes('Wolny płyn w jamie brzusznej.'), 'free fluid stays with the spleen');
   assert.ok(!spleen.includes('Złóg'), 'the stone is its own paragraph');
   assert.ok(paras.some((p) => p.startsWith('Złóg w moczowodzie lewym')));
-  const c = report.conclusion.split('\n\n');
-  assert.ok(c[0].includes('Pęknięcie śledziony') && c[0].includes('Wolny płyn') && !c[0].includes('Złóg'));
+  assert.ok(!/\n\n/.test(report.conclusion), 'no empty lines in the conclusion');
 });
 
 test('sinus vs maxilla, mastoid cells vs ventricles', async () => {

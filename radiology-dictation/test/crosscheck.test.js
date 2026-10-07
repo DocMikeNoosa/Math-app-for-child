@@ -136,9 +136,8 @@ test('dictated conclusions replace the default ones', () => {
 test('numbered conclusion style is preserved', () => {
   const { report } = merge('ct_total_body_trauma_normal', 'niewielka odma opłucnowa prawostronna');
   assert.match(lines(report.conclusion)[0], /^1\. Niewielka odma opłucnowa prawostronna\.$/);
-  // numbering runs on across the blank lines between groups
-  assert.ok(lines(report.conclusion).filter((l) => l.trim()).every((l, i) => l.startsWith(`${i + 1}. `)));
-  assert.match(report.conclusion, /\n\n/, 'pathology and the remaining normal lines are separate paragraphs');
+  assert.ok(lines(report.conclusion).every((l, i) => l.startsWith(`${i + 1}. `)));
+  assert.ok(!/\n\n/.test(report.conclusion), 'no empty lines in the conclusion');
 });
 
 // ---------------------------------------------------------------- manual edits

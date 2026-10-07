@@ -885,8 +885,8 @@ export function enforceConsistency(template, report) {
 // ---------------------------------------------------------------- conclusion layout
 /**
  * Conclusion lines grouped for reading: pathology lines grouped by body system (systems in
- * the order of their first, most urgent line), a blank line between groups; the remaining
- * "normal" lines together after another blank line. Numbering continues across groups.
+ * the order of their first, most urgent line), then the remaining "normal" lines. No empty
+ * lines between them (only the consultation line below is set apart).
  */
 export function layoutConclusion(conclusion, style = 'dash') {
   const lines = String(conclusion || '').split('\n').filter((l) => l.trim());
@@ -906,7 +906,7 @@ export function layoutConclusion(conclusion, style = 'dash') {
   }
   const blocks = groups.map((g) => g.lines.join('\n'));
   if (normal.length) blocks.push(normal.join('\n'));
-  return renumber(blocks.join('\n\n'), style);
+  return renumber(blocks.join('\n'), style); // grouped, but no empty lines inside the conclusion
 }
 
 // ---------------------------------------------------------------- consultation recommendations
