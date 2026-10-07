@@ -20,6 +20,7 @@ const els = Object.fromEntries(
     'tplDelete', 'tplDuplicate', 'tplCancel', 'tplSave',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
+    'emptyState', 'emptyRecent', 'emptyPick',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
     'micStatus', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'keyLearn', 'keyClear', 'keyStatus',
@@ -28,11 +29,12 @@ const els = Object.fromEntries(
 
 // ---------------------------------------------------------------- state
 const STORE_KEY = 'radvox.v2';
-const DEFAULT_TEMPLATE = 'ct_head_normal';
+// The app starts blank: no template until the radiologist picks one.
+const blankReport = (lang = 'pl') => ({ templateId: null, header: '', body: '', conclusion: '', lang });
 const state = {
   ai: false,
   model: null,
-  report: reportFromTemplate(getTemplate(DEFAULT_TEMPLATE)),
+  report: blankReport(),
   baseline: null, // snapshot that highlights are computed against
   history: [],
   future: [],
@@ -44,8 +46,9 @@ const state = {
   outputLang: 'pl', // language the report is written in
   aiMode: 'fast', // fast | accurate | turbo
   copied: null, // report as it was when last copied
-  source: 'Szablon',
+  source: 'Brak szablonu',
   busy: false,
+  prepareAfterPick: false, // "Przygotuj opis" pressed before a template was chosen
   recording: false,
   reportId: newId(), // identifies this report in today's list
   lastAI: null, // the report as the AI produced it (for style learning)
@@ -54,7 +57,8 @@ const state = {
 function newId() { return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; }
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-const template = () => getTemplate(state.report.templateId) || getTemplate(DEFAULT_TEMPLATE);
+const template = () => (state.report.templateId ? getTemplate(state.report.templateId) : null);
+const isBlank = () => !template();
 
 // ---------------------------------------------------------------- user templates
 const USER_TPL_KEY = 'radvox.templates.v1';
@@ -82,18 +86,21 @@ function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
     if (!saved) return;
-    if (saved.report && getTemplate(saved.report.templateId) && ['header', 'body', 'conclusion'].every((k) => typeof saved.report[k] === 'string')) {
-      state.report = { ...saved.report, lang: saved.report.lang === 'en' ? 'en' : 'pl' };
+    // The app always opens blank. A report left unfinished last time goes to today's list.
+    const r = saved.report;
+    const t = r && getTemplate(r.templateId);
+    if (t && ['header', 'body', 'conclusion'].every((k) => typeof r[k] === 'string') && !same({ ...r, lang: 'pl' }, reportFromTemplate(t))
+      && !today.items.some((x) => x.id === saved.reportId)) {
+      today.items.push({ id: saved.reportId || newId(), time: Date.now(), title: t.title, text: reportToText(r, t), report: r, unfinished: true });
+      saveToday();
     }
     state.inputLang = saved.inputLang === 'en' ? 'en' : 'pl';
     state.outputLang = saved.outputLang === 'en' ? 'en' : 'pl';
     state.aiMode = ['fast', 'accurate', 'turbo'].includes(saved.aiMode) ? saved.aiMode : 'fast';
-    els.dictation.value = saved.dictation || '';
     els.stylePrefs.value = saved.style || '';
     els.bgProcess.checked = saved.bgProcess !== false;
     els.learnStyle.checked = saved.learnStyle !== false;
     state.recordKey = typeof saved.recordKey === 'string' ? saved.recordKey : null;
-    if (typeof saved.reportId === 'string') state.reportId = saved.reportId;
     state.recent = (saved.recent || []).filter((id) => getTemplate(id));
     state.ignore = Array.isArray(saved.ignore) ? saved.ignore : [];
   } catch { /* storage unavailable — start fresh */ }
@@ -142,6 +149,15 @@ function toast(message, kind = 'info', ms = 2800) {
 // ---------------------------------------------------------------- rendering
 function renderTemplateButton() {
   const t = template();
+  els.tplCurrent.classList.toggle('empty', !t);
+  if (!t) {
+    els.tplGroupChip.textContent = 'SZABLON';
+    els.tplGroupChip.classList.remove('trauma');
+    els.tplRegion.textContent = 'Nowy opis';
+    els.tplTitle.textContent = 'Wybierz szablon…';
+    els.tplCurrent.title = 'Wybierz szablon (T)';
+    return;
+  }
   const trauma = t.group === 'Trauma';
   els.tplGroupChip.textContent = trauma ? 'URAZ' : 'BEZ URAZU';
   els.tplGroupChip.classList.toggle('trauma', trauma);
@@ -150,10 +166,23 @@ function renderTemplateButton() {
   els.tplCurrent.title = `${t.exam} — zmień szablon (T)`;
 }
 
+function renderEmpty() {
+  const blank = isBlank();
+  document.body.classList.toggle('no-template', blank);
+  els.emptyState.hidden = !blank;
+  els.paper.hidden = blank;
+  if (!blank) return;
+  const recent = state.recent.map(getTemplate).filter(Boolean);
+  els.emptyRecent.innerHTML = recent.length
+    ? `<span class="lbl">Ostatnio używane</span>${recent.map((t) => `<button class="chip-btn${t.group === 'Trauma' ? ' trauma' : ''}" data-id="${esc(t.id)}">${esc(t.title)}</button>`).join('')}`
+    : '';
+}
+
 function renderReport() {
   const r = state.report;
   const base = state.baseline;
   renderTemplateButton();
+  renderEmpty();
   els.examHeader.textContent = r.header;
   const L = SECTION_LABELS[r.lang === 'en' ? 'en' : 'pl'];
   els.bodyLabel.textContent = L.body;
@@ -182,7 +211,7 @@ function renderPanels() {
 
 let liveConflicts = [];
 function renderConflicts() {
-  liveConflicts = findConflicts(template(), state.report, { ignore: state.ignore });
+  liveConflicts = isBlank() ? [] : findConflicts(template(), state.report, { ignore: state.ignore });
   els.conflicts.hidden = liveConflicts.length === 0;
   els.conflictsList.innerHTML = liveConflicts
     .map((c, i) => `<li>
@@ -197,7 +226,8 @@ function renderMeta() {
   els.undoBtn.disabled = state.history.length === 0;
   els.redoBtn.disabled = state.future.length === 0;
   els.acceptBtn.disabled = !state.baseline && !state.warnings.length && !state.corrections.length;
-  const words = reportToText(state.report, template()).split(/\s+/).filter(Boolean).length;
+  const words = isBlank() ? 0 : reportToText(state.report, template()).split(/\s+/).filter(Boolean).length;
+  for (const b of [els.copyBtn, els.resetBtn]) b.disabled = isBlank();
   els.footWords.textContent = `${words} słów`;
   els.footSource.textContent = state.source;
 }
@@ -221,14 +251,19 @@ function selectTemplate(id) {
   if (!t) return;
   state.recent = [id, ...state.recent.filter((x) => x !== id)].slice(0, 6);
   if (id === state.report.templateId) { save(); return; }
-  const wasEdited = !same(state.report, reportFromTemplate(template()));
+  const wasEdited = !isBlank() && !same({ ...state.report, lang: 'pl' }, reportFromTemplate(template()));
   state.ignore = [];
   if (wasEdited) archiveCurrent();
   state.reportId = newId();
   state.lastAI = null;
   commit(reportFromTemplate(t), { source: 'Szablon' });
-  toast(wasEdited ? `${t.title} — „Cofnij” przywróci poprzedni opis` : t.title, 'info');
-  if (state.outputLang === 'en') translateReport('en');
+  if (!state.prepareAfterPick) toast(wasEdited ? `${t.title} — „Cofnij” przywróci poprzedni opis` : t.title, 'info');
+  const prepare = state.prepareAfterPick;
+  state.prepareAfterPick = false;
+  (async () => {
+    if (state.outputLang === 'en') await translateReport('en');
+    if (prepare) process();
+  })();
 }
 
 function undo() {
@@ -259,6 +294,7 @@ function acceptChanges() {
   toast('Zmiany zaakceptowane', 'ok', 1600);
 }
 function resetReport() {
+  if (isBlank()) return;
   state.ignore = [];
   commit(reportFromTemplate(template()), { source: 'Szablon' });
   toast('Nowy opis z szablonu — „Cofnij” przywróci poprzedni', 'info');
@@ -339,7 +375,7 @@ function schedulePrefetch(delay = PREFETCH_DELAY) {
   prefetch.timer = setTimeout(runPrefetch, delay);
 }
 function runPrefetch() {
-  if (!bgEnabled() || state.busy) return;
+  if (!bgEnabled() || state.busy || isBlank()) return;
   const payload = formatPayload();
   if (!payload.dictation && !payload.instruction) return;
   const key = payloadKey(payload);
@@ -359,6 +395,7 @@ function runPrefetch() {
   prefetch.promise.catch(() => { if (prefetch.key === key) prefetch.key = null; }); // retried by "Przygotuj opis"
 }
 function renderPrepState() {
+  if (isBlank()) { els.prepState.hidden = true; return; }
   const p = formatPayload();
   const has = Boolean(p.dictation || p.instruction);
   const current = has && prefetch.key === payloadKey(p);
@@ -379,6 +416,13 @@ async function process() {
   if (state.recording) await stopRecording();
   if (document.activeElement?.isContentEditable) document.activeElement.blur();
 
+  if (isBlank()) {
+    const has = els.dictation.value.trim() || els.instruction.value.trim();
+    state.prepareAfterPick = Boolean(has);
+    toast(has ? 'Wybierz szablon — opis zostanie przygotowany zaraz po wyborze' : 'Najpierw wybierz szablon', 'info', 3600);
+    openPicker();
+    return;
+  }
   const payload = formatPayload();
   const { dictation, instruction } = payload;
   if (!dictation && !instruction) {
@@ -452,8 +496,8 @@ async function process() {
 async function newReport() {
   if (state.busy) return;
   const t = template();
-  const pristine = same({ ...state.report, lang: 'pl' }, reportFromTemplate(t));
-  const copied = state.copied && same(state.copied, state.report);
+  const pristine = !t || same({ ...state.report, lang: 'pl' }, reportFromTemplate(t));
+  const copied = (state.copied && same(state.copied, state.report)) || today.items.some((x) => !x.unfinished && same(x.report, state.report));
   const pending = els.dictation.value.trim();
   if ((!pristine && !copied) || pending) {
     const what = pending && (pristine || copied) ? 'Dyktat nie został opracowany.' : 'Bieżący opis nie został skopiowany.';
@@ -470,10 +514,10 @@ async function newReport() {
   state.lastAI = null;
   state.reportId = newId();
   renderPrepState();
-  commit(reportFromTemplate(t), { source: 'Szablon' });
+  if (!t && !pending) { openPicker(); return; } // already blank
+  commit(blankReport(state.outputLang), { source: 'Brak szablonu' });
   els.reportScroll.scrollTo({ top: 0 });
-  toast(`Nowy opis · ${t.title} — możesz dyktować (Cofnij przywróci poprzedni)`, 'ok', 3200);
-  if (state.outputLang === 'en') await translateReport('en');
+  toast('Nowy opis — wybierz szablon (T). „Cofnij” przywróci poprzedni opis.', 'ok', 3200);
 }
 
 const AI_MODE_HINTS = {
@@ -527,6 +571,7 @@ async function setOutputLang(lang) {
 async function translateReport(lang) {
   const r = state.report;
   if (r.lang === lang) return;
+  if (isBlank()) { state.report = { ...r, lang }; renderReport(); return; }
   const pristineTpl = reportFromTemplate(template());
   const pristine = same({ ...r, lang: 'pl' }, pristineTpl) || (r.lang === 'en' && translationCache.get(`${r.templateId}:en`) && same(r, translationCache.get(`${r.templateId}:en`)));
   if (pristine && lang === 'pl') {
@@ -577,6 +622,7 @@ function setBusy(busy, label) {
 
 // ---------------------------------------------------------------- copy
 async function copyReport() {
+  if (isBlank()) { toast('Brak opisu do skopiowania — wybierz szablon.', 'warn'); return; }
   if (document.activeElement?.isContentEditable) document.activeElement.blur();
   const text = reportToText(state.report, template());
   let ok = false;
@@ -623,13 +669,16 @@ const REGION_ICONS = {
 const picker = { group: 'Non-trauma', active: 0, items: [] };
 
 function openPicker() {
-  picker.group = template().group;
+  picker.group = template()?.group || getTemplate(state.recent[0])?.group || picker.group;
   els.pickerSearch.value = '';
   els.picker.hidden = false;
   renderPicker();
   setTimeout(() => els.pickerSearch.focus(), 0);
 }
-function closePicker() { els.picker.hidden = true; }
+function closePicker() {
+  els.picker.hidden = true;
+  if (isBlank()) state.prepareAfterPick = false;
+}
 
 const PENCIL = '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>';
 function itemButton(t, { tag = '' } = {}) {
@@ -731,7 +780,7 @@ function openEditor(id, prefill = null) {
   const t = id ? getTemplate(id) : null;
   editor.id = t ? t.id : null;
   editor.isNew = !t;
-  const raw = t ? rawOf(t) : { title: '', group: picker.group || 'Non-trauma', section: template().section, text: '', ...(prefill || {}) };
+  const raw = t ? rawOf(t) : { title: '', group: picker.group || 'Non-trauma', section: template()?.section || 'CT Head', text: '', ...(prefill || {}) };
   els.tplEditorTitle.textContent = t ? `Edycja: ${t.title}` : 'Nowy szablon';
   els.tplName.value = raw.title;
   setEditorGroup(raw.group);
@@ -751,9 +800,9 @@ function closeEditor() { els.tplEditor.hidden = true; }
 function afterTemplatesChanged(changedId) {
   saveUserTemplates();
   // keep the open report in sync if it is still the untouched template
-  const t = getTemplate(state.report.templateId);
+  const t = template();
   if (!t) {
-    commit(reportFromTemplate(getTemplate(DEFAULT_TEMPLATE) || TEMPLATES[0]), { source: 'Szablon' });
+    if (state.report.templateId) commit(blankReport(state.report.lang), { source: 'Brak szablonu' }); // its template was removed
   } else if (changedId === t.id && state.history.length === 0 && state.report.lang === 'pl') {
     state.report = reportFromTemplate(t);
     renderReport();
@@ -773,7 +822,7 @@ function saveEditor() {
   });
   if (!raw) { toast('Podaj nazwę i treść szablonu.', 'warn'); return; }
   const wasCurrent = state.report.templateId === raw.id;
-  const pristineBefore = wasCurrent && same({ ...state.report, lang: 'pl' }, reportFromTemplate(template()));
+  const pristineBefore = wasCurrent && !isBlank() && same({ ...state.report, lang: 'pl' }, reportFromTemplate(template()));
   if (!editor.isNew && isBuiltin(raw.id)) userTemplates.edited[raw.id] = raw;
   else if (!editor.isNew) userTemplates.custom = userTemplates.custom.map((c) => (c.id === raw.id ? raw : c));
   else userTemplates.custom.push(raw);
@@ -1044,9 +1093,11 @@ function saveToday() {
 function archiveCurrent() {
   if (today.date !== dayKey()) loadToday();
   const t = template();
+  if (!t) return;
   const report = clone(state.report);
   if (same({ ...report, lang: 'pl' }, reportFromTemplate(t))) return;
   const entry = { id: state.reportId, time: Date.now(), title: t.title, text: reportToText(report, t), report };
+  if (today.items.some((x) => x.id !== entry.id && x.text === entry.text)) return; // e.g. brought back with "Cofnij"
   const i = today.items.findIndex((x) => x.id === entry.id);
   if (i >= 0) today.items[i] = { ...entry, time: today.items[i].time };
   else today.items.push(entry);
@@ -1069,7 +1120,7 @@ function renderToday() {
   els.todayList.innerHTML = items.length
     ? items.map((it) => `<li class="today-item">
         <span class="time">${esc(timeFmt.format(new Date(it.time)))}</span>
-        <span class="what"><span class="title">${esc(it.title)}</span><span class="sum" title="${esc(summaryOf(it))}">${esc(summaryOf(it))}</span></span>
+        <span class="what"><span class="title">${esc(it.title)}${it.unfinished ? '<span class="t-badge edited">niedokończony</span>' : ''}</span><span class="sum" title="${esc(summaryOf(it))}">${esc(summaryOf(it))}</span></span>
         <span class="acts"><button class="mini-btn" data-today-copy="${esc(it.id)}">Kopiuj</button><button class="mini-btn accent" data-today-open="${esc(it.id)}">Otwórz</button></span>
       </li>`).join('')
     : '<li class="today-empty">Dziś nie skopiowano jeszcze żadnego opisu.</li>';
@@ -1302,6 +1353,10 @@ function bind() {
   els.inLang.addEventListener('click', (e) => { const b = e.target.closest('[data-lang]'); if (b && !b.disabled) setInputLang(b.dataset.lang); });
   els.outLang.addEventListener('click', (e) => { const b = e.target.closest('[data-lang]'); if (b && !b.disabled && !state.busy) setOutputLang(b.dataset.lang); });
 
+  // blank start screen
+  els.emptyPick.addEventListener('click', openPicker);
+  els.emptyRecent.addEventListener('click', (e) => { const b = e.target.closest('[data-id]'); if (b) selectTemplate(b.dataset.id); });
+
   // template picker
   els.tplCurrent.addEventListener('click', openPicker);
   els.closePicker.addEventListener('click', closePicker);
@@ -1326,6 +1381,7 @@ function bind() {
   els.tplGroup.addEventListener('click', (e) => { const b = e.target.closest('[data-group]'); if (b) setEditorGroup(b.dataset.group); });
   els.tplText.addEventListener('input', checkEditorText);
   els.tplFromReport.addEventListener('click', () => {
+    if (isBlank()) { toast('Brak bieżącego opisu — najpierw wybierz szablon.', 'warn'); return; }
     els.tplText.value = reportToText({ ...state.report, lang: 'pl' }, template());
     if (!els.tplName.value.trim()) els.tplName.value = `${template().title} (mój)`;
     checkEditorText();

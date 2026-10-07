@@ -43,7 +43,12 @@ when idle if `RADVOX_IDLE_EXIT_MIN` is set (the launcher sets 20); the page ping
 
 ## How to use
 
-1. **Choose a template**: click the template button in the top bar (or press `T`). Templates are
+1. **Choose a template.** The app opens blank. Click **Wybierz szablon**, a recently used
+   template, or the template button in the top bar (or press `T`). You can also dictate first:
+   if you press Przygotuj opis before choosing, the template list opens and the report is
+   prepared as soon as you pick one.
+
+   Template list details: Templates are
    grouped **Uraz / Bez urazu** (trauma / non-trauma) and then by anatomical region. Typing
    searches every template (e.g. "kub", "żebra"), recently used ones are listed first, and the
    arrow keys plus Enter work too.
@@ -144,9 +149,11 @@ for the AI, and set personal style rules under ⚙.
   - Claude follows these rules (and may add other clinical links). The rule-based checker
     (`findingRank`, `linkedTo`, `arrangeFindings` in `crosscheck.js`) enforces them as a safety
     net for Polish reports.
-- **Nowy opis** (`Alt+N`): finishes the report and starts a clean one with the same template.
-  If the report wasn't copied, or there is unprocessed dictation, it asks first. "Cofnij" can
-  still bring the previous report back. The small **Szablon** button only resets the template
+- **Nowy opis** (`Alt+N`): finishes the report and returns to the blank screen, ready for the
+  next patient's template. If the report wasn't copied, or there is unprocessed dictation, it
+  asks first. "Cofnij" can still bring the previous report back. A report left unfinished
+  when the app was closed is not lost: it appears in **Dzisiaj** marked "niedokończony", and
+  the app opens blank. The small **Szablon** button only resets the template
   text of the current report.
 - **Speed:**
   - For dictation Claude returns only the changes (`edits`: insert this finding at the top or
