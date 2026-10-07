@@ -16,7 +16,9 @@ import { formatConclusion } from './templates.js';
 
 // ---------------------------------------------------------------- lexicon
 const CONCEPTS = {
-  bleed: ['krwaw', 'krwiak', 'krwotok', 'krwi', 'krew', 'ukrwotoczn', 'wynaczyn'],
+  bleed: ['krwaw', 'krwiak', 'krwotok', 'krwi', 'krew', 'ukrwotoczn'],
+  // active bleeding is its own finding: free blood does not contradict "bez aktywnego wynaczynienia"
+  extravasation: ['wynaczyn', 'aktywne krwaw', 'aktywnego krwaw', 'aktywnym krwaw', 'czynne krwaw', 'czynnego krwaw'],
   collection: ['zbiornik'],
   ischemia: ['niedokrwien', 'udar', 'zawał'],
   edema: ['obrzęk'],
@@ -51,7 +53,8 @@ const CONCEPTS = {
 };
 // Words that make a template statement a generic "this organ is normal".
 // Extra stems recognised only in template statements.
-const TEMPLATE_ONLY = { parenchyma: ['echostruktur'] };
+// "Prawidłowe ustawienie trzonów" is about alignment: only a dislocation / listhesis contradicts it.
+const TEMPLATE_ONLY = { parenchyma: ['echostruktur'], alignment: ['ustawieni'] };
 const NORMAL = [
   'prawidłow', 'bez odchyleń', 'bez istotnych', 'bez zmian', 'bez patologii', 'bez cech patologii',
   'granicach normy', 'w normie', 'zachowan', 'drożn', 'powietrzn', 'upowietrzn', 'symetryczn', 'gładk',
@@ -62,7 +65,7 @@ const CHRONIC = ['przebyt', 'stary', 'starego', 'starych', 'stare', 'przewlekł'
 
 const ORGANS = {
   head: { stems: ['głow'] },
-  intracranial: { parents: ['head'], stems: ['wewnątrzczaszk', 'śródczaszk', 'mózg', 'mózgow', 'półkul', 'płat', 'płacie', 'płata', 'istot', 'móżdż', 'pień mózgu', 'pnia mózgu', 'zewnątrzosiow', 'podtward', 'nadtward', 'podpajęczyn', 'jąder podstawy', 'jądrach podstawy', 'wzgórz', 'torebk', 'okołokomor', 'przymózgow', 'zbiorniki podstawy', 'śródmózgow'] },
+  intracranial: { parents: ['head'], stems: ['wewnątrzczaszk', 'śródczaszk', 'mózg', 'mózgow', 'półkul', 'płat', 'płacie', 'płata', 'istota biał', 'istoty biał', 'istocie biał', 'istotę biał', 'istota szar', 'istoty szar', 'istocie szar', 'móżdż', 'pień mózgu', 'pnia mózgu', 'zewnątrzosiow', 'podtward', 'nadtward', 'podpajęczyn', 'jąder podstawy', 'jądrach podstawy', 'wzgórz', 'torebk', 'okołokomor', 'przymózgow', 'zbiorniki podstawy', 'śródmózgow'] },
   ventricles: { parents: ['intracranial'], stems: ['komor', 'komór', 'układ komorow'] },
   midline: { parents: ['intracranial'], stems: ['pośrodkow', 'linii środkowej', 'linia środkowa', 'linii pośrodkowej'] },
   skull: { parents: ['head', 'bone'], stems: ['czaszk', 'sklepien', 'pokryw', 'kości ciemieniow', 'kości czołow', 'kości skroniow', 'kości potylic', 'kość ciemieniow', 'kość czołow', 'kość skroniow', 'kość potylic', 'łuski'] },
@@ -81,7 +84,8 @@ const ORGANS = {
   aorta: { parents: ['vessels'], stems: ['aort', 'aorc'] },
   bone: { stems: ['kost', 'kości', 'kość', 'kośc'] },
   spine: { parents: ['bone'], stems: ['kręgosłup', 'kręg', 'trzon', 'międzywyrostk', 'wyrostk kolczyst'] },
-  cspine: { parents: ['spine'], stems: ['szyjn', 'czaszkowo-szyjn', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'] },
+  ccj: { parents: ['cspine'], stems: ['czaszkowo-szyjn', 'szczytowo-potylicz', 'potyliczno-szczyt'] },
+  cspine: { parents: ['spine'], stems: ['szyjn', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'] },
   tspine: { parents: ['spine'], stems: ['kręgosłup piersiow', 'kręgosłupa piersiow', 'kręgosłupie piersiow', 'th1', 'th2', 'th3', 'th4', 'th5', 'th6', 'th7', 'th8', 'th9', 'th10', 'th11', 'th12'] },
   lspine: { parents: ['spine'], stems: ['lędźwiow', 'l1', 'l2', 'l3', 'l4', 'l5', 's1', 'krzyżow'] },
   disc: { parents: ['spine'], stems: ['krąż', 'dysk'] },
@@ -165,7 +169,12 @@ function findingConcepts(sentence) {
     }
   }
   // "zmiany pourazowe" covers every traumatic finding
-  if (['fracture', 'dislocation', 'pneumothorax', 'bleed', 'freeAir'].some((c) => out.has(c))) out.add('injury');
+  if (['fracture', 'dislocation', 'pneumothorax', 'bleed', 'freeAir', 'extravasation'].some((c) => out.has(c))) out.add('injury');
+  if (out.has('extravasation')) out.add('bleed');
+  // blood in the peritoneal cavity / pelvis is free fluid as well
+  if (out.has('bleed') && /jam\p{L}* (otrzewn|brzuszn)|otrzewnow|wolnej krwi|wolna krew|hemoperiton|zatok\p{L}* douglas|miednic\p{L}* mniejsz/u.test(lc)) out.add('fluid');
+  // a subdural / epidural haematoma is an extra-axial collection
+  if (out.has('bleed') && /podtward|nadtward|zewnątrzosiow|zewnątrzopon/u.test(lc)) out.add('collection');
   return out;
 }
 
@@ -186,6 +195,8 @@ function organsIn(text) {
   for (const [name, o] of Object.entries(ORGANS)) if (has(lc, o.stems)) out.add(name);
   // a more specific organ makes its generic stems redundant ("tętnice szyjne" ≠ cervical spine)
   if (out.has('headArteries') && out.has('cspine') && !/kręg|c\d/.test(lc)) out.delete('cspine');
+  // "połączenie czaszkowo-szyjne" is the cranio-cervical junction, not the skull
+  if (out.has('ccj')) out.delete('skull');
   // "kamica nerkowa" means the urinary tract as a whole
   if (out.has('urinary') && /kamic\p{L}* nerkow/u.test(lc)) out.delete('kidney');
   // keep the most specific organs ("kości podstawy czaszki" → skull, not every bone)
@@ -240,7 +251,8 @@ export function contradicts(stmt, finding, { wholeExam = false } = {}) {
   if (stmt.acute && finding.chronic) return false;
   if (stmt.side && finding.side && stmt.side !== 'both' && finding.side !== 'both' && stmt.side !== finding.side) return false;
 
-  const shared = [...stmt.concepts].filter((c) => c !== 'normal' && finding.concepts.has(c));
+  const fc = finding.concepts.has('dislocation') ? new Set([...finding.concepts, 'alignment']) : finding.concepts;
+  const shared = [...stmt.concepts].filter((c) => c !== 'normal' && fc.has(c));
   const organMatch =
     stmt.organs.size > 0 &&
     finding.organs.size > 0 &&
@@ -358,11 +370,18 @@ export function pruneSentence(sentence, findings, { wholeExam = false, context =
     it.text = prefix + it.text;
   }
 
-  // Removing a positive first item ("Prawidłowe ustawienie trzonów kręgów") would leave the
-  // following items without their head noun ("…oraz stawów") — then the whole sentence goes.
+  // Removing a positive first item ("Prawidłowa wysokość trzonów kręgów") would leave the next
+  // item without its predicate ("…oraz krążków") — carry the predicate over ("Prawidłowa
+  // wysokość krążków"); when there is none to carry, the whole sentence goes.
   if (v[0].hit && !NEG_LEAD_RE.test(v[0].text) && has(v[0].text.toLowerCase(), NORMAL)) {
-    const keptTexts = keptIdx.map((i) => v[i].text.toLowerCase());
-    if (!keptTexts.some((t) => has(t, NORMAL) || HAS_NEG_RE.test(t))) return { text: '', removed: true, trigger };
+    const first = v[keptIdx[0]];
+    const ft = first.text.toLowerCase();
+    if (!has(ft, NORMAL) && !HAS_NEG_RE.test(ft)) {
+      const oi = firstOrganIndex(v[0].text);
+      const head = oi > 0 ? v[0].text.slice(0, oi) : '';
+      if (!head || !has(head.toLowerCase(), NORMAL)) return { text: '', removed: true, trigger };
+      first.text = head + first.text;
+    }
   }
 
   // The subject of a removed first item ("Struktury mózgowia bez zmian ogniskowych") stays.
@@ -462,7 +481,7 @@ function renumber(conclusion, style) {
 }
 
 // Clinical urgency used to order conclusion lines.
-const URGENCY = ['bleed', 'mass', 'pneumothorax', 'dissection', 'occlusion', 'freeAir', 'ischemia', 'edema', 'fracture', 'dislocation', 'injury', 'aneurysm', 'consolidation', 'fluid', 'stone', 'dilatation', 'inflammation', 'focal', 'nodes', 'disc', 'enlargement'];
+const URGENCY = ['bleed', 'extravasation', 'mass', 'pneumothorax', 'dissection', 'occlusion', 'freeAir', 'ischemia', 'edema', 'fracture', 'dislocation', 'injury', 'aneurysm', 'consolidation', 'fluid', 'stone', 'dilatation', 'inflammation', 'focal', 'nodes', 'disc', 'enlargement'];
 function urgency(f) {
   const ranks = [...f.concepts].map((c) => URGENCY.indexOf(c)).filter((i) => i >= 0);
   return (ranks.length ? Math.min(...ranks) : URGENCY.length) + (f.chronic ? 100 : 0);
@@ -481,12 +500,13 @@ export function shortenFinding(sentence) {
 /** Conclusion lines from the pathological findings in the body, most urgent first. */
 export function conclusionFromFindings(template, report) {
   const tpl = templateSentences(template);
-  return splitSentences(report.body)
+  const items = splitSentences(report.body)
     .filter((s) => !tpl.body.has(s))
     .map(analyseFinding)
     .filter((f) => f.concepts.size)
-    .sort((a, b) => urgency(a) - urgency(b))
-    .map((f) => shortenFinding(f.text))
+    .map((f, order) => ({ f, order }));
+  return orderGroup(items)
+    .map((x) => shortenFinding(x.f.text))
     .filter(Boolean);
 }
 
@@ -501,7 +521,7 @@ const INTRO_RE = /^(badanie (wykonano|porówn|wykonane)|porównano|w porównaniu
 // (fractures, old or incidental lesions, degenerative change…) stay in their anatomical place
 // in the template — unless they belong to a leading finding (epidural haematoma ← skull
 // fracture, pneumothorax ← rib fracture on the same side), then they follow it at the top.
-const LEAD_CONCEPTS = new Set(['bleed', 'mass', 'pneumothorax', 'dissection', 'occlusion', 'freeAir', 'ischemia', 'edema', 'stone', 'dilatation', 'inflammation', 'consolidation', 'aneurysm', 'disc', 'collection']);
+const LEAD_CONCEPTS = new Set(['bleed', 'extravasation', 'mass', 'pneumothorax', 'dissection', 'occlusion', 'freeAir', 'ischemia', 'edema', 'stone', 'dilatation', 'inflammation', 'consolidation', 'aneurysm', 'disc', 'collection']);
 const BENIGN_RE = /torbiel|naczyniak|tłuszczak|zwapnie|wysp\p{L}* kostn|cavum|wariant|przebyt|stary|starego|zastarzał/iu;
 const MINOR_ORGANS = new Set(['sinus', 'mastoid', 'scalp', 'soft']);
 
@@ -539,15 +559,102 @@ export function linkedTo(a, t) {
   return false;
 }
 
+// Findings that go to the top of their section when the section has no leading finding
+// (e.g. rib fractures at the top of "Klatka piersiowa:"); incidental ones never move up.
+const PROMOTE_CONCEPTS = new Set(['fracture', 'dislocation', 'injury', 'foreignBody', 'nodes', 'enlargement', 'stranding']);
+const SOLID_ORGANS = ['liver', 'spleen', 'kidney', 'pancreas', 'adrenal'];
+
+/** 'lead' | 'acute' (relevant, secondary) | 'incidental' (old, benign, minor). */
+function relevance(f) {
+  if (findingRank(f) === 'lead') return 'lead';
+  if (f.chronic || BENIGN_RE.test(f.text)) return 'incidental';
+  const organs = [...f.organs];
+  if (organs.length && organs.every((o) => MINOR_ORGANS.has(o))) return 'incidental';
+  return [...f.concepts].some((c) => PROMOTE_CONCEPTS.has(c)) ? 'acute' : 'incidental';
+}
+
+/** Does finding `a` follow finding `t` (its consequence or a part of it)? */
+function follows(a, t) {
+  if (a === t) return false;
+  if (linkedTo(a, t)) return true;
+  // haemoperitoneum / free fluid after the injured solid organ
+  const peritoneal = (a.concepts.has('bleed') || a.concepts.has('fluid')) && !SOLID_ORGANS.some((o) => inFamily(a.organs, o)) && (inFamily(a.organs, 'abdomen') || inFamily(a.organs, 'pelvis'));
+  if (peritoneal && t.concepts.has('injury') && SOLID_ORGANS.some((o) => inFamily(t.organs, o))) return true;
+  // hydronephrosis after the obstructing stone on the same side
+  if (a.concepts.has('dilatation') && !a.concepts.has('stone') && t.concepts.has('stone') && inFamily(a.organs, 'urinary') && sidesCompatible(a, t)) return true;
+  return false;
+}
+
 /**
- * Order the description: leading findings at the top (below technique / comparison lines),
- * most urgent first, each followed by the secondary findings linked to it; other secondary
- * findings sit next to the template statements about the same organ. The template's
- * normal statements keep their order; sub-headings left empty are dropped.
+ * Normal statements that belong right after a finding ("pertinent negatives"): rib fractures →
+ * no pneumothorax / haemothorax / lung contusion; spine fracture → alignment, no dislocation;
+ * solid-organ injury → no active extravasation, other organs uninjured; intracranial bleed →
+ * mass effect, oedema, midline, ventricles; stone → no hydronephrosis.
+ * Each matcher: { c: concepts (any), o: organ families (any) }.
+ */
+function pertinentFor(f) {
+  const fam = (root) => inFamily(f.organs, root);
+  const c = f.concepts;
+  const out = [];
+  if (c.has('fracture') && fam('ribs')) out.push({ c: ['pneumothorax'] }, { c: ['bleed'], o: ['pleura'] }, { c: ['injury'], o: ['lung'] });
+  if (c.has('pneumothorax')) out.push({ c: ['bleed'], o: ['pleura'] });
+  if ((c.has('fracture') || c.has('dislocation')) && fam('spine')) out.push({ c: ['dislocation', 'alignment'] }, { o: ['canal', 'cord'] });
+  if (c.has('fracture') && fam('pelvicBone')) out.push({ c: ['extravasation'] });
+  if (c.has('fracture') && fam('skull')) out.push({ c: ['bleed'], o: ['intracranial'] });
+  if ((c.has('injury') || c.has('bleed')) && SOLID_ORGANS.some(fam)) out.push({ c: ['extravasation'] }, { c: ['injury'], o: ['abdomen'] }, { c: ['fluid'], o: ['abdomen'] });
+  if (c.has('bleed') && fam('intracranial')) out.push({ c: ['mass', 'edema', 'collection'] }, { o: ['midline', 'ventricles'] });
+  if (c.has('stone') && fam('urinary')) out.push({ c: ['dilatation'] });
+  return out;
+}
+function isPertinent(sentence, matchers) {
+  if (!matchers.length) return false;
+  const a = analyse(sentence);
+  return matchers.some((m) => {
+    const cOk = !m.c || m.c.some((x) => a.concepts.has(x));
+    const oOk = !m.o || [...a.organs].some((o) => m.o.some((r) => selfAndAncestors(o).has(r)));
+    return cOk && oOk;
+  });
+}
+
+/** Order findings: anchors by urgency, each followed by its consequences / linked findings. */
+function orderGroup(items) {
+  const anchors = items.filter((x) => !items.some((t) => follows(x.f, t.f)));
+  const groupUrgency = (a) => Math.min(urgency(a.f), ...items.filter((y) => follows(y.f, a.f)).map((y) => urgency(y.f)));
+  anchors.sort((a, b) => groupUrgency(a) - groupUrgency(b) || a.order - b.order);
+  const out = [];
+  const seen = new Set();
+  const visit = (x) => {
+    if (seen.has(x)) return;
+    seen.add(x);
+    out.push(x);
+    items.filter((y) => !seen.has(y) && follows(y.f, x.f)).sort((a, b) => a.order - b.order).forEach(visit);
+  };
+  anchors.forEach(visit);
+  items.forEach(visit); // anything left (cycles) keeps its order
+  return out;
+}
+
+const tidyLines = (arr) => {
+  const out = [];
+  for (const l of arr) if (l.trim() || (out.length && out[out.length - 1].trim())) out.push(l);
+  while (out.length && !out[out.length - 1].trim()) out.pop();
+  return out;
+};
+
+/**
+ * Order the description section by section. In templates with sub-headings ("Głowa:",
+ * "Klatka piersiowa:"…) every finding goes into its own section. In each section:
+ *   - leading findings (bleed, pneumothorax, organ laceration, obstructing stone…) at the top,
+ *     most urgent first, each followed by the findings that belong to it (epidural haematoma ←
+ *     skull fracture, liver laceration → haemoperitoneum);
+ *   - with no leading finding, relevant secondary findings (fractures, injuries) take the top;
+ *   - then the pertinent normal statements (rib fractures → "bez odmy, bez krwiaka
+ *     opłucnowego");
+ *   - other secondary / incidental findings stay next to the statements about the same organ.
+ * Templates without sub-headings are one section; technique / comparison lines stay first.
  */
 export function arrangeFindings(template, report) {
   const tpl = templateSentences(template);
-  const lines = report.body.split('\n');
   const findingOf = (line) => {
     if (isHeader(line)) return null;
     const own = splitSentences(line).filter((s) => !tpl.body.has(s));
@@ -555,51 +662,148 @@ export function arrangeFindings(template, report) {
     const f = analyseFinding(own.join(' '));
     return f.concepts.size ? { ...f, text: line.trim() } : null;
   };
+
+  // ---- split into intro, preamble (before the first sub-heading) and sections
+  const lines = report.body.split('\n');
   let introEnd = 0;
   for (let i = 0; i < lines.length; i++) {
     if (!lines[i].trim()) continue;
     if (INTRO_RE.test(lines[i].trim()) && !findingOf(lines[i])) introEnd = i + 1;
     else break;
   }
-  const intro = lines.slice(0, introEnd).filter((l, i, a) => l.trim() || (i > 0 && a[i - 1].trim()));
-  const rest = lines.slice(introEnd);
-
-  // the current top block: consecutive finding lines right after the intro
-  let topEnd = 0;
-  while (topEnd < rest.length && (!rest[topEnd].trim() ? topEnd === 0 : findingOf(rest[topEnd]))) topEnd++;
-
-  const all = rest.map((line, i) => ({ line, i, f: findingOf(line) })).filter((x) => x.f);
-  if (!all.length) return report;
-  const leads = all.filter((x) => findingRank(x.f) === 'lead');
-  const secondaries = all.filter((x) => findingRank(x.f) !== 'lead');
-  const linked = new Map(); // lead index → secondaries
-  const toPlace = [];
-  for (const s of secondaries) {
-    const anchor = leads.find((l) => linkedTo(s.f, l.f));
-    if (anchor) {
-      if (!linked.has(anchor.i)) linked.set(anchor.i, []);
-      linked.get(anchor.i).push(s);
-    } else if (s.i < topEnd) toPlace.push(s); // secondary sitting in the top block → back to its organ
+  const intro = tidyLines(lines.slice(0, introEnd));
+  const pre = [];
+  const sections = [];
+  for (const line of lines.slice(introEnd)) {
+    if (isHeader(line)) sections.push({ header: line, lines: [] });
+    else (sections.length ? sections[sections.length - 1].lines : pre).push(line);
   }
-  const moved = new Set([...leads, ...[...linked.values()].flat(), ...toPlace].map((x) => x.i));
-  if (!leads.length && !toPlace.length) return report;
+  const headed = sections.length > 0;
+  if (!headed) sections.push({ header: null, lines: pre.splice(0) });
 
-  const ranked = leads.slice().sort((a, b) => urgency(a.f) - urgency(b.f) || a.i - b.i);
-  const top = ranked.flatMap((l) => [l.line.trim(), ...(linked.get(l.i) || []).map((s) => s.line.trim())]);
-
-  let remaining = rest.filter((_, i) => !moved.has(i));
-  remaining = remaining.filter((t, i, arr) => {
-    if (!isHeader(t)) return true;
-    const next = arr.slice(i + 1).find((x) => x.trim());
-    return next !== undefined && !isHeader(next) && arr[i + 1]?.trim() !== '';
+  // ---- collect findings; a finding outside its section (or before the first sub-heading) moves
+  let order = 0;
+  const items = [];
+  // what each section is about, from the template itself (statements may have been removed)
+  const tplSections = new Map();
+  let cur = null;
+  for (const l of template.body.split('\n')) {
+    if (isHeader(l)) { cur = l.trim(); tplSections.set(cur, []); } else if (cur) tplSections.get(cur).push(l);
+  }
+  const sectionOrgans = sections.map((sec) => {
+    const set = new Set(sec.header ? organsIn(sec.header) : []);
+    const src = (sec.header && tplSections.get(sec.header.trim())) || sec.lines.filter((l) => !findingOf(l));
+    for (const l of src) for (const o of organsIn(l)) set.add(o);
+    return { header: sec.header ? organsIn(sec.header) : new Set(), all: set };
   });
-  let restText = remaining.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
-  for (const s of toPlace) restText = insertFinding(restText, s.line.trim());
+  const score = (si, f) => {
+    const { header, all } = sectionOrgans[si];
+    if ([...f.organs].some((fo) => [...header].some((h) => selfAndAncestors(fo).has(h)))) return 100;
+    return organScore(f.organs, all);
+  };
+  const bestSection = (f, current) => {
+    let best = current;
+    let bestScore = current >= 0 ? score(current, f) : 0;
+    if (current >= 0 && bestScore > 0) return current;
+    sections.forEach((_, si) => { const sc = score(si, f); if (sc > bestScore) { best = si; bestScore = sc; } });
+    return best;
+  };
+  const take = (arr, si) => arr.map((line) => {
+    const f = findingOf(line);
+    return f ? { line: line.trim(), f, from: si, order: order++ } : line;
+  });
+  const preItems = take(pre, -1);
+  const secLines = sections.map((sec, si) => take(sec.lines, si));
+  const stay = []; // findings that cannot be placed in a section
+  const placeIn = sections.map(() => []);
+  for (const x of preItems) {
+    if (typeof x === 'string') continue;
+    const si = headed ? bestSection(x.f, -1) : 0;
+    if (si >= 0) placeIn[si].push({ ...x, moved: true }); else stay.push(x);
+  }
+  secLines.forEach((arr, si) => arr.forEach((x) => {
+    if (typeof x === 'string') return;
+    const target = headed ? bestSection(x.f, si) : si;
+    if (target !== si) { placeIn[target].push({ ...x, moved: true }); x.gone = true; }
+  }));
+  if (!items.length) items.push(...preItems.filter((x) => typeof x !== 'string'), ...secLines.flat().filter((x) => typeof x !== 'string'));
+  if (!items.length) return report;
 
+  // ---- arrange each section
+  const outSections = sections.map((sec, si) => {
+    const arr = secLines[si].filter((x) => !x.gone);
+    // the section's current top block: consecutive findings at its start
+    let topEnd = 0;
+    while (topEnd < arr.length && (typeof arr[topEnd] !== 'string' || (!arr[topEnd].trim() && topEnd === 0))) topEnd++;
+    const own = arr.filter((x) => typeof x !== 'string').map((x, k) => ({ ...x, inTop: arr.indexOf(x) < topEnd }));
+    const all = [...own, ...placeIn[si]];
+    const leads = all.filter((x) => relevance(x.f) === 'lead');
+    let top;
+    if (leads.length) {
+      const followers = all.filter((x) => !leads.includes(x) && leads.some((l) => follows(x.f, l.f)));
+      top = orderGroup([...leads, ...followers]);
+    } else {
+      const acute = all.filter((x) => relevance(x.f) === 'acute');
+      const followers = all.filter((x) => !acute.includes(x) && acute.some((l) => follows(x.f, l.f)));
+      top = orderGroup([...acute, ...followers]);
+    }
+    const inTop = new Set(top);
+    // findings that are not on top: stay where they are, unless they came from elsewhere or sat
+    // in the top block — then they go next to the statements about the same organ
+    const toPlace = all.filter((x) => !inTop.has(x) && (x.moved || x.inTop));
+    const removed = new Set([...top, ...toPlace].filter((x) => !x.moved).map((x) => x.order));
+
+    // remaining lines (normal statements + findings left in place)
+    let rest = arr.filter((x) => typeof x === 'string' || !removed.has(x.order)).map((x) => (typeof x === 'string' ? x : x.line));
+    rest = rest.filter((l, i) => !isHeader(l));
+
+    // pertinent negatives: sentences of the remaining normal statements, with the findings that
+    // sit right under them
+    const matchers = top.flatMap((x) => pertinentFor(x.f));
+    const negatives = [];
+    if (matchers.length) {
+      const kept = [];
+      for (let i = 0; i < rest.length; i++) {
+        const l = rest[i];
+        if (!l.trim() || findingOf(l)) { kept.push(l); continue; }
+        const sents = splitSentences(l);
+        const isHit = sents.map((x) => (tpl.body.has(x) || !analyseFinding(x).concepts.size) && isPertinent(x, matchers));
+        if (!isHit.some(Boolean)) { kept.push(l); continue; }
+        // the matching sentences at the end of a line are split off; otherwise the whole line moves
+        const firstHit = isHit.indexOf(true);
+        const suffix = isHit.slice(firstHit).every(Boolean);
+        if (suffix && firstHit > 0) {
+          kept.push(sents.slice(0, firstHit).join(' '));
+          negatives.push(sents.slice(firstHit).join(' '));
+        } else {
+          negatives.push(l.trim());
+        }
+        // incidental findings written under that statement (old lacunes…) travel with it
+        while (i + 1 < rest.length && rest[i + 1].trim() && findingOf(rest[i + 1]) && relevance(findingOf(rest[i + 1])) === 'incidental') negatives.push(rest[++i].trim());
+      }
+      rest = kept;
+    }
+    let restText = tidyLines(rest).join('\n').replace(/\n{3,}/g, '\n\n');
+    for (const x of toPlace) restText = insertFinding(restText, x.line);
+    const head = [...top.map((x) => x.line), ...negatives];
+    return { header: sec.header, head, rest: restText.replace(/^\n+|\n+$/g, '') };
+  });
+
+  // ---- reassemble
   const parts = [];
-  if (intro.length) parts.push(intro.join('\n').replace(/\n+$/, ''));
-  if (top.length) parts.push(top.join('\n'));
-  if (restText) parts.push(restText);
+  if (intro.length) parts.push(intro.join('\n'));
+  const preRest = tidyLines(pre.filter((l) => !findingOf(l)));
+  const preBlock = [...stay.map((x) => x.line), ...preRest];
+  if (preBlock.length) parts.push(preBlock.join('\n'));
+  for (const sec of outSections) {
+    if (sec.header) {
+      const body = [sec.head.join('\n'), sec.rest].filter(Boolean).join('\n');
+      if (body.trim()) parts.push(`${sec.header.trim()}\n${body}`);
+    } else {
+      if (sec.head.length) parts.push(sec.head.join('\n'));
+      if (sec.rest) parts.push(sec.rest);
+    }
+  }
   return { ...report, body: parts.join('\n\n') };
 }
 

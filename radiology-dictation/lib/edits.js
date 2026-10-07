@@ -48,9 +48,14 @@ export function applyEdits(body, edits) {
       corrections.push({ removed: at.match, replacement: text, reason: String(e.reason || '') });
     } else if (e.op === 'insert' && text) {
       if (String(e.target).trim().toUpperCase() === 'TOP') { topInserts.push(text); continue; }
+      // the target may also be a sub-heading ("Klatka piersiowa:") → top of that section
       const at = locate(plain(), e.target);
       if (!at) { failed.push(String(e.target)); topInserts.push(text); continue; }
-      lines.splice(at.i + 1, 0, { text, was: true });
+      // several inserts after the same sentence keep their order
+      const anchor = lines[at.i];
+      let pos = at.i + 1;
+      while (pos < lines.length && lines[pos].after === anchor) pos++;
+      lines.splice(pos, 0, { text, was: true, after: anchor });
     }
   }
 

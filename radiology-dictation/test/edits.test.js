@@ -33,3 +33,13 @@ test('targets are matched tolerantly; unknown targets are reported and inserts s
   assert.equal(r.failed.length, 2);
   assert.ok(r.body.includes('Nowe znalezisko.'));
 });
+
+test('inserts after a sub-heading land at the top of that section, in order', () => {
+  const body = 'Głowa:\nBez krwawienia.\n\nKlatka piersiowa:\nBez odmy.';
+  const r = applyEdits(body, [
+    { op: 'insert', target: 'Klatka piersiowa:', text: 'Złamanie żebra VII prawego.', reason: '' },
+    { op: 'insert', target: 'Klatka piersiowa:', text: 'Złamanie żebra VIII prawego.', reason: '' },
+  ]);
+  assert.equal(r.body, 'Głowa:\nBez krwawienia.\n\nKlatka piersiowa:\nZłamanie żebra VII prawego.\nZłamanie żebra VIII prawego.\nBez odmy.');
+  assert.deepEqual(r.failed, []);
+});

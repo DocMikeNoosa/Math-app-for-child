@@ -183,13 +183,70 @@ test('spine fracture goes to its own region in multi-region templates', () => {
   assert.ok(lumbar > report.body.indexOf('Jama brzuszna i miednica:'), 'L1 fracture in the abdomen/pelvis + lumbar section');
 });
 
-test('findings first in multi-region templates: before the first sub-heading', () => {
+test('multi-region templates: findings at the top of their own section, then the related normal statements', () => {
   const { report } = merge('ct_total_body_trauma_normal', 'złamanie żebra szóstego po stronie prawej kropka niewielka odma opłucnowa prawostronna');
   const l = lines(report.body);
-  assert.equal(l[0], 'Niewielka odma opłucnowa prawostronna.');
-  assert.equal(l[1], 'Złamanie żebra szóstego po stronie prawej.');
-  assert.equal(l[3], 'Głowa:');
-  assert.ok(report.body.includes('Klatka piersiowa:'), 'sub-heading with remaining content kept');
+  assert.equal(l[0], 'Głowa:', 'nothing above the first sub-heading');
+  const chest = l.indexOf('Klatka piersiowa:');
+  assert.deepEqual(l.slice(chest + 1, chest + 4), [
+    'Niewielka odma opłucnowa prawostronna.',
+    'Złamanie żebra szóstego po stronie prawej.',
+    'Bez cech krwiaka opłucnowego. Bez cech urazu płuc.',
+  ]);
+});
+
+const POLYTRAUMA = 'Krwiak podtwardówkowy nad prawą półkulą mózgu grubości 3 mm. Krew w bruzdach płata czołowego prawego oraz u podstawy płata skroniowego lewego, obraz krwawienia podpajęczynówkowego. Złamanie kości potylicznej po stronie lewej. Złamanie trzonu kręgu C3. Złamania tylnych odcinków żeber VII, VIII, IX i X oraz bocznych odcinków żeber VI i VII po stronie prawej. Stłuczenie wątroby w segmencie IV długości 5 cm. Krew w jamie otrzewnej spływająca do miednicy mniejszej po stronie prawej.';
+
+test('polytrauma: every finding in its section, relevant first, pertinent negatives follow', () => {
+  const { report } = merge('ct_total_body_trauma_normal', POLYTRAUMA);
+  const sec = (name) => {
+    const l = lines(report.body);
+    const i = l.indexOf(name);
+    const j = l.findIndex((x, k) => k > i && !x.trim());
+    return l.slice(i + 1, j < 0 ? undefined : j);
+  };
+  const head = sec('Głowa:');
+  assert.match(head[0], /^Krwiak podtwardówkowy/);
+  assert.match(head[1], /podpajęczynówkowego/);
+  assert.match(head[2], /^Bez cech obrzęku mózgu/, 'brain statements follow the bleeds');
+  assert.equal(head.at(-1), 'Złamanie kości potylicznej po stronie lewej.', 'skull fracture with the bones');
+  const cs = sec('Kręgosłup szyjny:');
+  assert.equal(cs[0], 'Złamanie trzonu kręgu C3.');
+  assert.equal(cs[1], 'Prawidłowe ustawienie trzonów kręgów oraz stawów międzywyrostkowych, bez cech zwichnięcia.', 'alignment is not contradicted by a fracture and follows it');
+  assert.ok(cs.includes('Prawidłowy obraz połączenia czaszkowo-szyjnego.'), 'occipital fracture ≠ cranio-cervical junction');
+  assert.ok(cs.includes('Otaczające tkanki miękkie bez istotnych zmian pourazowych.'), '"istotnych" is not brain matter');
+  const chest = sec('Klatka piersiowa:');
+  assert.match(chest[0], /^Złamania tylnych odcinków żeber/);
+  assert.equal(chest[1], 'Bez cech odmy opłucnowej i bez cech krwiaka opłucnowego. Bez cech urazu płuc.');
+  const abd = sec('Jama brzuszna i miednica:');
+  assert.match(abd[0], /^Stłuczenie wątroby/);
+  assert.match(abd[1], /^Krew w jamie otrzewnej/, 'haemoperitoneum follows the liver injury');
+  assert.ok(abd.slice(2, 4).includes('Bez cech aktywnego wynaczynienia środka kontrastowego.'), 'free blood ≠ active extravasation');
+  assert.ok(abd.includes('Bez wolnego powietrza w jamie brzusznej.'), 'free blood removes "no free fluid" only');
+  assert.ok(report.body.includes('Pęcherzyk żółciowy i drogi żółciowe bez istotnych odchyleń.'));
+  assert.ok(!/Stawów międzywyrostkowych oraz/.test(report.body), 'no broken sentence');
+  const c = lines(report.conclusion);
+  assert.ok(c.findIndex((x) => /Krew w jamie otrzewnej/.test(x)) === c.findIndex((x) => /Stłuczenie wątroby/.test(x)) + 1, 'liver injury and haemoperitoneum together in the conclusion');
+});
+
+test('AI output with findings above the first sub-heading is moved into the sections', async () => {
+  const { getTemplate: gt, reportFromTemplate: rft } = await import('../public/js/templates.js');
+  const { arrangeFindings } = await import('../public/js/crosscheck.js');
+  const t = gt('ct_total_body_trauma_normal');
+  const base = rft(t);
+  const body = `Stłuczenie wątroby w segmencie IV długości 5 cm.\nZłamanie żebra VII po stronie prawej.\n\n${base.body}`;
+  const out = arrangeFindings(t, { ...base, body }).body;
+  const l = lines(out);
+  assert.equal(l[0], 'Głowa:');
+  assert.equal(l[l.indexOf('Klatka piersiowa:') + 1], 'Złamanie żebra VII po stronie prawej.');
+  assert.equal(l[l.indexOf('Jama brzuszna i miednica:') + 1], 'Stłuczenie wątroby w segmencie IV długości 5 cm.');
+});
+
+test('KUB: the stone is followed by the hydronephrosis statement', () => {
+  const { report } = merge('ct_kub_noncontrast', 'złóg w moczowodzie lewym 4 mm');
+  const l = lines(report.body).filter((x) => x.trim());
+  const i = l.findIndex((x) => /^Złóg w moczowodzie lewym/.test(x));
+  assert.match(l[i + 1], /wodonercz/i);
 });
 
 test('non-pathological dictated remarks are not moved to the top', () => {

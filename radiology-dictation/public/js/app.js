@@ -1069,7 +1069,7 @@ const clockFmt = new Intl.DateTimeFormat('pl-PL', { weekday: 'short', day: 'nume
 const timeFmt = new Intl.DateTimeFormat('pl-PL', { hour: '2-digit', minute: '2-digit' });
 function tickClock() {
   const now = new Date();
-  els.clock.textContent = `${clockFmt.format(now)} · ${timeFmt.format(now)}`;
+  els.clock.innerHTML = `<span class="c-date">${esc(clockFmt.format(now))}</span><span class="c-time">${esc(timeFmt.format(now))}</span>`;
   els.clock.dateTime = now.toISOString();
   if (today.date && today.date !== dayKey(now)) { loadToday(); renderTodayCount(); } // midnight: new day
 }

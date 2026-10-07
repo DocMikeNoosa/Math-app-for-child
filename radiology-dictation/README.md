@@ -149,6 +149,18 @@ for the AI, and set personal style rules under ⚙.
   - **Linked findings** move up together: an epidural haematoma with the skull fracture beneath
     it, a pneumothorax / haemothorax with same-side rib fractures, a pelvic fracture with active
     bleeding.
+  - **Combined studies** (sub-headings such as "Głowa:", "Kręgosłup szyjny:", "Klatka
+    piersiowa:", "Jama brzuszna i miednica:"): the same rules apply **within each section**.
+    Every finding goes under its own region's heading (liver injury under the abdomen, rib
+    fractures under the chest), never above the first heading. Each section starts with its
+    most relevant findings; if a section has no leading finding, its fractures / injuries come
+    first.
+  - **Related normal statements follow the finding**: rib fractures → "Bez cech odmy
+    opłucnowej i bez cech krwiaka opłucnowego. Bez cech urazu płuc."; vertebral fracture →
+    alignment / no dislocation; solid-organ injury → no active extravasation, other organs
+    uninjured; intracranial bleed → oedema / mass effect, ventricles; ureteric stone →
+    hydronephrosis statement. A liver / spleen injury is followed by the haemoperitoneum, in the
+    description and in the conclusion.
   - Claude follows these rules (and may add other clinical links). The rule-based checker
     (`findingRank`, `linkedTo`, `arrangeFindings` in `crosscheck.js`) enforces them as a safety
     net for Polish reports.
