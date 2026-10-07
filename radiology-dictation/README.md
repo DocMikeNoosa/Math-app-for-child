@@ -41,21 +41,50 @@ sentences go into template sections by keyword rules, without AI rewriting.
 again later and the new dictation is merged into the report. Type an instruction ("skróć wnioski")
 for the AI, and set personal style rules under ⚙.
 
-## Findings first, new report, speed
+## Order of findings, new report, speed
 
-- **Findings first:** pathological findings go to the top of the description, right under the
-  technique / comparison line, most urgent first (bleeding, mass effect, pneumothorax… before
-  fractures, before old or incidental findings). The normal template text follows. Claude is
-  instructed to do this, and the rule-based checker re-orders the report as a safety net
-  (Polish reports). Multi-region templates (e.g. total body) list findings before "Głowa:".
+- **Order follows clinical logic:**
+  - **Leading findings** (haemorrhage, mass effect, acute ischaemia, oedema, pneumothorax,
+    dissection, occlusion, free air / fluid, organ laceration, the obstructing stone in a KUB,
+    disc herniation, a suspicious mass) go to the top of the description, right under the
+    technique / comparison line, most urgent first.
+  - **Secondary findings** (fractures, old or incidental lesions, cysts, degenerative and
+    small-vessel change, sinus mucosa…) stay in their anatomical place in the template, next to
+    the statements about the same structure. A skull fracture stays with the bones; an L1 fracture
+    goes under the lumbar part of a whole-body template.
+  - **Linked findings** move up together: an epidural haematoma with the skull fracture beneath
+    it, a pneumothorax / haemothorax with same-side rib fractures, a pelvic fracture with active
+    bleeding.
+  - Claude follows these rules (and may add other clinical links). The rule-based checker
+    (`findingRank`, `linkedTo`, `arrangeFindings` in `crosscheck.js`) enforces them as a safety
+    net for Polish reports.
 - **Nowy opis** (`Alt+N`): finishes the report and starts a clean one with the same template.
   If the report wasn't copied, or there is unprocessed dictation, it asks first. "Cofnij" can
   still bring the previous report back. The small **Szablon** button only resets the template
   text of the current report.
-- **Speed (⚙ → Tryb AI):** **Szybki** (default, low effort), **Dokładny** (medium effort,
-  slower), **Turbo** (fast output mode, about 2× the price per report; if it's unavailable or
-  rate-limited the app falls back to Szybki automatically). Each processed report shows how
-  many seconds it took.
+- **Speed:**
+  - For dictation Claude returns only the changes (`edits`: insert this finding at the top or
+    after a given sentence, replace or delete a given sentence) plus the conclusion, instead of
+    rewriting the whole report. Far less text to generate means a faster answer.
+  - `lib/edits.js` applies the edits. If a target sentence can't be found, the finding is still
+    inserted at the top and a warning is shown.
+  - The instructions and the template are cached (`cache_control`).
+  - Translation still uses the full-report format.
+  - ⚙ → **Tryb AI**: **Szybki** (default, low effort), **Dokładny** (medium effort), **Turbo**
+    (fast output mode, about 2× the price; falls back to Szybki when unavailable). Each processed
+    report shows how many seconds it took.
+
+## Your own templates
+
+- Open the template menu (`T`) and click **✎** next to any template to edit it. Edited
+  templates are marked "zmieniony"; **Przywróć oryginał** undoes the change, and **Ukryj** hides
+  a built-in template you don't use.
+- **+ Nowy szablon** creates your own template (marked "mój"): name, Uraz / Bez urazu, region,
+  and the text in the usual format (`Badanie: …` / `Opis:` / `Wnioski:`). **Wstaw bieżący opis**
+  turns the current report into a template; **Duplikuj** copies an existing one.
+- **⋯ → Eksportuj / Importuj** saves your templates to a file (`radvox-szablony.json`) for backup
+  or to share with a colleague, who imports it in their copy of RadVox.
+- Your templates are stored in this browser (localStorage) and sent with each AI request.
 
 ## Cross-check: dictation always beats the template
 

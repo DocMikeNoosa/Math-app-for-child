@@ -283,8 +283,18 @@ function firstOrganIndex(text) {
  * Returns { text, removed, trigger } — text is '' when nothing true remains.
  */
 export function pruneSentence(sentence, findings, { wholeExam = false, context = null } = {}) {
+  // a sub-heading narrows generic organs: "trzony kręgów" under "Kręgosłup szyjny:" = cervical
+  const refine = (organs) => {
+    if (!context?.size || !organs.size) return organs;
+    const refined = new Set();
+    for (const o of organs) {
+      const narrower = [...context].filter((c) => c !== o && selfAndAncestors(c).has(o));
+      (narrower.length ? narrower : [o]).forEach((x) => refined.add(x));
+    }
+    return refined;
+  };
   const whole = analyse(sentence);
-  if (!whole.organs.size && context?.size) whole.organs = context;
+  whole.organs = whole.organs.size ? refine(whole.organs) : context?.size ? context : whole.organs;
   const end = /[.!?]$/.test(sentence) ? sentence.slice(-1) : '.';
   const core = sentence.replace(/[.!?]\s*$/, '');
   const parts = core.split(SEP_RE);
@@ -304,7 +314,7 @@ export function pruneSentence(sentence, findings, { wholeExam = false, context =
     const stmt = {
       ...a,
       concepts: a.concepts.size ? a.concepts : whole.concepts,
-      organs: a.organs.size ? a.organs : whole.organs,
+      organs: a.organs.size ? refine(a.organs) : whole.organs,
       side: a.side || whole.side,
       acute: a.acute, // "ostrych zmian niedokrwiennych" — qualifier belongs to its own item
     };
@@ -346,6 +356,13 @@ export function pruneSentence(sentence, findings, { wholeExam = false, context =
       if (oi > 0) prefix = gov.slice(leadStart, negPart + oi);
     }
     it.text = prefix + it.text;
+  }
+
+  // Removing a positive first item ("Prawidłowe ustawienie trzonów kręgów") would leave the
+  // following items without their head noun ("…oraz stawów") — then the whole sentence goes.
+  if (v[0].hit && !NEG_LEAD_RE.test(v[0].text) && has(v[0].text.toLowerCase(), NORMAL)) {
+    const keptTexts = keptIdx.map((i) => v[i].text.toLowerCase());
+    if (!keptTexts.some((t) => has(t, NORMAL) || HAS_NEG_RE.test(t))) return { text: '', removed: true, trigger };
   }
 
   // The subject of a removed first item ("Struktury mózgowia bez zmian ogniskowych") stays.
@@ -480,46 +497,114 @@ export function draftConclusion(template, report) {
 // Technique / comparison lines that stay above the findings.
 const INTRO_RE = /^(badanie (wykonano|porówn|wykonane)|porównano|w porównaniu|porównanie|sekwencj|protokół|technika|badanie w trybie|dobra wizualizacja|z uwzględnieniem)/iu;
 
+// Which findings lead the report. Critical / primary pathology goes first; secondary findings
+// (fractures, old or incidental lesions, degenerative change…) stay in their anatomical place
+// in the template — unless they belong to a leading finding (epidural haematoma ← skull
+// fracture, pneumothorax ← rib fracture on the same side), then they follow it at the top.
+const LEAD_CONCEPTS = new Set(['bleed', 'mass', 'pneumothorax', 'dissection', 'occlusion', 'freeAir', 'ischemia', 'edema', 'stone', 'dilatation', 'inflammation', 'consolidation', 'aneurysm', 'disc', 'collection']);
+const BENIGN_RE = /torbiel|naczyniak|tłuszczak|zwapnie|wysp\p{L}* kostn|cavum|wariant|przebyt|stary|starego|zastarzał/iu;
+const MINOR_ORGANS = new Set(['sinus', 'mastoid', 'scalp', 'soft']);
+
+const isBoneOrgan = (o) => selfAndAncestors(o).has('bone');
+
+/** 'lead' (top of the description) or 'anatomical' (stays with its organ in the template). */
+export function findingRank(f) {
+  if (f.chronic) return 'anatomical';
+  const c = f.concepts;
+  const organs = [...f.organs];
+  const minorOnly = organs.length > 0 && organs.every((o) => MINOR_ORGANS.has(o));
+  if ([...c].some((x) => LEAD_CONCEPTS.has(x)) && !minorOnly) return 'lead';
+  if (c.has('fluid') && !minorOnly) return 'lead';
+  // injury of an organ (laceration of spleen, liver, kidney…), not a bone
+  if (c.has('injury') && !c.has('fracture') && !c.has('dislocation') && organs.length && !organs.every(isBoneOrgan) && !minorOnly) return 'lead';
+  if (c.has('focal') && !BENIGN_RE.test(f.text)) return 'lead';
+  return 'anatomical';
+}
+
+const sidesCompatible = (a, b) => !a.side || !b.side || a.side === 'both' || b.side === 'both' || a.side === b.side;
+const inFamily = (organs, root) => [...organs].some((o) => selfAndAncestors(o).has(root));
+
+/** Is the secondary finding `a` part of the leading finding `t` (so it should follow it)? */
+export function linkedTo(a, t) {
+  if (!sidesCompatible(a, t)) return false;
+  const fracture = a.concepts.has('fracture') || a.concepts.has('dislocation');
+  if (!fracture) return false;
+  const lt = t.text.toLowerCase();
+  // epidural haematoma depends on the skull fracture
+  if (inFamily(a.organs, 'skull') && t.concepts.has('bleed') && /nadtward|zewnątrzopon/u.test(lt)) return true;
+  // pneumothorax / haemothorax with a rib fracture on the same side
+  if (inFamily(a.organs, 'ribs') && (t.concepts.has('pneumothorax') || /krwiak opłucn|krwiak w jamie opłucn|krwiopiers/u.test(lt))) return true;
+  // pelvic fracture with active bleeding
+  if (inFamily(a.organs, 'pelvicBone') && t.concepts.has('bleed') && /wynaczyn|aktywn/u.test(lt)) return true;
+  return false;
+}
+
 /**
- * Findings first: lines that describe pathology are moved to the top of the description
- * (below the technique / comparison lines), most urgent first; the template's normal
- * statements follow in their original order. Sub-headings left empty are dropped.
+ * Order the description: leading findings at the top (below technique / comparison lines),
+ * most urgent first, each followed by the secondary findings linked to it; other secondary
+ * findings sit next to the template statements about the same organ. The template's
+ * normal statements keep their order; sub-headings left empty are dropped.
  */
-export function moveFindingsToTop(template, report) {
+export function arrangeFindings(template, report) {
   const tpl = templateSentences(template);
   const lines = report.body.split('\n');
-  const isFinding = (line) =>
-    !isHeader(line) &&
-    splitSentences(line).some((s) => !tpl.body.has(s) && analyseFinding(s).concepts.size);
-  // leading intro lines (blank lines between them allowed)
+  const findingOf = (line) => {
+    if (isHeader(line)) return null;
+    const own = splitSentences(line).filter((s) => !tpl.body.has(s));
+    if (!own.length) return null;
+    const f = analyseFinding(own.join(' '));
+    return f.concepts.size ? { ...f, text: line.trim() } : null;
+  };
   let introEnd = 0;
   for (let i = 0; i < lines.length; i++) {
     if (!lines[i].trim()) continue;
-    if (INTRO_RE.test(lines[i].trim()) && !isFinding(lines[i])) introEnd = i + 1;
+    if (INTRO_RE.test(lines[i].trim()) && !findingOf(lines[i])) introEnd = i + 1;
     else break;
   }
   const intro = lines.slice(0, introEnd).filter((l, i, a) => l.trim() || (i > 0 && a[i - 1].trim()));
   const rest = lines.slice(introEnd);
-  const findings = rest.filter(isFinding);
-  if (!findings.length) return report;
-  const ranked = findings
-    .map((line, i) => ({ line: line.trim(), i, u: urgency(analyseFinding(line)) }))
-    .sort((a, b) => a.u - b.u || a.i - b.i)
-    .map((x) => x.line);
-  let remaining = rest.filter((l) => !isFinding(l));
-  // drop sub-headings that lost all their content, and collapse blank runs
+
+  // the current top block: consecutive finding lines right after the intro
+  let topEnd = 0;
+  while (topEnd < rest.length && (!rest[topEnd].trim() ? topEnd === 0 : findingOf(rest[topEnd]))) topEnd++;
+
+  const all = rest.map((line, i) => ({ line, i, f: findingOf(line) })).filter((x) => x.f);
+  if (!all.length) return report;
+  const leads = all.filter((x) => findingRank(x.f) === 'lead');
+  const secondaries = all.filter((x) => findingRank(x.f) !== 'lead');
+  const linked = new Map(); // lead index → secondaries
+  const toPlace = [];
+  for (const s of secondaries) {
+    const anchor = leads.find((l) => linkedTo(s.f, l.f));
+    if (anchor) {
+      if (!linked.has(anchor.i)) linked.set(anchor.i, []);
+      linked.get(anchor.i).push(s);
+    } else if (s.i < topEnd) toPlace.push(s); // secondary sitting in the top block → back to its organ
+  }
+  const moved = new Set([...leads, ...[...linked.values()].flat(), ...toPlace].map((x) => x.i));
+  if (!leads.length && !toPlace.length) return report;
+
+  const ranked = leads.slice().sort((a, b) => urgency(a.f) - urgency(b.f) || a.i - b.i);
+  const top = ranked.flatMap((l) => [l.line.trim(), ...(linked.get(l.i) || []).map((s) => s.line.trim())]);
+
+  let remaining = rest.filter((_, i) => !moved.has(i));
   remaining = remaining.filter((t, i, arr) => {
     if (!isHeader(t)) return true;
     const next = arr.slice(i + 1).find((x) => x.trim());
     return next !== undefined && !isHeader(next) && arr[i + 1]?.trim() !== '';
   });
-  const restText = remaining.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
+  let restText = remaining.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
+  for (const s of toPlace) restText = insertFinding(restText, s.line.trim());
+
   const parts = [];
   if (intro.length) parts.push(intro.join('\n').replace(/\n+$/, ''));
-  parts.push(ranked.join('\n'));
+  if (top.length) parts.push(top.join('\n'));
   if (restText) parts.push(restText);
   return { ...report, body: parts.join('\n\n') };
 }
+
+/** @deprecated name kept for compatibility */
+export const moveFindingsToTop = arrangeFindings;
 
 /**
  * Cross-check: remove every template statement contradicted by a dictated finding, then make
@@ -548,7 +633,7 @@ export function enforceConsistency(template, report) {
     next = { ...next, conclusion: formatConclusion([...findings, ...rest], template.bullet) };
     warnings.push('Wnioski utworzono automatycznie z opisanych zmian — zweryfikuj je.');
   }
-  next = moveFindingsToTop(template, next);
+  next = arrangeFindings(template, next);
   return { report: next, corrections, warnings };
 }
 
@@ -564,6 +649,7 @@ function organScore(a, b) {
 
 /** Insert a dictated sentence next to the body line about the same organ. */
 function insertFinding(body, sentence) {
+  if (!String(body || '').trim()) return sentence;
   const lines = body.split('\n');
   const f = analyseFinding(sentence);
   let best = -1;
@@ -607,7 +693,7 @@ export function localMerge(template, report, dictation) {
     const f = analyseFinding(s);
     const neg = statementConcepts(s);
     if (!f.concepts.size && neg.size && [...neg].every((c) => c !== 'normal' && statementConcepts(body).has(c))) continue;
-    body = f.concepts.size ? `${body.replace(/\s+$/, '')}\n${s}` : insertFinding(body, s);
+    body = f.concepts.size && findingRank(f) === 'lead' ? `${body.replace(/\s+$/, '')}\n${s}` : insertFinding(body, s);
   }
 
   let conclusion = report.conclusion;

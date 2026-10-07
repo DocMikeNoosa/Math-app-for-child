@@ -17,6 +17,7 @@ export const REGIONS = [
   { id: 'Aorta / Vascular', label: 'Aorta' },
   { id: 'Abdomen / Pelvis', label: 'Jama brzuszna i miednica' },
   { id: 'Combined', label: 'Badania łączone' },
+  { id: 'Other', label: 'Inne' },
 ];
 
 export const SNIPPET_GROUPS = [
@@ -27,11 +28,53 @@ export const SNIPPET_GROUPS = [
 
 const byPriority = (a, b) => (a.priority ?? 99) - (b.priority ?? 99) || a.title.localeCompare(b.title);
 
-export const TEMPLATES = TEMPLATE_DATA.filter((t) => t.group !== 'Snippets').map(parseTemplate);
+const BUILTIN = TEMPLATE_DATA.filter((t) => t.group !== 'Snippets');
+// TEMPLATES is updated in place when the user's own / edited templates change.
+export const TEMPLATES = BUILTIN.map(parseTemplate);
 export const SNIPPETS = TEMPLATE_DATA.filter((t) => t.group === 'Snippets').sort(byPriority);
 
 export function getTemplate(id) {
   return TEMPLATES.find((t) => t.id === id) || null;
+}
+
+export const isBuiltin = (id) => BUILTIN.some((t) => t.id === id);
+export const builtinRaw = (id) => BUILTIN.find((t) => t.id === id) || null;
+
+/** The raw fields of a template ({ id, title, group, section, priority, text }). */
+export const rawOf = (t) => ({ id: t.id, title: t.title, group: t.group, section: t.section, priority: t.priority ?? 50, text: t.text });
+
+/** Validate a raw template coming from the user, an import file or the browser. */
+export function cleanRaw(t) {
+  if (!t || typeof t !== 'object') return null;
+  const text = String(t.text || '').replace(/\r/g, '').trim();
+  const title = String(t.title || '').trim().slice(0, 120);
+  if (!text || !title || text.length > 20000) return null;
+  return {
+    id: String(t.id || '').slice(0, 80) || `custom_${Date.now()}`,
+    title,
+    group: t.group === 'Trauma' ? 'Trauma' : 'Non-trauma',
+    section: REGIONS.some((r) => r.id === t.section) ? t.section : 'Other',
+    priority: Number.isFinite(t.priority) ? t.priority : 50,
+    text,
+  };
+}
+
+/**
+ * Apply the user's templates: { edited: { id: raw }, custom: [raw], deleted: [id] }.
+ * Edited built-ins replace the originals; custom ones are added; deleted built-ins are hidden.
+ */
+export function setUserTemplates(user = {}) {
+  const edited = user.edited || {};
+  const deleted = new Set(user.deleted || []);
+  const list = BUILTIN.filter((t) => !deleted.has(t.id)).map((t) => {
+    const e = cleanRaw(edited[t.id]);
+    return parseTemplate(e ? { ...e, id: t.id, edited: true } : t);
+  });
+  for (const c of user.custom || []) {
+    const raw = cleanRaw(c);
+    if (raw && !list.some((t) => t.id === raw.id)) list.push(parseTemplate({ ...raw, custom: true }));
+  }
+  TEMPLATES.splice(0, TEMPLATES.length, ...list);
 }
 
 export function regionLabel(sectionId) {

@@ -2,6 +2,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { enforceConsistency } from '../public/js/crosscheck.js';
 import { fidelityWarnings } from '../public/js/polish-text.js';
+import { applyEdits } from './edits.js';
 
 export const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
 // Speed modes chosen in the app: 'fast' (default, low effort), 'accurate' (medium effort),
@@ -36,7 +37,12 @@ LANGUAGES:
 
 Your job:
 1. Correct obvious speech-recognition errors and grammar, and rewrite the dictation in concise, professional Polish radiological language with standard terminology and accepted abbreviations (mm, cm, j.H., L4/L5, …). Numbers as digits, Polish decimal comma, dimensions "12 x 8 mm".
-2. FINDINGS FIRST: put the pathological (relevant) findings at the TOP of the body, each on its own line, most clinically important / urgent first (e.g. haemorrhage, mass effect, pneumothorax, active bleeding before fractures, before old or incidental findings). Only the technique / comparison lines of the template (e.g. "Badanie wykonano w trybie ostrodyżurowym.", "Badanie porównywane do badania z …") stay above them. Then a blank line, then the remaining normal template statements in the template's order. This applies to multi-region templates too: findings go first, before the first sub-heading (e.g. "Głowa:"). Otherwise keep the template's layout: its paragraphs, line breaks, sub-headings and wording style. Never bury a relevant finding in the middle of the normal text.
+2. ORDER OF FINDINGS (clinical logic, decided by you):
+   - LEADING findings — clinically critical or the primary finding of the study — go at the TOP of the body, right below the template's technique / comparison lines (e.g. "Badanie wykonano w trybie ostrodyżurowym."), most urgent first. Examples: intracranial haemorrhage, mass effect / herniation, acute ischaemia, cerebral oedema, pneumothorax, active bleeding, aortic dissection, vessel occlusion, free air, solid-organ laceration, the obstructing stone (and its hydronephrosis) in a KUB, disc herniation in a spine MR, a suspicious mass.
+   - SECONDARY findings stay in their ANATOMICAL place in the template, next to the statements about the same structure (in the template's head-to-toe order): a skull fracture stays with the bones, old lacunes / small-vessel change with the brain parenchyma, a simple cyst with its organ, degenerative change with the spine, sinus mucosal thickening with the sinuses.
+   - LINKED findings: when a secondary finding belongs to a leading one, put it directly after that leading finding at the top — e.g. an epidural haematoma and the skull fracture beneath it; a pneumothorax / haemothorax and the rib fractures on the same side; a pelvic fracture with active bleeding. Use your clinical judgement for other such links.
+   - In multi-region templates (e.g. "Głowa:", "Klatka piersiowa:") leading findings go before the first sub-heading; secondary findings go under their own sub-heading.
+   Otherwise keep the template's layout: its paragraphs, line breaks, sub-headings and wording style.
 3. "Reszta bez zmian", "poza tym w normie" and similar mean: keep the remaining template statements unchanged.
 
 CROSS-CHECK — mandatory, every time, over the whole report:
@@ -55,7 +61,7 @@ CONCLUSION ("Wnioski") — always formulate it:
 - Use cautious, standard radiological phrasing for interpretation ("obraz może odpowiadać …", "do różnicowania z …") only where the dictation supports it; never add a diagnosis that was not dictated or clearly implied.
 - If the radiologist dictated conclusions ("wnioski …"), use them (polished) instead of writing your own.
 Never keep two statements that say opposite things. If the dictation itself restates a normal finding that the template already states, do not duplicate it.
-List every template statement you removed or changed in "corrections" (removed text, what replaced it — empty if deleted — and a short reason in Polish).
+In output_mode "full", list every template statement you removed or changed in "corrections" (removed text, what replaced it — empty if deleted — and a short reason in Polish). In output_mode "edits" the replace edits are that record.
 
 Strict safety rules — never break these:
 - Never invent findings, measurements, sides, levels, locations or diagnoses that were not dictated or already present.
@@ -64,7 +70,12 @@ Strict safety rules — never break these:
 - Do not add recommendations unless dictated or requested.
 - If something is ambiguous or clinically inconsistent (side not given, contradictory statements), add a short warning in Polish instead of guessing.
 
-Return the full final header, body (without the "Opis:"/"Findings:" label) and conclusion (without the "Wnioski:"/"Conclusion:" label), written in output_language.`;
+OUTPUT FORMAT — the JSON field "output_mode" in the input says which one to use:
+- "edits" (normal dictation — be brief, this is what makes the app fast): do NOT return the report. Return only the changes to current_report.body as "edits", applied in order:
+  • {"op": "replace", "target": <one complete sentence copied EXACTLY, character for character, from current_report.body>, "text": <its new version, or "" to delete it>, "reason": <short reason in Polish>} — for contradicted or partly contradicted template statements and any rewording.
+  • {"op": "insert", "target": "TOP" for a leading finding (top of the body), or <a sentence copied exactly from current_report.body> after which a secondary finding is inserted (next to the same structure), "text": <the new finding sentence(s)>, "reason": ""}.
+  Also return "conclusion": the complete final conclusion text (without the "Wnioski:" label), and "warnings".
+- "full" (translation, or a language change): return the complete final header, body (without the "Opis:"/"Findings:" label) and conclusion (without the "Wnioski:"/"Conclusion:" label) in output_language, plus "corrections" and "warnings".`;
 
 export const OUTPUT_SCHEMA = {
   type: 'object',
@@ -91,47 +102,101 @@ export const OUTPUT_SCHEMA = {
   additionalProperties: false,
 };
 
-export function buildUserMessage({ template, report, dictation, instruction, style, inputLang = 'pl', outputLang = 'pl', translate = false }) {
-  return JSON.stringify(
-    {
-      task: translate ? 'translate' : 'merge',
-      input_language: inputLang,
-      output_language: outputLang,
-      template: { header: template.header, body: template.body, conclusion: template.conclusion },
-      current_report: { header: report.header, body: report.body, conclusion: report.conclusion },
-      dictation: dictation || '',
-      instruction: instruction || '',
-      style_preferences: style || '',
+export const EDITS_SCHEMA = {
+  type: 'object',
+  properties: {
+    edits: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          op: { type: 'string', enum: ['replace', 'insert'] },
+          target: { type: 'string' },
+          text: { type: 'string' },
+          reason: { type: 'string' },
+        },
+        required: ['op', 'target', 'text', 'reason'],
+        additionalProperties: false,
+      },
     },
-    null,
-    2,
-  );
+    conclusion: { type: 'string' },
+    warnings: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['edits', 'conclusion', 'warnings'],
+  additionalProperties: false,
+};
+
+/** Edits are much shorter than a full report; translation / language changes need the full text. */
+export function outputModeFor({ report, outputLang = 'pl', translate = false }) {
+  return translate || (report.lang || 'pl') !== outputLang ? 'full' : 'edits';
 }
 
 /**
- * Take Claude's result, run the deterministic cross-check as a safety net (Polish output) and
- * verify that every dictated number and side survived (especially after translation).
+ * The user turn as two content blocks: the template (stable per template → cached together with
+ * the system prompt) and the per-request part. Both are JSON objects.
  */
-export function mergeResult(template, report, result, { outputLang = 'pl', source = '' } = {}) {
-  const str = (v, fallback) => (typeof v === 'string' && v.trim() ? v.replace(/\s+$/, '') : fallback);
-  const next = {
-    ...report,
-    header: str(result.header, report.header).trim(),
-    body: str(result.body, report.body).replace(/^\s*Opis:\s*\n/, ''),
-    conclusion: str(result.conclusion, report.conclusion).replace(/^\s*Wnioski:\s*\n/, ''),
+export function buildUserContent({ template, report, dictation, instruction, style, inputLang = 'pl', outputLang = 'pl', translate = false }) {
+  const fixed = { template: { header: template.header, body: template.body, conclusion: template.conclusion } };
+  const variable = {
+    task: translate ? 'translate' : 'merge',
+    output_mode: outputModeFor({ report, outputLang, translate }),
+    input_language: inputLang,
+    output_language: outputLang,
+    current_report: { header: report.header, body: report.body, conclusion: report.conclusion },
+    dictation: dictation || '',
+    instruction: instruction || '',
+    style_preferences: style || '',
   };
-  const aiCorrections = (Array.isArray(result.corrections) ? result.corrections : [])
-    .filter((c) => c && c.removed)
-    .map((c) => ({ removed: String(c.removed), replacement: String(c.replacement || ''), reason: String(c.reason || '') }));
-  // The rule-based cross-check understands Polish only; English output relies on Claude's check.
+  return [
+    { type: 'text', text: JSON.stringify(fixed, null, 2), cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: JSON.stringify(variable, null, 2) },
+  ];
+}
+
+const str = (v, fallback) => (typeof v === 'string' && v.trim() ? v.replace(/\s+$/, '') : fallback);
+
+/** Shared tail: rule-based cross-check (Polish), fidelity check, warnings. */
+function finish(template, next, aiCorrections, aiWarnings, { outputLang, source }) {
   const checked = outputLang === 'pl' ? enforceConsistency(template, next) : { report: next, corrections: [], warnings: [] };
   const final = { ...checked.report, lang: outputLang };
   const fidelity = source ? fidelityWarnings(source, `${final.header}\n${final.body}\n${final.conclusion}`) : [];
   return {
     report: final,
     corrections: [...aiCorrections, ...checked.corrections.map((c) => ({ ...c, reason: `${c.reason} (kontrola automatyczna)` }))],
-    warnings: [...(Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : []), ...checked.warnings, ...fidelity],
+    warnings: [...(Array.isArray(aiWarnings) ? aiWarnings.filter(Boolean) : []), ...checked.warnings, ...fidelity],
   };
+}
+
+/**
+ * Full-report answer: take Claude's report, then run the deterministic cross-check as a safety
+ * net (Polish output) and verify that every dictated number and side survived.
+ */
+export function mergeResult(template, report, result, { outputLang = 'pl', source = '' } = {}) {
+  const next = {
+    ...report,
+    header: str(result.header, report.header).trim(),
+    body: str(result.body, report.body).replace(/^\s*(Opis|Findings):\s*\n/, ''),
+    conclusion: str(result.conclusion, report.conclusion).replace(/^\s*(Wnioski|Conclusion):\s*\n/, ''),
+  };
+  const aiCorrections = (Array.isArray(result.corrections) ? result.corrections : [])
+    .filter((c) => c && c.removed)
+    .map((c) => ({ removed: String(c.removed), replacement: String(c.replacement || ''), reason: String(c.reason || '') }));
+  return finish(template, next, aiCorrections, result.warnings, { outputLang, source });
+}
+
+/** Edits answer: apply the edits to the current report, then the same checks. */
+export function mergeEditsResult(template, report, result, { outputLang = 'pl', source = '' } = {}) {
+  const applied = applyEdits(report.body, result.edits);
+  const next = {
+    ...report,
+    body: applied.body,
+    conclusion: str(result.conclusion, report.conclusion).replace(/^\s*(Wnioski|Conclusion):\s*\n/, ''),
+  };
+  const warnings = [...(Array.isArray(result.warnings) ? result.warnings : [])];
+  if (applied.failed.length) {
+    warnings.push(`AI odwołało się do zdań, których nie ma w opisie (${applied.failed.length}) — sprawdź opis; nowe zmiany dodano na górze.`);
+  }
+  return finish(template, next, applied.corrections, warnings, { outputLang, source });
 }
 
 export class ClaudeError extends Error {
@@ -153,12 +218,13 @@ export function buildRequest({ template, report, dictation, instruction, style, 
   const params = {
     model: MODEL,
     max_tokens: 16000,
-    system: SYSTEM_PROMPT,
+    // the instructions never change → cached, so they aren't re-processed on every request
+    system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
     output_config: {
       effort: process.env.CLAUDE_EFFORT || m.effort,
-      format: { type: 'json_schema', schema: OUTPUT_SCHEMA },
+      format: { type: 'json_schema', schema: outputModeFor({ report, outputLang, translate }) === 'edits' ? EDITS_SCHEMA : OUTPUT_SCHEMA },
     },
-    messages: [{ role: 'user', content: buildUserMessage({ template, report, dictation, instruction, style, inputLang, outputLang, translate }) }],
+    messages: [{ role: 'user', content: buildUserContent({ template, report, dictation, instruction, style, inputLang, outputLang, translate }) }],
   };
   const betas = [];
   if (USE_FALLBACKS) {
@@ -212,7 +278,8 @@ export async function formatWithClaude({ template, report, dictation, instructio
   }
   // For a translation the numbers/sides to preserve are those of the report being translated.
   const source = translate ? `${report.header}\n${report.body}\n${report.conclusion}` : dictation;
-  const merged = mergeResult(template, report, parsed, { outputLang, source });
+  const edits = outputModeFor({ report, outputLang, translate }) === 'edits';
+  const merged = edits ? mergeEditsResult(template, report, parsed, { outputLang, source }) : mergeResult(template, report, parsed, { outputLang, source });
   if (translate) merged.corrections = [];
   return { ...merged, model: response.model };
 }

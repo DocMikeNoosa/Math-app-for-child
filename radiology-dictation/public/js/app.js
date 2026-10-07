@@ -1,4 +1,4 @@
-import { TEMPLATES, GROUPS, SNIPPETS, SNIPPET_GROUPS, SECTION_LABELS, getTemplate, regionLabel, templatesByRegion, reportFromTemplate, reportToText } from './templates.js';
+import { TEMPLATES, GROUPS, REGIONS, SNIPPETS, SNIPPET_GROUPS, SECTION_LABELS, getTemplate, regionLabel, templatesByRegion, reportFromTemplate, reportToText, setUserTemplates, isBuiltin, builtinRaw, rawOf, cleanRaw, parseTemplate } from './templates.js';
 import { convertSpokenFor, tidy, scrubIdentifiers, wordDiff } from './polish-text.js';
 import { localMerge, findConflicts, applyConflicts } from './crosscheck.js';
 import { Dictation, LevelMeter, speechSupported } from './speech.js';
@@ -12,6 +12,9 @@ const els = Object.fromEntries(
     'undoBtn', 'redoBtn', 'acceptBtn', 'resetBtn', 'copyBtn', 'examHeader', 'bodyText', 'bodyLabel', 'conclusion', 'paper',
     'conflicts', 'conflictsList', 'fixAllBtn', 'corrections', 'correctionsList', 'correctionsTitle', 'warnings', 'warningsList',
     'processing', 'processingText', 'footWords', 'footSource', 'footSaved', 'reportScroll', 'inLang', 'outLang', 'conclusionLabel', 'newReportBtn', 'aiMode', 'aiModeHint',
+    'newTplBtn', 'tplMenuBtn', 'tplMenu', 'exportTpl', 'importTpl', 'importFile',
+    'tplEditor', 'tplEditorTitle', 'closeTplEditor', 'tplName', 'tplGroup', 'tplRegionSelect', 'tplText', 'tplFromReport', 'tplCheck',
+    'tplDelete', 'tplDuplicate', 'tplCancel', 'tplSave',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
   ].map((id) => [id, $(id)]),
@@ -43,7 +46,29 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const template = () => getTemplate(state.report.templateId) || getTemplate(DEFAULT_TEMPLATE);
 
+// ---------------------------------------------------------------- user templates
+const USER_TPL_KEY = 'radvox.templates.v1';
+let userTemplates = { edited: {}, custom: [], deleted: [] };
+function loadUserTemplates() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(USER_TPL_KEY) || 'null');
+    if (saved && typeof saved === 'object') {
+      userTemplates = { edited: saved.edited || {}, custom: Array.isArray(saved.custom) ? saved.custom : [], deleted: Array.isArray(saved.deleted) ? saved.deleted : [] };
+    }
+  } catch { /* storage unavailable */ }
+  setUserTemplates(userTemplates);
+}
+function saveUserTemplates() {
+  setUserTemplates(userTemplates);
+  try {
+    localStorage.setItem(USER_TPL_KEY, JSON.stringify(userTemplates));
+  } catch {
+    toast('Nie udało się zapisać szablonów w przeglądarce.', 'err');
+  }
+}
+
 function load() {
+  loadUserTemplates();
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
     if (!saved) return;
@@ -286,7 +311,7 @@ async function process() {
         const res = await fetch('/api/format', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ templateId: t.id, report: before, dictation, instruction, style: els.stylePrefs.value, inputLang: state.inputLang, outputLang: state.outputLang, mode: state.aiMode }),
+          body: JSON.stringify({ templateId: t.id, template: rawOf(t), report: before, dictation, instruction, style: els.stylePrefs.value, inputLang: state.inputLang, outputLang: state.outputLang, mode: state.aiMode }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
@@ -419,7 +444,7 @@ async function translateReport(lang) {
     const res = await fetch('/api/format', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ templateId: r.templateId, report: r, translate: true, inputLang: state.inputLang, outputLang: lang, style: els.stylePrefs.value, mode: state.aiMode }),
+      body: JSON.stringify({ templateId: r.templateId, template: rawOf(template()), report: r, translate: true, inputLang: state.inputLang, outputLang: lang, style: els.stylePrefs.value, mode: state.aiMode }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
@@ -499,9 +524,11 @@ function openPicker() {
 }
 function closePicker() { els.picker.hidden = true; }
 
+const PENCIL = '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>';
 function itemButton(t, { tag = '' } = {}) {
   const cur = t.id === state.report.templateId;
-  return `<button class="t-item${cur ? ' current' : ''}" data-id="${t.id}" title="${esc(t.exam)}">${esc(t.title)}${tag ? `<span class="tag">${esc(tag)}</span>` : ''}</button>`;
+  const badge = t.custom ? '<span class="t-badge">mój</span>' : t.edited ? '<span class="t-badge edited">zmieniony</span>' : '';
+  return `<div class="t-row"><button class="t-item${cur ? ' current' : ''}" data-id="${esc(t.id)}" title="${esc(t.exam)}">${esc(t.title)}${badge}${tag ? `<span class="tag">${esc(tag)}</span>` : ''}</button><button class="t-edit" data-edit="${esc(t.id)}" title="Edytuj szablon" aria-label="Edytuj szablon ${esc(t.title)}">${PENCIL}</button></div>`;
 }
 
 function renderPicker() {
@@ -552,6 +579,7 @@ function markActive() {
   picker.items[picker.active]?.scrollIntoView({ block: 'nearest' });
 }
 function pickerKey(e) {
+  if (!els.tplEditor.hidden) return;
   if (e.key === 'Escape') { e.preventDefault(); closePicker(); return; }
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
@@ -566,6 +594,145 @@ function pickerKey(e) {
     e.preventDefault();
     picker.group = picker.group === 'Trauma' ? 'Non-trauma' : 'Trauma';
     renderPicker();
+  }
+}
+
+// ---------------------------------------------------------------- template editor
+const editor = { id: null, isNew: true };
+
+function setEditorGroup(g) {
+  els.tplGroup.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.group === g)));
+}
+function editorGroup() {
+  return els.tplGroup.querySelector('[aria-pressed="true"]')?.dataset.group || 'Non-trauma';
+}
+function checkEditorText() {
+  const text = els.tplText.value.trim();
+  if (!text) { els.tplCheck.textContent = 'Wpisz treść szablonu.'; els.tplCheck.classList.add('bad'); return; }
+  const t = parseTemplate({ id: 'x', title: 'x', text });
+  const bodyLines = t.body.split('\n').filter((l) => l.trim()).length;
+  const concl = t.conclusion.split('\n').filter((l) => l.trim()).length;
+  const ok = concl > 0 && bodyLines > 0;
+  els.tplCheck.classList.toggle('bad', !ok);
+  els.tplCheck.textContent = ok
+    ? `Badanie: „${t.exam}” · Opis: ${bodyLines} linii · Wnioski: ${concl} ${concl === 1 ? 'linia' : 'linie'}`
+    : 'Brakuje części „Opis:” lub „Wnioski:” — pierwsza linia to nazwa badania, potem „Opis:”, opis, „Wnioski:” i wnioski (- …).';
+}
+
+/** Open the editor for an existing template (id) or a new one (prefill = raw fields). */
+function openEditor(id, prefill = null) {
+  const t = id ? getTemplate(id) : null;
+  editor.id = t ? t.id : null;
+  editor.isNew = !t;
+  const raw = t ? rawOf(t) : { title: '', group: picker.group || 'Non-trauma', section: template().section, text: '', ...(prefill || {}) };
+  els.tplEditorTitle.textContent = t ? `Edycja: ${t.title}` : 'Nowy szablon';
+  els.tplName.value = raw.title;
+  setEditorGroup(raw.group);
+  els.tplRegionSelect.innerHTML = REGIONS.map((r) => `<option value="${esc(r.id)}"${r.id === raw.section ? ' selected' : ''}>${esc(r.label)}</option>`).join('');
+  els.tplText.value = raw.text;
+  const builtin = t && isBuiltin(t.id);
+  els.tplDelete.hidden = !t;
+  els.tplDelete.textContent = builtin ? (userTemplates.edited[t.id] ? 'Przywróć oryginał' : 'Ukryj') : 'Usuń';
+  els.tplDelete.title = builtin ? (userTemplates.edited[t.id] ? 'Cofnij moje zmiany w tym szablonie' : 'Ukryj ten szablon z menu') : 'Usuń ten szablon';
+  els.tplDuplicate.hidden = !t;
+  checkEditorText();
+  els.tplEditor.hidden = false;
+  setTimeout(() => (t ? els.tplText : els.tplName).focus(), 0);
+}
+function closeEditor() { els.tplEditor.hidden = true; }
+
+function afterTemplatesChanged(changedId) {
+  saveUserTemplates();
+  // keep the open report in sync if it is still the untouched template
+  const t = getTemplate(state.report.templateId);
+  if (!t) {
+    commit(reportFromTemplate(getTemplate(DEFAULT_TEMPLATE) || TEMPLATES[0]), { source: 'Szablon' });
+  } else if (changedId === t.id && state.history.length === 0 && state.report.lang === 'pl') {
+    state.report = reportFromTemplate(t);
+    renderReport();
+  }
+  renderTemplateButton();
+  if (!els.picker.hidden) renderPicker();
+}
+
+function saveEditor() {
+  const raw = cleanRaw({
+    id: editor.isNew ? `custom_${Date.now()}` : editor.id,
+    title: els.tplName.value,
+    group: editorGroup(),
+    section: els.tplRegionSelect.value,
+    text: els.tplText.value,
+    priority: editor.isNew ? 50 : getTemplate(editor.id)?.priority ?? 50, // keep its place in the menu
+  });
+  if (!raw) { toast('Podaj nazwę i treść szablonu.', 'warn'); return; }
+  const wasCurrent = state.report.templateId === raw.id;
+  const pristineBefore = wasCurrent && same({ ...state.report, lang: 'pl' }, reportFromTemplate(template()));
+  if (!editor.isNew && isBuiltin(raw.id)) userTemplates.edited[raw.id] = raw;
+  else if (!editor.isNew) userTemplates.custom = userTemplates.custom.map((c) => (c.id === raw.id ? raw : c));
+  else userTemplates.custom.push(raw);
+  saveUserTemplates();
+  if (pristineBefore) commit(reportFromTemplate(getTemplate(raw.id)), { source: 'Szablon' });
+  renderTemplateButton();
+  if (!els.picker.hidden) renderPicker();
+  closeEditor();
+  toast(editor.isNew ? `Dodano szablon „${raw.title}”` : `Zapisano szablon „${raw.title}”`, 'ok');
+  if (editor.isNew) { selectTemplate(raw.id); closePicker(); }
+}
+
+function deleteFromEditor() {
+  const t = getTemplate(editor.id);
+  if (!t) return;
+  if (isBuiltin(t.id)) {
+    if (userTemplates.edited[t.id]) {
+      if (!window.confirm(`Przywrócić oryginalną treść szablonu „${t.title}”?`)) return;
+      delete userTemplates.edited[t.id];
+    } else {
+      if (!window.confirm(`Ukryć szablon „${t.title}” z menu? (Przywrócisz go importem lub czyszcząc dane przeglądarki)`)) return;
+      userTemplates.deleted.push(t.id);
+    }
+  } else {
+    if (!window.confirm(`Usunąć szablon „${t.title}”?`)) return;
+    userTemplates.custom = userTemplates.custom.filter((c) => c.id !== t.id);
+  }
+  closeEditor();
+  afterTemplatesChanged(t.id);
+  toast('Zmieniono szablony', 'ok');
+}
+
+function exportTemplates() {
+  const data = { app: 'RadVox', version: 1, exported: new Date().toISOString(), templates: userTemplates };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'radvox-szablony.json';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  const n = userTemplates.custom.length + Object.keys(userTemplates.edited).length;
+  toast(`Wyeksportowano ${n} ${n === 1 ? 'szablon' : 'szablonów'} do pliku radvox-szablony.json`, 'ok');
+}
+
+async function importTemplates(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    const src = data?.templates || {};
+    let n = 0;
+    for (const [id, raw] of Object.entries(src.edited || {})) {
+      const clean = cleanRaw({ ...raw, id });
+      if (clean && builtinRaw(id)) { userTemplates.edited[id] = clean; n++; }
+    }
+    for (const raw of src.custom || []) {
+      const clean = cleanRaw(raw);
+      if (!clean) continue;
+      const existing = userTemplates.custom.findIndex((c) => c.id === clean.id);
+      if (existing >= 0) userTemplates.custom[existing] = clean;
+      else userTemplates.custom.push(clean);
+      n++;
+    }
+    afterTemplatesChanged(null);
+    toast(n ? `Zaimportowano ${n} ${n === 1 ? 'szablon' : 'szablonów'}` : 'W pliku nie było szablonów RadVox', n ? 'ok' : 'warn');
+  } catch {
+    toast('To nie jest plik szablonów RadVox.', 'err');
   }
 }
 
@@ -776,10 +943,40 @@ function bind() {
     if (e.target === els.picker) return closePicker();
     const tab = e.target.closest('[data-group]');
     if (tab) { picker.group = tab.dataset.group; els.pickerSearch.value = ''; renderPicker(); els.pickerSearch.focus(); return; }
+    const edit = e.target.closest('[data-edit]');
+    if (edit) { openEditor(edit.dataset.edit); return; }
     const item = e.target.closest('[data-id]');
     if (item) { selectTemplate(item.dataset.id); closePicker(); }
   });
   els.pickerSearch.addEventListener('input', renderPicker);
+  els.newTplBtn.addEventListener('click', () => openEditor(null));
+  els.tplMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); els.tplMenu.hidden = !els.tplMenu.hidden; });
+  els.exportTpl.addEventListener('click', () => { els.tplMenu.hidden = true; exportTemplates(); });
+  els.importTpl.addEventListener('click', () => { els.tplMenu.hidden = true; els.importFile.click(); });
+  els.importFile.addEventListener('change', () => { if (els.importFile.files[0]) importTemplates(els.importFile.files[0]); els.importFile.value = ''; });
+  document.addEventListener('click', (e) => { if (!els.tplMenu.hidden && !e.target.closest('#tplMenu') && e.target !== els.tplMenuBtn) els.tplMenu.hidden = true; });
+
+  // template editor
+  els.tplGroup.addEventListener('click', (e) => { const b = e.target.closest('[data-group]'); if (b) setEditorGroup(b.dataset.group); });
+  els.tplText.addEventListener('input', checkEditorText);
+  els.tplFromReport.addEventListener('click', () => {
+    els.tplText.value = reportToText({ ...state.report, lang: 'pl' }, template());
+    if (!els.tplName.value.trim()) els.tplName.value = `${template().title} (mój)`;
+    checkEditorText();
+  });
+  els.tplSave.addEventListener('click', saveEditor);
+  els.tplCancel.addEventListener('click', closeEditor);
+  els.closeTplEditor.addEventListener('click', closeEditor);
+  els.tplDelete.addEventListener('click', deleteFromEditor);
+  els.tplDuplicate.addEventListener('click', () => {
+    const t = getTemplate(editor.id);
+    if (!t) return;
+    openEditor(null, { ...rawOf(t), title: `${t.title} (kopia)`, text: els.tplText.value });
+  });
+  els.tplEditor.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeEditor(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S' || e.key === 'Enter')) { e.preventDefault(); saveEditor(); }
+  });
   els.picker.addEventListener('keydown', pickerKey);
 
   // snippets
@@ -820,7 +1017,7 @@ function bind() {
   els.instruction.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); process(); } });
 
   document.addEventListener('keydown', (e) => {
-    if (!els.picker.hidden) return; // picker handles its own keys
+    if (!els.picker.hidden || !els.tplEditor.hidden) return; // picker / editor handle their own keys
     const typing = isTyping(document.activeElement);
     if (e.key === 'Escape') { openSettings(false); openHelp(false); toggleSnippets(false); return; }
     if (e.key === 'F2') { e.preventDefault(); toggleRecording(); return; }

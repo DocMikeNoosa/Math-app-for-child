@@ -56,6 +56,10 @@ function message(text, stop_reason = 'end_turn') {
   };
 }
 
+// The user turn is two JSON content blocks (cached template + per-request part).
+const payloadOf = (body) => Object.assign({}, ...body.messages[0].content.map((c) => JSON.parse(c.text)));
+const editsReply = (edits, conclusion, warnings = []) => ({ json: message(JSON.stringify({ edits, conclusion, warnings })) });
+
 const post = (body) =>
   fetch(`${appUrl}/api/format`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
@@ -78,15 +82,11 @@ test('format: sends a well-formed Claude request and applies the cross-check saf
   const tpl = getTemplate('ct_head_normal');
   const report = reportFromTemplate(tpl);
   // Claude adds the bleed but (deliberately, for this test) forgets to remove "bez cech krwawienia".
-  nextReply = {
-    json: message(JSON.stringify({
-      header: report.header,
-      body: report.body + '\nKrwiak podtwardówkowy nad lewą półkulą mózgu grubości 8 mm.',
-      conclusion: '- Krwiak podtwardówkowy nad lewą półkulą mózgu (8 mm).',
-      corrections: [{ removed: 'x', replacement: '', reason: 'test' }],
-      warnings: ['Nie podano wieku krwiaka.'],
-    })),
-  };
+  nextReply = editsReply(
+    [{ op: 'insert', target: 'TOP', text: 'Krwiak podtwardówkowy nad lewą półkulą mózgu grubości 8 mm.', reason: '' }],
+    '- Krwiak podtwardówkowy nad lewą półkulą mózgu (8 mm).',
+    ['Nie podano wieku krwiaka.'],
+  );
   const res = await post({ templateId: 'ct_head_normal', report, dictation: 'krwiak podtwardówkowy osiem milimetrów', instruction: '', style: 'Wnioski numeruj.' });
   const data = await res.json();
   assert.equal(res.status, 200, JSON.stringify(data));
@@ -99,12 +99,15 @@ test('format: sends a well-formed Claude request and applies the cross-check saf
   assert.equal(b.model, 'claude-opus-5-5');
   assert.equal(b.fallbacks, 'default');
   assert.equal(b.output_config.format.type, 'json_schema');
-  assert.deepEqual(b.output_config.format.schema.required, ['header', 'body', 'conclusion', 'corrections', 'warnings']);
+  assert.deepEqual(b.output_config.format.schema.required, ['edits', 'conclusion', 'warnings'], 'dictation uses the short edits format');
   assert.equal(b.output_config.effort, 'low', 'default mode is fast');
   assert.ok(!('speed' in b));
-  assert.match(b.system, /CROSS-CHECK/);
+  assert.match(b.system[0].text, /CROSS-CHECK/);
+  assert.deepEqual(b.system[0].cache_control, { type: 'ephemeral' }, 'instructions are cached');
+  assert.deepEqual(b.messages[0].content[0].cache_control, { type: 'ephemeral' }, 'template block is cached');
   assert.ok(!('betas' in b), 'betas go in the header, not the body');
-  const userPayload = JSON.parse(b.messages[0].content);
+  const userPayload = payloadOf(b);
+  assert.equal(userPayload.output_mode, 'edits');
   assert.equal(userPayload.template.body, tpl.body);
   assert.equal(userPayload.dictation, 'krwiak podtwardówkowy osiem milimetrów');
   assert.equal(userPayload.style_preferences, 'Wnioski numeruj.');
@@ -113,6 +116,9 @@ test('format: sends a well-formed Claude request and applies the cross-check saf
   assert.ok(!/bez cech krwawienia/i.test(data.report.body), data.report.body);
   assert.ok(data.corrections.some((c) => c.reason.includes('kontrola automatyczna')));
   assert.equal(data.report.conclusion, '- Krwiak podtwardówkowy nad lewą półkulą mózgu (8 mm).', "Claude's own conclusion is kept");
+  const l = data.report.body.split('\n').filter((x) => x.trim());
+  assert.equal(l[0], 'Badanie wykonano w trybie ostrodyżurowym.');
+  assert.equal(l[1], 'Krwiak podtwardówkowy nad lewą półkulą mózgu grubości 8 mm.', 'inserted at the top, below the technique line');
   assert.deepEqual(data.warnings, ['Nie podano wieku krwiaka.']);
 });
 
@@ -142,16 +148,16 @@ test('format: English dictation → Polish report, with fidelity check', async (
   const report = reportFromTemplate(tpl);
   // Simulated model mistake: drops "5" and the side.
   nextReply = {
-    json: message(JSON.stringify({ header: report.header, body: report.body + '\nW moczowodzie złóg.', conclusion: '- Złóg w moczowodzie.', corrections: [], warnings: [] })),
+    ...editsReply([{ op: 'insert', target: 'TOP', text: 'W moczowodzie złóg.', reason: '' }], '- Złóg w moczowodzie.'),
   };
   const res = await post({ templateId: tpl.id, report, dictation: 'left ureteric stone 5 mm', inputLang: 'en', outputLang: 'pl' });
   const data = await res.json();
   assert.equal(res.status, 200, JSON.stringify(data));
-  const payload = JSON.parse(lastRequest.body.messages[0].content);
+  const payload = payloadOf(lastRequest.body);
   assert.equal(payload.input_language, 'en');
   assert.equal(payload.output_language, 'pl');
   assert.equal(payload.task, 'merge');
-  assert.match(lastRequest.body.system, /LANGUAGES/);
+  assert.match(lastRequest.body.system[0].text, /LANGUAGES/);
   assert.equal(data.report.lang, 'pl');
   assert.ok(data.warnings.some((w) => w.includes('5')), JSON.stringify(data.warnings));
   assert.ok(data.warnings.some((w) => w.includes('lewą')));
@@ -166,7 +172,7 @@ test('format: translate task needs no dictation and returns an English report', 
   const res = await post({ templateId: tpl.id, report, translate: true, outputLang: 'en' });
   const data = await res.json();
   assert.equal(res.status, 200, JSON.stringify(data));
-  assert.equal(JSON.parse(lastRequest.body.messages[0].content).task, 'translate');
+  assert.equal(payloadOf(lastRequest.body).task, 'translate');
   assert.equal(data.report.lang, 'en');
   assert.equal(data.report.header, 'Examination: CT head without contrast');
   assert.deepEqual(data.corrections, [], 'a translation never reports corrections');
@@ -175,9 +181,9 @@ test('format: translate task needs no dictation and returns an English report', 
 test('format: unknown language values fall back to Polish', async () => {
   const tpl = getTemplate('ct_head_normal');
   const report = reportFromTemplate(tpl);
-  nextReply = { json: message(JSON.stringify({ header: report.header, body: report.body, conclusion: report.conclusion, corrections: [], warnings: [] })) };
+  nextReply = editsReply([], report.conclusion);
   await post({ templateId: tpl.id, report, dictation: 'x', inputLang: 'de', outputLang: '<script>' });
-  const payload = JSON.parse(lastRequest.body.messages[0].content);
+  const payload = payloadOf(lastRequest.body);
   assert.equal(payload.input_language, 'pl');
   assert.equal(payload.output_language, 'pl');
 });
@@ -185,7 +191,7 @@ test('format: unknown language values fall back to Polish', async () => {
 test('format: speed modes — accurate uses medium effort, turbo uses fast output mode', async () => {
   const tpl = getTemplate('ct_head_normal');
   const report = reportFromTemplate(tpl);
-  const ok = () => ({ json: message(JSON.stringify({ header: report.header, body: report.body, conclusion: report.conclusion, corrections: [], warnings: [] })) });
+  const ok = () => editsReply([], report.conclusion);
   nextReply = ok();
   await post({ templateId: tpl.id, report, dictation: 'x', mode: 'accurate' });
   assert.equal(lastRequest.body.output_config.effort, 'medium');
@@ -202,11 +208,31 @@ test('format: turbo falls back to normal speed when rate-limited', async () => {
   requests.length = 0;
   nextReply = [
     { status: 429, json: { type: 'error', error: { type: 'rate_limit_error', message: 'fast mode limit' } } },
-    { json: message(JSON.stringify({ header: report.header, body: report.body, conclusion: report.conclusion, corrections: [], warnings: [] })) },
+    editsReply([], report.conclusion),
   ];
   const res = await post({ templateId: tpl.id, report, dictation: 'x', mode: 'turbo' });
   assert.equal(res.status, 200);
   const tries = requests.filter((r) => r.url.startsWith('/v1/messages'));
   assert.equal(tries[0].body.speed, 'fast');
   assert.ok(!('speed' in tries[tries.length - 1].body), 'retried without fast mode');
+});
+
+test('format: translation and language changes use the full-report format', async () => {
+  const tpl = getTemplate('ct_head_normal');
+  const report = reportFromTemplate(tpl); // Polish report
+  nextReply = { json: message(JSON.stringify({ header: 'Examination: CT head', body: 'Findings text.', conclusion: '- Conclusion.', corrections: [], warnings: [] })) };
+  await post({ templateId: tpl.id, report, dictation: 'left subdural haematoma', inputLang: 'en', outputLang: 'en' });
+  assert.equal(payloadOf(lastRequest.body).output_mode, 'full', 'Polish report → English output needs the full text');
+  assert.ok(lastRequest.body.output_config.format.schema.required.includes('body'));
+});
+
+test('format: accepts the user\'s own template sent by the browser', async () => {
+  const raw = { id: 'custom_9', title: 'Wrist', group: 'Trauma', section: 'Other', text: 'Badanie: TK nadgarstka\n\nOpis:\nKości bez złamań.\n\nWnioski:\n- Bez złamań.' };
+  nextReply = editsReply([{ op: 'replace', target: 'Kości bez złamań.', text: 'Złamanie kości łódeczkowatej.', reason: 'dyktat' }], '- Złamanie kości łódeczkowatej.');
+  const res = await post({ templateId: 'custom_9', template: raw, report: { header: 'Badanie: TK nadgarstka', body: 'Kości bez złamań.', conclusion: '- Bez złamań.', lang: 'pl' }, dictation: 'złamanie łódeczkowatej' });
+  const data = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(data));
+  assert.equal(payloadOf(lastRequest.body).template.body, 'Kości bez złamań.');
+  assert.equal(data.report.body, 'Złamanie kości łódeczkowatej.');
+  assert.equal(data.corrections[0].removed, 'Kości bez złamań.');
 });

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
-import { getTemplate } from './public/js/templates.js';
+import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const MAX_BODY = 200 * 1024;
@@ -63,7 +63,9 @@ async function handleFormat(req, res) {
     if (err instanceof ClaudeError) return sendJson(res, err.status, { error: err.message });
     return sendJson(res, 400, { error: 'Nieprawidłowy JSON.' });
   }
-  const template = getTemplate(body.templateId);
+  // The browser sends the template it uses (built-in, edited or the user's own).
+  const raw = body.template ? cleanRaw(body.template) : null;
+  const template = raw ? parseTemplate(raw) : getTemplate(body.templateId);
   if (!template) return sendJson(res, 400, { error: 'Nieznany szablon.' });
   if (!validReport(body.report)) return sendJson(res, 400, { error: 'Nieprawidłowa struktura raportu.' });
   const dictation = String(body.dictation || '').slice(0, 20000);

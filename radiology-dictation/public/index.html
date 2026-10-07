@@ -220,12 +220,69 @@
           <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
           <input id="pickerSearch" type="text" placeholder="Szukaj szablonu… np. KUB, żebra, angio" autocomplete="off" />
         </div>
+        <button class="btn btn-small" id="newTplBtn" title="Utwórz własny szablon">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Nowy szablon</span>
+        </button>
+        <div class="pop-wrap">
+          <button class="icon-btn" id="tplMenuBtn" title="Import / eksport szablonów" aria-haspopup="menu">
+            <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>
+          </button>
+          <div class="popover" id="tplMenu" role="menu" hidden>
+            <button class="pop-item" id="exportTpl" role="menuitem">Eksportuj moje szablony<small>plik do kopii zapasowej lub dla kolegi</small></button>
+            <button class="pop-item" id="importTpl" role="menuitem">Importuj szablony…<small>z pliku wyeksportowanego w RadVox</small></button>
+          </div>
+          <input type="file" id="importFile" accept=".json,application/json" hidden />
+        </div>
         <button class="icon-btn" id="closePicker" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
       <div class="picker-tabs" role="tablist" id="pickerTabs"></div>
       <div class="picker-recent" id="pickerRecent"></div>
       <div class="picker-body" id="pickerBody"></div>
       <div class="picker-foot mono"><kbd>↑</kbd><kbd>↓</kbd> wybór · <kbd>↵</kbd> otwórz · <kbd>Esc</kbd> zamknij</div>
+    </div>
+  </div>
+
+  <!-- Template editor -->
+  <div class="modal" id="tplEditor" hidden role="dialog" aria-label="Edycja szablonu">
+    <div class="editor-card">
+      <div class="drawer-head">
+        <h3 id="tplEditorTitle">Nowy szablon</h3>
+        <button class="icon-btn" id="closeTplEditor" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="editor-body">
+        <div class="editor-row">
+          <div class="field grow">
+            <label for="tplName">Nazwa w menu</label>
+            <input id="tplName" type="text" placeholder="np. CT Head – pediatric" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label>Rodzaj</label>
+            <div class="seg seg-tall" id="tplGroup" role="group">
+              <button type="button" data-group="Trauma" aria-pressed="false">Uraz</button>
+              <button type="button" data-group="Non-trauma" aria-pressed="true">Bez urazu</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="tplRegionSelect">Region</label>
+            <select id="tplRegionSelect"></select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-head">
+            <label for="tplText">Treść szablonu</label>
+            <button class="link-btn" id="tplFromReport" title="Wstaw tekst aktualnego opisu jako treść szablonu">Wstaw bieżący opis</button>
+          </div>
+          <textarea id="tplText" rows="16" spellcheck="true" lang="pl" placeholder="Badanie: TK …&#10;&#10;Opis:&#10;…&#10;&#10;Wnioski:&#10;- …"></textarea>
+          <p class="hint" id="tplCheck"></p>
+        </div>
+      </div>
+      <div class="editor-foot">
+        <button class="btn btn-danger" id="tplDelete">Usuń</button>
+        <button class="btn" id="tplDuplicate">Duplikuj</button>
+        <span class="grow"></span>
+        <button class="btn" id="tplCancel">Anuluj</button>
+        <button class="btn btn-primary" id="tplSave">Zapisz</button>
+      </div>
     </div>
   </div>
 

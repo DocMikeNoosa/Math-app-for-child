@@ -422,6 +422,38 @@ mark.add { background: var(--added-bg); color: var(--text-strong); border-radius
 .no-results { color: var(--text-faint); padding: 30px 6px; text-align: center; }
 .picker-foot { display: flex; gap: 6px; align-items: center; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--text-faint); }
 
+/* picker rows with edit buttons */
+.t-row { display: flex; align-items: center; gap: 2px; }
+.t-row .t-item { flex: 1; min-width: 0; }
+.t-edit { flex: none; width: 30px; height: 30px; border-radius: 8px; border: 1px solid transparent; background: none; color: var(--text-faint); display: grid; place-items: center; opacity: 0; transition: opacity 0.15s, color 0.15s, background 0.15s; }
+.t-edit svg { width: 15px; height: 15px; }
+.t-row:hover .t-edit, .t-edit:focus-visible { opacity: 1; }
+.t-edit:hover { color: var(--accent); background: rgba(89, 212, 255, 0.08); }
+@media (hover: none) { .t-edit { opacity: 1; } }
+.t-badge { flex: none; font: 600 9.5px/1 var(--mono); letter-spacing: 0.5px; text-transform: uppercase; padding: 3px 5px; border-radius: 5px; color: var(--ok); background: rgba(63, 224, 168, 0.1); margin-left: 6px; }
+.t-badge.edited { color: var(--warn); background: rgba(255, 181, 71, 0.1); }
+.btn-small { height: 44px; padding: 0 14px; font-size: 13px; }
+.btn-small svg { width: 16px; height: 16px; color: var(--accent); }
+.btn-danger { color: #ffb3bc; border-color: rgba(255, 77, 97, 0.4); }
+.btn-danger:hover { background: rgba(255, 77, 97, 0.12); }
+
+/* template editor */
+.editor-card { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 40px); display: flex; flex-direction: column; background: var(--panel-solid); border-radius: var(--radius); box-shadow: var(--shadow), 0 40px 100px -20px #000; animation: pop 0.18s ease-out; }
+.editor-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+.editor-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.editor-row .grow { flex: 1; min-width: 220px; }
+.editor-row label, .editor-body .field-head label { font: 600 11px/1 var(--mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-faint); }
+#tplText { font: 13.5px/1.65 var(--mono); min-height: 300px; }
+.seg-tall button { height: 36px; padding: 0 12px; font-family: var(--font); font-size: 13px; }
+select {
+  height: 42px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line-2);
+  background: rgba(0, 0, 0, 0.28); color: var(--text); font: 14px var(--font); outline: none;
+}
+select:focus { border-color: rgba(89, 212, 255, 0.5); }
+.editor-foot { display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
+.editor-foot .grow { flex: 1; }
+#tplCheck.bad { color: var(--warn); }
+
 /* ---------------------------------------------------------------- drawer & dialogs */
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(3px); z-index: 20; }
 .drawer {

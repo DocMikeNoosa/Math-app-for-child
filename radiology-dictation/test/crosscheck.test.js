@@ -155,12 +155,32 @@ test('pruneSentence re-joins lists', () => {
   assert.equal(pruneSentence('Nie uwidoczniono złamań mostka, żeber i kręgosłupa piersiowego.', f).text, 'Nie uwidoczniono złamań mostka i kręgosłupa piersiowego.');
 });
 
-test('findings first: pathology goes to the top of the description, most urgent first', () => {
+test('findings first: leading pathology on top; old lesions stay with the brain description', () => {
   const { report } = merge('ct_head_normal', 'przebyte ogniska lakunarne w jądrach podstawy kropka krwiak podtwardówkowy nad lewą półkulą mózgu grubości osiem milimetrów');
   const l = lines(report.body).filter((x) => x.trim());
   assert.equal(l[0], 'Badanie wykonano w trybie ostrodyżurowym.', 'technique line stays on top');
   assert.equal(l[1], 'Krwiak podtwardówkowy nad lewą półkulą mózgu grubości 8 mm.', 'bleed first');
-  assert.equal(l[2], 'Przebyte ogniska lakunarne w jądrach podstawy.');
+  assert.ok(l[2].startsWith('Struktury mózgowia'), 'then the brain description');
+  assert.equal(l[3], 'Przebyte ogniska lakunarne w jądrach podstawy.', 'old lesion next to the brain statement');
+  assert.equal(lines(report.conclusion)[0], '- Krwiak podtwardówkowy nad lewą półkulą mózgu grubości 8 mm.');
+});
+
+test('skull fracture stays with the bones; with an epidural haematoma it follows the haematoma', () => {
+  let { report } = merge('ct_head_trauma', 'krwiak podtwardówkowy nad lewą półkulą mózgu grubości osiem milimetrów kropka złamanie kości ciemieniowej po stronie prawej');
+  let l = lines(report.body).filter((x) => x.trim());
+  assert.equal(l[1], 'Krwiak podtwardówkowy nad lewą półkulą mózgu grubości 8 mm.');
+  assert.ok(l.indexOf('Złamanie kości ciemieniowej po stronie prawej.') > l.findIndex((x) => x.startsWith('Struktury linii')), 'fracture with the bones, below the brain');
+  ({ report } = merge('ct_head_trauma', 'krwiak nadtwardówkowy w okolicy skroniowej lewej grubości dwanaście milimetrów kropka złamanie łuski kości skroniowej lewej'));
+  l = lines(report.body).filter((x) => x.trim());
+  assert.equal(l[1], 'Krwiak nadtwardówkowy w okolicy skroniowej lewej grubości 12 mm.');
+  assert.equal(l[2], 'Złamanie łuski kości skroniowej lewej.', 'linked fracture follows the epidural haematoma');
+});
+
+test('spine fracture goes to its own region in multi-region templates', () => {
+  const { report } = merge('ct_total_body_trauma_normal', 'złamanie kompresyjne trzonu l jeden');
+  assert.ok(report.body.includes('Prawidłowe ustawienie trzonów kręgów oraz stawów międzywyrostkowych, bez cech zwichnięcia.'), 'cervical statement untouched');
+  const lumbar = report.body.indexOf('Złamanie kompresyjne trzonu L1.');
+  assert.ok(lumbar > report.body.indexOf('Jama brzuszna i miednica:'), 'L1 fracture in the abdomen/pelvis + lumbar section');
 });
 
 test('findings first in multi-region templates: before the first sub-heading', () => {
@@ -175,4 +195,30 @@ test('findings first in multi-region templates: before the first sub-heading', (
 test('non-pathological dictated remarks are not moved to the top', () => {
   const { report } = merge('ct_head_normal', 'artefakty ruchowe ograniczają ocenę');
   assert.ok(!lines(report.body)[0].startsWith('Artefakty'));
+});
+
+test('user templates: edit a built-in, add a custom one, hide one, invalid input rejected', async () => {
+  const T = await import('../public/js/templates.js');
+  const before = T.TEMPLATES.length;
+  T.setUserTemplates({
+    edited: { ct_head_normal: { title: 'CT Head (mój)', group: 'Non-trauma', section: 'CT Head', text: 'Badanie: TK głowy\n\nOpis:\nMózg prawidłowy.\n\nWnioski:\n- Bez zmian.' } },
+    custom: [{ id: 'custom_1', title: 'Mój szablon', group: 'Trauma', section: 'Nope', text: 'Badanie: TK nadgarstka\n\nOpis:\nKości bez złamań.\n\nWnioski:\n- Bez złamań.' }, { id: 'bad', title: '', text: '' }],
+    deleted: ['ct_head_old'],
+  });
+  assert.equal(T.getTemplate('ct_head_normal').title, 'CT Head (mój)');
+  assert.equal(T.getTemplate('ct_head_normal').body, 'Mózg prawidłowy.');
+  assert.ok(T.getTemplate('ct_head_normal').edited);
+  const c = T.getTemplate('custom_1');
+  assert.equal(c.section, 'Other', 'unknown region → Inne');
+  assert.equal(c.group, 'Trauma');
+  assert.ok(c.custom);
+  assert.equal(T.getTemplate('bad'), null);
+  assert.equal(T.getTemplate('ct_head_old'), null);
+  assert.equal(T.TEMPLATES.length, before + 1 - 1);
+  // custom templates work with the cross-check like built-ins
+  const r = localMerge(c, T.reportFromTemplate(c), 'złamanie kości łódeczkowatej');
+  assert.ok(r.report.body.includes('Złamanie kości łódeczkowatej.'));
+  T.setUserTemplates({}); // restore
+  assert.equal(T.getTemplate('ct_head_normal').title, 'CT Head normal');
+  assert.equal(T.TEMPLATES.length, before);
 });

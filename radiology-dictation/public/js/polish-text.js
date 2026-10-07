@@ -76,7 +76,8 @@ function convertNumbers(text) {
     }
     const next = (cores[end] || '').toLowerCase();
     const single = end - i === 1 && ONE_WORDS.has(cores[i].toLowerCase());
-    if (single && !UNIT_START.test(next)) {
+    const afterLevel = i > 0 && /^(c|th|l|s)$/i.test(cores[i - 1]); // "l jeden" → L1
+    if (single && !afterLevel && !UNIT_START.test(next)) {
       out.push(parts[i].core + parts[i].punct);
       i++;
       continue;
