@@ -11,7 +11,7 @@ const els = Object.fromEntries(
     'clearDictation', 'speechBadge', 'snippetsBtn', 'snippetsPop',
     'undoBtn', 'redoBtn', 'acceptBtn', 'resetBtn', 'copyBtn', 'examHeader', 'bodyText', 'bodyLabel', 'conclusion', 'paper',
     'conflicts', 'conflictsList', 'fixAllBtn', 'corrections', 'correctionsList', 'correctionsTitle', 'warnings', 'warningsList',
-    'processing', 'processingText', 'footWords', 'footSource', 'footSaved', 'reportScroll', 'inLang', 'outLang', 'conclusionLabel',
+    'processing', 'processingText', 'footWords', 'footSource', 'footSaved', 'reportScroll', 'inLang', 'outLang', 'conclusionLabel', 'newReportBtn', 'aiMode', 'aiModeHint',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
   ].map((id) => [id, $(id)]),
@@ -33,6 +33,8 @@ const state = {
   recent: [],
   inputLang: 'pl', // language of the dictation
   outputLang: 'pl', // language the report is written in
+  aiMode: 'fast', // fast | accurate | turbo
+  copied: null, // report as it was when last copied
   source: 'Szablon',
   busy: false,
   recording: false,
@@ -50,6 +52,7 @@ function load() {
     }
     state.inputLang = saved.inputLang === 'en' ? 'en' : 'pl';
     state.outputLang = saved.outputLang === 'en' ? 'en' : 'pl';
+    state.aiMode = ['fast', 'accurate', 'turbo'].includes(saved.aiMode) ? saved.aiMode : 'fast';
     els.dictation.value = saved.dictation || '';
     els.stylePrefs.value = saved.style || '';
     els.autoProcess.checked = saved.autoProcess !== false;
@@ -66,7 +69,7 @@ function save() {
       localStorage.setItem(STORE_KEY, JSON.stringify({
         report: state.report, dictation: els.dictation.value, style: els.stylePrefs.value,
         autoProcess: els.autoProcess.checked, recent: state.recent, ignore: state.ignore,
-        inputLang: state.inputLang, outputLang: state.outputLang,
+        inputLang: state.inputLang, outputLang: state.outputLang, aiMode: state.aiMode,
       }));
       els.footSaved.textContent = 'Zapisano lokalnie';
     } catch {
@@ -275,6 +278,7 @@ async function process() {
   }
   let result = null;
   let source = '';
+  const started = performance.now();
   setBusy(true);
   try {
     if (state.ai) {
@@ -282,7 +286,7 @@ async function process() {
         const res = await fetch('/api/format', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ templateId: t.id, report: before, dictation, instruction, style: els.stylePrefs.value, inputLang: state.inputLang, outputLang: state.outputLang }),
+          body: JSON.stringify({ templateId: t.id, report: before, dictation, instruction, style: els.stylePrefs.value, inputLang: state.inputLang, outputLang: state.outputLang, mode: state.aiMode }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
@@ -314,9 +318,43 @@ async function process() {
   save();
 
   const n = (result.corrections || []).length;
-  toast(n ? `Opis zaktualizowany · usunięto/zmieniono ${n} ${n === 1 ? 'zdanie' : 'zdania'} szablonu` : 'Opis zaktualizowany — sprawdź podświetlenia', 'ok', 3600);
+  const secs = ((performance.now() - started) / 1000).toFixed(1).replace('.', ',');
+  toast(`${n ? `Opis zaktualizowany · zmieniono ${n} ${n === 1 ? 'zdanie' : 'zdania'} szablonu` : 'Opis zaktualizowany'} · ${secs} s`, 'ok', 3600);
   const firstMark = els.paper.querySelector('mark.add');
   firstMark?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// ---------------------------------------------------------------- new report (next patient)
+async function newReport() {
+  if (state.busy) return;
+  const t = template();
+  const pristine = same({ ...state.report, lang: 'pl' }, reportFromTemplate(t));
+  const copied = state.copied && same(state.copied, state.report);
+  const pending = els.dictation.value.trim();
+  if ((!pristine && !copied) || pending) {
+    const what = pending && (pristine || copied) ? 'Dyktat nie został opracowany.' : 'Bieżący opis nie został skopiowany.';
+    if (!window.confirm(`${what}\nZakończyć ten opis i zacząć nowy?`)) return;
+  }
+  if (state.recording) await stopRecording({ auto: false });
+  els.dictation.value = '';
+  els.instruction.value = '';
+  els.interim.textContent = '';
+  state.ignore = [];
+  state.copied = null;
+  commit(reportFromTemplate(t), { source: 'Szablon' });
+  els.reportScroll.scrollTo({ top: 0 });
+  toast(`Nowy opis · ${t.title} — możesz dyktować (Cofnij przywróci poprzedni)`, 'ok', 3200);
+  if (state.outputLang === 'en') await translateReport('en');
+}
+
+const AI_MODE_HINTS = {
+  fast: 'Szybki — krótsze „zastanawianie się” AI; zalecany na co dzień.',
+  accurate: 'Dokładny — AI dłużej analizuje opis; wolniej, przy trudnych przypadkach.',
+  turbo: 'Turbo — szybsze generowanie tekstu (ok. 2× droższe); gdy niedostępne, używany jest tryb Szybki.',
+};
+function renderAiMode() {
+  els.aiMode.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === state.aiMode)));
+  els.aiModeHint.textContent = AI_MODE_HINTS[state.aiMode];
 }
 
 // ---------------------------------------------------------------- languages
@@ -381,7 +419,7 @@ async function translateReport(lang) {
     const res = await fetch('/api/format', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ templateId: r.templateId, report: r, translate: true, inputLang: state.inputLang, outputLang: lang, style: els.stylePrefs.value }),
+      body: JSON.stringify({ templateId: r.templateId, report: r, translate: true, inputLang: state.inputLang, outputLang: lang, style: els.stylePrefs.value, mode: state.aiMode }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
@@ -426,6 +464,7 @@ async function copyReport() {
     ta.remove();
   }
   if (ok) {
+    state.copied = clone(state.report);
     els.copyBtn.classList.add('done');
     els.copyBtn.querySelector('.btn-label').textContent = 'Skopiowano';
     setTimeout(() => {
@@ -717,6 +756,15 @@ function bind() {
   els.closeHelp.addEventListener('click', () => openHelp(false));
   els.helpModal.addEventListener('click', (e) => { if (e.target === els.helpModal) openHelp(false); });
 
+  els.newReportBtn.addEventListener('click', newReport);
+  els.aiMode.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mode]');
+    if (!b) return;
+    state.aiMode = b.dataset.mode;
+    renderAiMode();
+    save();
+  });
+
   // languages
   els.inLang.addEventListener('click', (e) => { const b = e.target.closest('[data-lang]'); if (b && !b.disabled) setInputLang(b.dataset.lang); });
   els.outLang.addEventListener('click', (e) => { const b = e.target.closest('[data-lang]'); if (b && !b.disabled && !state.busy) setOutputLang(b.dataset.lang); });
@@ -776,6 +824,7 @@ function bind() {
     const typing = isTyping(document.activeElement);
     if (e.key === 'Escape') { openSettings(false); openHelp(false); toggleSnippets(false); return; }
     if (e.key === 'F2') { e.preventDefault(); toggleRecording(); return; }
+    if (e.altKey && (e.key === 'n' || e.key === 'N' || e.code === 'KeyN')) { e.preventDefault(); newReport(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); process(); return; }
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'C' || e.key === 'c')) { e.preventDefault(); copyReport(); return; }
     if (typing) return;
@@ -796,6 +845,7 @@ function init() {
   load();
   renderSnippets();
   renderReport();
+  renderAiMode();
   bind();
   if (!speechSupported) {
     els.speechBadge.hidden = false;

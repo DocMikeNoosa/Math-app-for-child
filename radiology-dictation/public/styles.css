@@ -280,6 +280,15 @@ textarea:focus, input[type='text']:focus { border-color: rgba(89, 212, 255, 0.5)
 }
 .btn-copy:hover { border-color: rgba(63, 224, 168, 0.75); background: linear-gradient(135deg, rgba(63, 224, 168, 0.26), rgba(63, 224, 168, 0.1)); }
 .btn-copy svg { color: var(--ok); }
+.btn-new {
+  height: 40px; padding: 0 16px; color: var(--text-strong);
+  border: 1px solid rgba(89, 212, 255, 0.45);
+  background: linear-gradient(135deg, rgba(89, 212, 255, 0.16), rgba(139, 125, 255, 0.08));
+}
+.btn-new:hover { border-color: rgba(89, 212, 255, 0.8); background: linear-gradient(135deg, rgba(89, 212, 255, 0.24), rgba(139, 125, 255, 0.12)); }
+.btn-new svg { color: var(--accent); stroke-width: 2.2; }
+.seg-wide { display: flex; }
+.seg-wide button { flex: 1; height: 32px; font-family: var(--font); font-size: 13px; }
 .btn-copy .ic-check { display: none; }
 .btn-copy.done .ic-copy { display: none; }
 .btn-copy.done .ic-check { display: block; }
@@ -480,6 +489,8 @@ mark.add { background: var(--added-bg); color: var(--text-strong); border-radius
   .status-pill { width: 30px; justify-content: center; padding: 0; }
   .hide-sm { display: none; }
   .tb-btn span { display: none; }
+  .btn-new .btn-label { display: none; }
+  .btn-new { padding: 0 12px; }
   .kbd-in { display: none; }
 }
 

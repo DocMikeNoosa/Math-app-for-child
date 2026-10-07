@@ -131,8 +131,8 @@
           <button class="tb-btn" id="acceptBtn" title="Akceptuj zmiany (usuń podświetlenia)" disabled>
             <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Akceptuj</span>
           </button>
-          <button class="tb-btn" id="resetBtn" title="Przywróć czysty szablon">
-            <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span>Nowy opis</span>
+          <button class="tb-btn" id="resetBtn" title="Przywróć czysty szablon w tym opisie">
+            <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span>Szablon</span>
           </button>
         </div>
         <div class="tb-group">
@@ -145,6 +145,10 @@
           <svg class="ic-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
           <svg class="ic-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
           <span class="btn-label">Kopiuj opis</span>
+        </button>
+        <button class="btn btn-new" id="newReportBtn" title="Zakończ ten opis i zacznij nowy (Alt+N)">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          <span class="btn-label">Nowy opis</span>
         </button>
         </div>
       </div>
@@ -239,6 +243,15 @@
         <p class="hint">Wysyłane do AI przy każdym opracowaniu. Zapisywane tylko w tej przeglądarce.</p>
       </div>
       <div class="field">
+        <div class="field-head"><label>Tryb AI</label></div>
+        <div class="seg seg-wide" id="aiMode" role="group" aria-label="Tryb AI">
+          <button type="button" data-mode="fast" aria-pressed="true">Szybki</button>
+          <button type="button" data-mode="accurate" aria-pressed="false">Dokładny</button>
+          <button type="button" data-mode="turbo" aria-pressed="false">Turbo</button>
+        </div>
+        <p class="hint" id="aiModeHint"></p>
+      </div>
+      <div class="field">
         <div class="field-head"><label>Rozpoznawanie mowy</label></div>
         <p class="hint" id="speechInfo"></p>
       </div>
@@ -270,6 +283,7 @@
         <dt><kbd>L</kbd></dt><dd>Język dyktowania PL / EN</dd>
         <dt><kbd>Ctrl</kbd> <kbd>↵</kbd></dt><dd>Opracuj z AI</dd>
         <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>C</kbd></dt><dd>Kopiuj opis do schowka</dd>
+        <dt><kbd>Alt</kbd> <kbd>N</kbd></dt><dd>Nowy opis (następny pacjent)</dd>
         <dt><kbd>Ctrl</kbd> <kbd>Z</kbd> / <kbd>Y</kbd></dt><dd>Cofnij / ponów (poza polem tekstu)</dd>
         <dt><kbd>?</kbd></dt><dd>Ta pomoc</dd>
       </dl>

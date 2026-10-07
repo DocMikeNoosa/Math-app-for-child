@@ -81,6 +81,7 @@ async function handleFormat(req, res) {
       inputLang: lang(body.inputLang),
       outputLang: lang(body.outputLang),
       translate,
+      mode: ['fast', 'accurate', 'turbo'].includes(body.mode) ? body.mode : 'fast',
     });
     sendJson(res, 200, result);
   } catch (err) {

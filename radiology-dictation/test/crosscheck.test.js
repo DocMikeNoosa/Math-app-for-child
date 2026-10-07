@@ -122,7 +122,8 @@ test('conclusion: short forms, most urgent first, regenerated on later dictation
   const t = getTemplate('ct_kub_noncontrast');
   let r = localMerge(t, reportFromTemplate(t), 'w nerce prawej złóg cztery milimetry').report;
   r = localMerge(t, r, 'w moczowodzie lewym złóg pięć milimetrów').report;
-  assert.deepEqual(lines(r.conclusion), ['- W moczowodzie lewym złóg 5 mm.', '- W nerce prawej złóg 4 mm.']);
+  // equal urgency → dictation order
+  assert.deepEqual(lines(r.conclusion), ['- W nerce prawej złóg 4 mm.', '- W moczowodzie lewym złóg 5 mm.']);
   const h = merge('ct_head_face_trauma', 'złamanie łuku jarzmowego lewego kropka krwiak podtwardówkowy nad lewą półkulą grubości ośmiu milimetrów');
   assert.ok(lines(h.report.conclusion)[0].startsWith('- Krwiak podtwardówkowy'), 'bleed before fracture');
 });
@@ -152,4 +153,26 @@ test('typed findings are detected as conflicts (not auto-applied)', () => {
 test('pruneSentence re-joins lists', () => {
   const f = [analyseFinding('Złamanie żebra VI po stronie prawej.')];
   assert.equal(pruneSentence('Nie uwidoczniono złamań mostka, żeber i kręgosłupa piersiowego.', f).text, 'Nie uwidoczniono złamań mostka i kręgosłupa piersiowego.');
+});
+
+test('findings first: pathology goes to the top of the description, most urgent first', () => {
+  const { report } = merge('ct_head_normal', 'przebyte ogniska lakunarne w jądrach podstawy kropka krwiak podtwardówkowy nad lewą półkulą mózgu grubości osiem milimetrów');
+  const l = lines(report.body).filter((x) => x.trim());
+  assert.equal(l[0], 'Badanie wykonano w trybie ostrodyżurowym.', 'technique line stays on top');
+  assert.equal(l[1], 'Krwiak podtwardówkowy nad lewą półkulą mózgu grubości 8 mm.', 'bleed first');
+  assert.equal(l[2], 'Przebyte ogniska lakunarne w jądrach podstawy.');
+});
+
+test('findings first in multi-region templates: before the first sub-heading', () => {
+  const { report } = merge('ct_total_body_trauma_normal', 'złamanie żebra szóstego po stronie prawej kropka niewielka odma opłucnowa prawostronna');
+  const l = lines(report.body);
+  assert.equal(l[0], 'Niewielka odma opłucnowa prawostronna.');
+  assert.equal(l[1], 'Złamanie żebra szóstego po stronie prawej.');
+  assert.equal(l[3], 'Głowa:');
+  assert.ok(report.body.includes('Klatka piersiowa:'), 'sub-heading with remaining content kept');
+});
+
+test('non-pathological dictated remarks are not moved to the top', () => {
+  const { report } = merge('ct_head_normal', 'artefakty ruchowe ograniczają ocenę');
+  assert.ok(!lines(report.body)[0].startsWith('Artefakty'));
 });

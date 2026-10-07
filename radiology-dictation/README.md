@@ -41,6 +41,22 @@ sentences go into template sections by keyword rules, without AI rewriting.
 again later and the new dictation is merged into the report. Type an instruction ("skróć wnioski")
 for the AI, and set personal style rules under ⚙.
 
+## Findings first, new report, speed
+
+- **Findings first:** pathological findings go to the top of the description, right under the
+  technique / comparison line, most urgent first (bleeding, mass effect, pneumothorax… before
+  fractures, before old or incidental findings). The normal template text follows. Claude is
+  instructed to do this, and the rule-based checker re-orders the report as a safety net
+  (Polish reports). Multi-region templates (e.g. total body) list findings before "Głowa:".
+- **Nowy opis** (`Alt+N`): finishes the report and starts a clean one with the same template.
+  If the report wasn't copied, or there is unprocessed dictation, it asks first. "Cofnij" can
+  still bring the previous report back. The small **Szablon** button only resets the template
+  text of the current report.
+- **Speed (⚙ → Tryb AI):** **Szybki** (default, low effort), **Dokładny** (medium effort,
+  slower), **Turbo** (fast output mode, about 2× the price per report; if it's unavailable or
+  rate-limited the app falls back to Szybki automatically). Each processed report shows how
+  many seconds it took.
+
 ## Cross-check: dictation always beats the template
 
 Every template sentence is a default "normal" statement. After each dictation the whole report is

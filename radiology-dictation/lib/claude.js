@@ -4,7 +4,13 @@ import { enforceConsistency } from '../public/js/crosscheck.js';
 import { fidelityWarnings } from '../public/js/polish-text.js';
 
 export const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const EFFORT = process.env.CLAUDE_EFFORT || 'medium';
+// Speed modes chosen in the app: 'fast' (default, low effort), 'accurate' (medium effort),
+// 'turbo' (low effort + fast output mode, about 2x the price). CLAUDE_EFFORT overrides the effort.
+export const MODES = {
+  fast: { effort: 'low', turbo: false },
+  accurate: { effort: 'medium', turbo: false },
+  turbo: { effort: 'low', turbo: true },
+};
 // Server-side refusal fallback (beta). Set CLAUDE_FALLBACKS=0 to disable.
 const USE_FALLBACKS = process.env.CLAUDE_FALLBACKS !== '0';
 
@@ -30,7 +36,7 @@ LANGUAGES:
 
 Your job:
 1. Correct obvious speech-recognition errors and grammar, and rewrite the dictation in concise, professional Polish radiological language with standard terminology and accepted abbreviations (mm, cm, j.H., L4/L5, …). Numbers as digits, Polish decimal comma, dimensions "12 x 8 mm".
-2. Insert each finding into the body where it belongs anatomically (next to the statements about the same organ / region, under the right sub-heading such as "Klatka piersiowa:" when the template has them). Keep the template's layout: its paragraphs, line breaks, sub-headings and wording style.
+2. FINDINGS FIRST: put the pathological (relevant) findings at the TOP of the body, each on its own line, most clinically important / urgent first (e.g. haemorrhage, mass effect, pneumothorax, active bleeding before fractures, before old or incidental findings). Only the technique / comparison lines of the template (e.g. "Badanie wykonano w trybie ostrodyżurowym.", "Badanie porównywane do badania z …") stay above them. Then a blank line, then the remaining normal template statements in the template's order. This applies to multi-region templates too: findings go first, before the first sub-heading (e.g. "Głowa:"). Otherwise keep the template's layout: its paragraphs, line breaks, sub-headings and wording style. Never bury a relevant finding in the middle of the normal text.
 3. "Reszta bez zmian", "poza tym w normie" and similar mean: keep the remaining template statements unchanged.
 
 CROSS-CHECK — mandatory, every time, over the whole report:
@@ -141,23 +147,49 @@ function getClient() {
   return client;
 }
 
-export async function formatWithClaude({ template, report, dictation, instruction, style, inputLang = 'pl', outputLang = 'pl', translate = false }) {
+/** Build the request for a speed mode. */
+export function buildRequest({ template, report, dictation, instruction, style, inputLang, outputLang, translate, mode = 'fast' }) {
+  const m = MODES[mode] || MODES.fast;
   const params = {
     model: MODEL,
     max_tokens: 16000,
     system: SYSTEM_PROMPT,
     output_config: {
-      effort: EFFORT,
+      effort: process.env.CLAUDE_EFFORT || m.effort,
       format: { type: 'json_schema', schema: OUTPUT_SCHEMA },
     },
     messages: [{ role: 'user', content: buildUserMessage({ template, report, dictation, instruction, style, inputLang, outputLang, translate }) }],
   };
+  const betas = [];
+  if (USE_FALLBACKS) {
+    betas.push('server-side-fallback-2026-07-01');
+    params.fallbacks = 'default';
+  }
+  if (m.turbo) {
+    betas.push('fast-mode-2026-02-01');
+    params.speed = 'fast';
+  }
+  // Turbo: no SDK retries — on a rate limit we switch to normal speed immediately instead.
+  const options = m.turbo ? { maxRetries: 0 } : undefined;
+  return betas.length ? { beta: true, params: { ...params, betas }, options } : { beta: false, params, options };
+}
 
+async function send(req) {
+  return req.beta ? getClient().beta.messages.create(req.params, req.options) : getClient().messages.create(req.params, req.options);
+}
+
+export async function formatWithClaude({ template, report, dictation, instruction, style, inputLang = 'pl', outputLang = 'pl', translate = false, mode = 'fast' }) {
+  const args = { template, report, dictation, instruction, style, inputLang, outputLang, translate };
   let response;
   try {
-    response = USE_FALLBACKS
-      ? await getClient().beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
-      : await getClient().messages.create(params);
+    try {
+      response = await send(buildRequest({ ...args, mode }));
+    } catch (err) {
+      // Turbo has its own rate limit and may be unavailable: fall back to the normal fast mode.
+      if (mode === 'turbo' && (err instanceof Anthropic.RateLimitError || err instanceof Anthropic.BadRequestError)) {
+        response = await send(buildRequest({ ...args, mode: 'fast' }));
+      } else throw err;
+    }
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) throw new ClaudeError('Nieprawidłowy klucz API Anthropic.', 401);
     if (err instanceof Anthropic.RateLimitError) throw new ClaudeError('Przekroczono limit zapytań do AI — spróbuj za chwilę.', 429);

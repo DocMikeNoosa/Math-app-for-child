@@ -477,6 +477,50 @@ export function draftConclusion(template, report) {
   return formatConclusion(conclusionFromFindings(template, report), template.bullet);
 }
 
+// Technique / comparison lines that stay above the findings.
+const INTRO_RE = /^(badanie (wykonano|porówn|wykonane)|porównano|w porównaniu|porównanie|sekwencj|protokół|technika|badanie w trybie|dobra wizualizacja|z uwzględnieniem)/iu;
+
+/**
+ * Findings first: lines that describe pathology are moved to the top of the description
+ * (below the technique / comparison lines), most urgent first; the template's normal
+ * statements follow in their original order. Sub-headings left empty are dropped.
+ */
+export function moveFindingsToTop(template, report) {
+  const tpl = templateSentences(template);
+  const lines = report.body.split('\n');
+  const isFinding = (line) =>
+    !isHeader(line) &&
+    splitSentences(line).some((s) => !tpl.body.has(s) && analyseFinding(s).concepts.size);
+  // leading intro lines (blank lines between them allowed)
+  let introEnd = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    if (INTRO_RE.test(lines[i].trim()) && !isFinding(lines[i])) introEnd = i + 1;
+    else break;
+  }
+  const intro = lines.slice(0, introEnd).filter((l, i, a) => l.trim() || (i > 0 && a[i - 1].trim()));
+  const rest = lines.slice(introEnd);
+  const findings = rest.filter(isFinding);
+  if (!findings.length) return report;
+  const ranked = findings
+    .map((line, i) => ({ line: line.trim(), i, u: urgency(analyseFinding(line)) }))
+    .sort((a, b) => a.u - b.u || a.i - b.i)
+    .map((x) => x.line);
+  let remaining = rest.filter((l) => !isFinding(l));
+  // drop sub-headings that lost all their content, and collapse blank runs
+  remaining = remaining.filter((t, i, arr) => {
+    if (!isHeader(t)) return true;
+    const next = arr.slice(i + 1).find((x) => x.trim());
+    return next !== undefined && !isHeader(next) && arr[i + 1]?.trim() !== '';
+  });
+  const restText = remaining.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
+  const parts = [];
+  if (intro.length) parts.push(intro.join('\n').replace(/\n+$/, ''));
+  parts.push(ranked.join('\n'));
+  if (restText) parts.push(restText);
+  return { ...report, body: parts.join('\n\n') };
+}
+
 /**
  * Cross-check: remove every template statement contradicted by a dictated finding, then make
  * sure the conclusion states the pathology (short form, most urgent first) ahead of the
@@ -504,6 +548,7 @@ export function enforceConsistency(template, report) {
     next = { ...next, conclusion: formatConclusion([...findings, ...rest], template.bullet) };
     warnings.push('Wnioski utworzono automatycznie z opisanych zmian — zweryfikuj je.');
   }
+  next = moveFindingsToTop(template, next);
   return { report: next, corrections, warnings };
 }
 
@@ -537,8 +582,9 @@ function insertFinding(body, sentence) {
 }
 
 /**
- * Non-AI fallback: place dictated sentences in the description next to the matching
- * organ, then cross-check the whole report. Returns { report, warnings, corrections }.
+ * Non-AI fallback: findings go to the top of the description (most urgent first), other
+ * dictated sentences next to the matching organ; then the whole report is cross-checked.
+ * Returns { report, warnings, corrections }.
  */
 export function localMerge(template, report, dictation) {
   const sentences = splitSentences(normalizeDictation(dictation));
@@ -561,7 +607,7 @@ export function localMerge(template, report, dictation) {
     const f = analyseFinding(s);
     const neg = statementConcepts(s);
     if (!f.concepts.size && neg.size && [...neg].every((c) => c !== 'normal' && statementConcepts(body).has(c))) continue;
-    body = insertFinding(body, s);
+    body = f.concepts.size ? `${body.replace(/\s+$/, '')}\n${s}` : insertFinding(body, s);
   }
 
   let conclusion = report.conclusion;

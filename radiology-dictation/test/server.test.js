@@ -8,6 +8,7 @@ let mock;
 let mockUrl;
 let lastRequest = null;
 let nextReply = null;
+const requests = [];
 
 let app;
 let appUrl;
@@ -18,7 +19,8 @@ before(async () => {
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       lastRequest = { url: req.url, headers: req.headers, body: JSON.parse(body) };
-      const { status = 200, json } = nextReply;
+      const { status = 200, json } = Array.isArray(nextReply) ? nextReply.shift() : nextReply;
+      requests.push(lastRequest);
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(json));
     });
@@ -29,6 +31,7 @@ before(async () => {
   process.env.ANTHROPIC_API_KEY = 'test-key';
   process.env.ANTHROPIC_BASE_URL = mockUrl;
   delete process.env.ANTHROPIC_AUTH_TOKEN;
+  delete process.env.CLAUDE_EFFORT;
   const { createServer } = await import('../server.js');
   app = createServer();
   await new Promise((r) => app.listen(0, '127.0.0.1', r));
@@ -97,7 +100,8 @@ test('format: sends a well-formed Claude request and applies the cross-check saf
   assert.equal(b.fallbacks, 'default');
   assert.equal(b.output_config.format.type, 'json_schema');
   assert.deepEqual(b.output_config.format.schema.required, ['header', 'body', 'conclusion', 'corrections', 'warnings']);
-  assert.equal(b.output_config.effort, 'medium');
+  assert.equal(b.output_config.effort, 'low', 'default mode is fast');
+  assert.ok(!('speed' in b));
   assert.match(b.system, /CROSS-CHECK/);
   assert.ok(!('betas' in b), 'betas go in the header, not the body');
   const userPayload = JSON.parse(b.messages[0].content);
@@ -176,4 +180,33 @@ test('format: unknown language values fall back to Polish', async () => {
   const payload = JSON.parse(lastRequest.body.messages[0].content);
   assert.equal(payload.input_language, 'pl');
   assert.equal(payload.output_language, 'pl');
+});
+
+test('format: speed modes — accurate uses medium effort, turbo uses fast output mode', async () => {
+  const tpl = getTemplate('ct_head_normal');
+  const report = reportFromTemplate(tpl);
+  const ok = () => ({ json: message(JSON.stringify({ header: report.header, body: report.body, conclusion: report.conclusion, corrections: [], warnings: [] })) });
+  nextReply = ok();
+  await post({ templateId: tpl.id, report, dictation: 'x', mode: 'accurate' });
+  assert.equal(lastRequest.body.output_config.effort, 'medium');
+  nextReply = ok();
+  await post({ templateId: tpl.id, report, dictation: 'x', mode: 'turbo' });
+  assert.equal(lastRequest.body.speed, 'fast');
+  assert.match(lastRequest.headers['anthropic-beta'], /fast-mode-2026-02-01/);
+  assert.match(lastRequest.headers['anthropic-beta'], /server-side-fallback-2026-07-01/);
+});
+
+test('format: turbo falls back to normal speed when rate-limited', async () => {
+  const tpl = getTemplate('ct_head_normal');
+  const report = reportFromTemplate(tpl);
+  requests.length = 0;
+  nextReply = [
+    { status: 429, json: { type: 'error', error: { type: 'rate_limit_error', message: 'fast mode limit' } } },
+    { json: message(JSON.stringify({ header: report.header, body: report.body, conclusion: report.conclusion, corrections: [], warnings: [] })) },
+  ];
+  const res = await post({ templateId: tpl.id, report, dictation: 'x', mode: 'turbo' });
+  assert.equal(res.status, 200);
+  const tries = requests.filter((r) => r.url.startsWith('/v1/messages'));
+  assert.equal(tries[0].body.speed, 'fast');
+  assert.ok(!('speed' in tries[tries.length - 1].body), 'retried without fast mode');
 });
