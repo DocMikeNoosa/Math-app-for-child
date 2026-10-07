@@ -74,15 +74,21 @@ export function parseTemplate(raw) {
 
 /** Fresh report from a template. */
 export function reportFromTemplate(t) {
-  return { templateId: t.id, header: t.header, body: t.body, conclusion: t.conclusion };
+  return { templateId: t.id, header: t.header, body: t.body, conclusion: t.conclusion, lang: 'pl' };
 }
+
+export const SECTION_LABELS = {
+  pl: { body: 'Opis', conclusion: 'Wnioski' },
+  en: { body: 'Findings', conclusion: 'Conclusion' },
+};
 
 /** Plain text in the same layout as the template (for the clipboard / RIS). */
 export function reportToText(report, template) {
+  const L = SECTION_LABELS[report.lang === 'en' ? 'en' : 'pl'];
   const parts = [report.header.trim()];
   const body = report.body.trim();
-  if (body) parts.push(template?.hasOpis === false ? body : `Opis:\n${body}`);
-  if (report.conclusion.trim()) parts.push(`Wnioski:\n${report.conclusion.trim()}`);
+  if (body) parts.push(template?.hasOpis === false ? body : `${L.body}:\n${body}`);
+  if (report.conclusion.trim()) parts.push(`${L.conclusion}:\n${report.conclusion.trim()}`);
   return parts.join('\n\n');
 }
 

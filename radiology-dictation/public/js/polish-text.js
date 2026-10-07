@@ -209,3 +209,102 @@ export function wordDiff(oldText, newText) {
   }
   return merged;
 }
+
+// ---------------------------------------------------------------- English dictation
+const EN_UNITS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
+const EN_TEENS = { ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+const EN_TENS = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+
+function convertNumbersEn(text) {
+  const parts = text.split(/\s+/).filter(Boolean).map(splitPunct);
+  const out = [];
+  for (let i = 0; i < parts.length; ) {
+    const w = (k) => (parts[k]?.core || '').toLowerCase().replace(/-/g, ' ');
+    let value = null;
+    let end = i;
+    const first = w(i);
+    if (first.includes(' ') && first.split(' ').length === 2) {
+      // "twenty-three"
+      const [a, b] = first.split(' ');
+      if (a in EN_TENS && b in EN_UNITS) { value = EN_TENS[a] + EN_UNITS[b]; end = i + 1; }
+    }
+    if (value === null && first in EN_TENS) {
+      value = EN_TENS[first];
+      end = i + 1;
+      if (!parts[i].punct && w(end) in EN_UNITS && EN_UNITS[w(end)] > 0) { value += EN_UNITS[w(end)]; end++; }
+    } else if (value === null && first in EN_TEENS) { value = EN_TEENS[first]; end = i + 1; }
+    else if (value === null && first in EN_UNITS) { value = EN_UNITS[first]; end = i + 1; }
+    if (value === null) { out.push(parts[i].core + parts[i].punct); i++; continue; }
+    let str = String(value);
+    // decimals: "two point five"
+    if (!parts[end - 1].punct && w(end) === 'point' && (w(end + 1) in EN_UNITS)) { str += '.' + EN_UNITS[w(end + 1)]; end += 2; }
+    // keep "one" as a word unless a unit or decimal follows ("one lesion" stays)
+    const next = w(end);
+    if (value === 1 && end - i === 1 && !/^(mm|cm|ml|millimet|centimet|millilit|hounsfield|hu|percent|by)/.test(next)) {
+      out.push(parts[i].core + parts[i].punct);
+      i++;
+      continue;
+    }
+    out.push(str + parts[end - 1].punct);
+    i = end;
+  }
+  return out.join(' ');
+}
+
+const EN_COMMANDS = [
+  [word('new paragraph'), '\n\n'],
+  [word('new line|next line'), '\n'],
+  [word('open bracket|open parenthesis'), ' ('],
+  [word('close bracket|close parenthesis'), ') '],
+  [word('colon'), ': '],
+  [word('semicolon'), '; '],
+  [word('question mark'), '? '],
+  [word('full stop|period'), '. '],
+  [word('comma'), ', '],
+];
+
+/** English voice commands, numbers and units (report text is written by Claude). */
+export function convertSpokenEn(raw) {
+  if (!raw) return '';
+  let text = String(raw).replace(/\r/g, '').split('\n').map(convertNumbersEn).join('\n');
+  for (const [re, rep] of EN_COMMANDS) text = text.replace(re, rep);
+  const NUM = '(\\d+(?:[.,]\\d+)?)';
+  text = text
+    .replace(new RegExp(`${NUM}\\s*(?:millimet(?:er|re)s?|mm)(?!\\p{L})`, 'giu'), '$1 mm')
+    .replace(new RegExp(`${NUM}\\s*(?:centimet(?:er|re)s?|cm)(?!\\p{L})`, 'giu'), '$1 cm')
+    .replace(new RegExp(`${NUM}\\s*(?:millilit(?:er|re)s?|ml)(?!\\p{L})`, 'giu'), '$1 ml')
+    .replace(new RegExp(`${NUM}\\s*(?:hounsfield units?|hu)(?!\\p{L})`, 'giu'), '$1 HU')
+    .replace(new RegExp(`${NUM}\\s*percent(?!\\p{L})`, 'giu'), '$1%');
+  for (let k = 0; k < 2; k++) text = text.replace(new RegExp(`${NUM}\\s+by\\s+(?=\\d)`, 'gu'), '$1 x ');
+  text = text.replace(/(?<![\p{L}\d])(c|t|th|l|s)\s?(\d{1,2})(?!\d)/giu, (_, seg, n) => (seg.toLowerCase() === 'th' ? 'Th' : seg.toUpperCase()) + n);
+  text = text.replace(/(?<![\p{L}])((?:C|T|Th|L|S)\d{1,2})(?:\s*[-–/]\s*|\s+)((?:C|T|Th|L|S)\d{1,2})(?![\d])/gu, '$1/$2');
+  return text;
+}
+
+export const convertSpokenFor = (lang) => (lang === 'en' ? convertSpokenEn : convertSpoken);
+
+// ---------------------------------------------------------------- fidelity
+const SIDE_WORDS = {
+  R: /(?<![\p{L}])(praw(a|ej|y|ym|ego|ą|e|ych|ostronn\p{L}*)|right)(?![\p{L}])/iu,
+  L: /(?<![\p{L}])(lew(a|ej|y|ym|ego|ą|e|ych|ostronn\p{L}*)|left)(?![\p{L}])/iu,
+};
+
+/** Numbers as comparable values ("2,5" and "2.5" are the same). */
+export function numbersIn(text) {
+  return [...String(text || '').matchAll(/(?<![\p{L}\d])(\d+(?:[.,]\d+)?)(?![\d])/gu)].map((m) => m[1].replace(',', '.'));
+}
+
+/**
+ * Check that every number and side from the source text survives in the result
+ * (guards translation and rewriting). Returns warning strings in Polish.
+ */
+export function fidelityWarnings(source, result) {
+  const warnings = [];
+  const have = new Set(numbersIn(result));
+  const missing = [...new Set(numbersIn(source))].filter((n) => !have.has(n));
+  if (missing.length) warnings.push(`Liczby z dyktatu nieobecne w opisie: ${missing.map((n) => n.replace('.', ',')).join(', ')} — sprawdź wymiary.`);
+  for (const [side, re] of Object.entries(SIDE_WORDS)) {
+    if (re.test(source) && !re.test(result)) warnings.push(`Dyktat wymienia stronę ${side === 'R' ? 'prawą' : 'lewą'}, której nie ma w opisie — sprawdź lateralizację.`);
+  }
+  return warnings;
+}

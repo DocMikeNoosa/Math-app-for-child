@@ -68,7 +68,9 @@ async function handleFormat(req, res) {
   if (!validReport(body.report)) return sendJson(res, 400, { error: 'Nieprawidłowa struktura raportu.' });
   const dictation = String(body.dictation || '').slice(0, 20000);
   const instruction = String(body.instruction || '').slice(0, 2000);
-  if (!dictation.trim() && !instruction.trim()) return sendJson(res, 400, { error: 'Brak dyktowanego tekstu.' });
+  const translate = body.translate === true;
+  if (!translate && !dictation.trim() && !instruction.trim()) return sendJson(res, 400, { error: 'Brak dyktowanego tekstu.' });
+  const lang = (v) => (v === 'en' ? 'en' : 'pl');
   try {
     const result = await formatWithClaude({
       template,
@@ -76,6 +78,9 @@ async function handleFormat(req, res) {
       dictation,
       instruction,
       style: String(body.style || '').slice(0, 4000),
+      inputLang: lang(body.inputLang),
+      outputLang: lang(body.outputLang),
+      translate,
     });
     sendJson(res, 200, result);
   } catch (err) {

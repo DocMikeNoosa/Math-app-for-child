@@ -77,6 +77,27 @@ contradicted ones are removed. Dictating "wnioski …" yourself replaces the aut
 Claude writes these conclusions in proper radiological shorthand; local mode reuses your own
 sentences, shortened.
 
+## Languages: dictate PL / EN, report PL / EN
+
+Two switches (both need Claude, so they're locked when there is no API key):
+
+- **Mowa PL | EN** (dictation language; `L` toggles it). This sets the speech recognition
+  language (pl-PL / en-US) and the voice commands: Polish "kropka" / "przecinek" or English
+  "full stop" / "comma" / "new line", "five by four millimetres" → "5 x 4 mm",
+  "l four l five" → "L4/L5".
+- **Opis PL | EN** (report language, next to "Kopiuj opis"). The report is written in this
+  language whatever language you dictate in. Switching it translates the current report. An
+  untouched template switches back to Polish instantly, without a call, and English template
+  translations are cached for the session. An English report copies with
+  "Examination: / Findings: / Conclusion:".
+
+So you can dictate in English and get a Polish report, or the other way round.
+
+**Fidelity check (`fidelityWarnings`):** after every AI response, the app checks that each
+number from the dictation (2.5 = 2,5) and each side (right/left ↔ prawa/lewa) appears in the
+report. If not, a warning appears under "Do sprawdzenia". The rule-based template cross-check
+understands Polish only, so with an English report the cross-check is done by Claude alone.
+
 ## Layouts
 
 - **Full screen**: dictation panel on the left, report on the right.

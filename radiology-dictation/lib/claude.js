@@ -1,6 +1,7 @@
 // Claude-powered report formatting with a mandatory cross-check against the template.
 import Anthropic from '@anthropic-ai/sdk';
 import { enforceConsistency } from '../public/js/crosscheck.js';
+import { fidelityWarnings } from '../public/js/polish-text.js';
 
 export const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
 const EFFORT = process.env.CLAUDE_EFFORT || 'medium';
@@ -15,6 +16,17 @@ You receive JSON with:
 - "dictation": new raw dictation (may contain speech-recognition errors, missing punctuation, spelled-out numbers).
 - "instruction": an optional editing command from the radiologist (e.g. "skróć wnioski").
 - "style_preferences": optional personal style rules. Follow them.
+- "input_language": the language of the dictation ("pl" or "en").
+- "output_language": the language the report must be written in ("pl" or "en").
+- "task": "merge" (merge the dictation into the report) or "translate" (translate current_report only).
+
+LANGUAGES:
+- The dictation may be in English or Polish. Always write the whole report in output_language, whatever the dictation language.
+- output_language "pl": standard Polish radiological language, as in the radiologist's templates.
+- output_language "en": standard English radiology report language with conventional English terminology and abbreviations (e.g. "No intracranial haemorrhage.", "Hydronephrosis", "HU"). If current_report is still in Polish, translate all of it (header, body, conclusion) into English as part of your answer, keeping the layout. The header label "Badanie:" becomes "Examination:".
+- When translating, the meaning must be identical: never change, round or drop a number, unit, side (right/left ↔ prawy/lewy), vertebral level or location. Translate the content faithfully rather than paraphrasing loosely.
+- task "translate": only translate current_report into output_language — do not add, remove or reinterpret anything; corrections must be empty.
+- Write corrections and warnings in Polish.
 
 Your job:
 1. Correct obvious speech-recognition errors and grammar, and rewrite the dictation in concise, professional Polish radiological language with standard terminology and accepted abbreviations (mm, cm, j.H., L4/L5, …). Numbers as digits, Polish decimal comma, dimensions "12 x 8 mm".
@@ -46,7 +58,7 @@ Strict safety rules — never break these:
 - Do not add recommendations unless dictated or requested.
 - If something is ambiguous or clinically inconsistent (side not given, contradictory statements), add a short warning in Polish instead of guessing.
 
-Return the full final header, body (without the "Opis:" label) and conclusion (without the "Wnioski:" label). All report text, corrections and warnings must be in Polish.`;
+Return the full final header, body (without the "Opis:"/"Findings:" label) and conclusion (without the "Wnioski:"/"Conclusion:" label), written in output_language.`;
 
 export const OUTPUT_SCHEMA = {
   type: 'object',
@@ -73,9 +85,12 @@ export const OUTPUT_SCHEMA = {
   additionalProperties: false,
 };
 
-export function buildUserMessage({ template, report, dictation, instruction, style }) {
+export function buildUserMessage({ template, report, dictation, instruction, style, inputLang = 'pl', outputLang = 'pl', translate = false }) {
   return JSON.stringify(
     {
+      task: translate ? 'translate' : 'merge',
+      input_language: inputLang,
+      output_language: outputLang,
       template: { header: template.header, body: template.body, conclusion: template.conclusion },
       current_report: { header: report.header, body: report.body, conclusion: report.conclusion },
       dictation: dictation || '',
@@ -87,8 +102,11 @@ export function buildUserMessage({ template, report, dictation, instruction, sty
   );
 }
 
-/** Take Claude's result, then run the deterministic cross-check as a safety net. */
-export function mergeResult(template, report, result) {
+/**
+ * Take Claude's result, run the deterministic cross-check as a safety net (Polish output) and
+ * verify that every dictated number and side survived (especially after translation).
+ */
+export function mergeResult(template, report, result, { outputLang = 'pl', source = '' } = {}) {
   const str = (v, fallback) => (typeof v === 'string' && v.trim() ? v.replace(/\s+$/, '') : fallback);
   const next = {
     ...report,
@@ -99,11 +117,14 @@ export function mergeResult(template, report, result) {
   const aiCorrections = (Array.isArray(result.corrections) ? result.corrections : [])
     .filter((c) => c && c.removed)
     .map((c) => ({ removed: String(c.removed), replacement: String(c.replacement || ''), reason: String(c.reason || '') }));
-  const checked = enforceConsistency(template, next);
+  // The rule-based cross-check understands Polish only; English output relies on Claude's check.
+  const checked = outputLang === 'pl' ? enforceConsistency(template, next) : { report: next, corrections: [], warnings: [] };
+  const final = { ...checked.report, lang: outputLang };
+  const fidelity = source ? fidelityWarnings(source, `${final.header}\n${final.body}\n${final.conclusion}`) : [];
   return {
-    report: checked.report,
+    report: final,
     corrections: [...aiCorrections, ...checked.corrections.map((c) => ({ ...c, reason: `${c.reason} (kontrola automatyczna)` }))],
-    warnings: [...(Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : []), ...checked.warnings],
+    warnings: [...(Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : []), ...checked.warnings, ...fidelity],
   };
 }
 
@@ -120,7 +141,7 @@ function getClient() {
   return client;
 }
 
-export async function formatWithClaude({ template, report, dictation, instruction, style }) {
+export async function formatWithClaude({ template, report, dictation, instruction, style, inputLang = 'pl', outputLang = 'pl', translate = false }) {
   const params = {
     model: MODEL,
     max_tokens: 16000,
@@ -129,7 +150,7 @@ export async function formatWithClaude({ template, report, dictation, instructio
       effort: EFFORT,
       format: { type: 'json_schema', schema: OUTPUT_SCHEMA },
     },
-    messages: [{ role: 'user', content: buildUserMessage({ template, report, dictation, instruction, style }) }],
+    messages: [{ role: 'user', content: buildUserMessage({ template, report, dictation, instruction, style, inputLang, outputLang, translate }) }],
   };
 
   let response;
@@ -157,5 +178,9 @@ export async function formatWithClaude({ template, report, dictation, instructio
   } catch {
     throw new ClaudeError('Nie udało się odczytać odpowiedzi AI.', 502);
   }
-  return { ...mergeResult(template, report, parsed), model: response.model };
+  // For a translation the numbers/sides to preserve are those of the report being translated.
+  const source = translate ? `${report.header}\n${report.body}\n${report.conclusion}` : dictation;
+  const merged = mergeResult(template, report, parsed, { outputLang, source });
+  if (translate) merged.corrections = [];
+  return { ...merged, model: response.model };
 }

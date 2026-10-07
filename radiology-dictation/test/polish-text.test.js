@@ -47,3 +47,19 @@ test('word diff marks inserted words', () => {
 test('re-normalising text with abbreviations keeps sentence boundaries', () => {
   assert.equal(normalizeDictation('Złóg 5 mm. Poszerzenie 2 cm. Płyn 30 ml. reszta bez zmian'), 'Złóg 5 mm. Poszerzenie 2 cm. Płyn 30 ml. Reszta bez zmian.');
 });
+
+test('English dictation: numbers, units, commands, levels', async () => {
+  const { convertSpokenEn } = await import('../public/js/polish-text.js');
+  assert.equal(tidy(convertSpokenEn('twenty three millimetre hypodense lesion in the left frontal lobe full stop')), '23 mm hypodense lesion in the left frontal lobe.');
+  assert.equal(tidy(convertSpokenEn('protrusion at l four l five two point five millimetres comma one lesion')), 'Protrusion at L4/L5 2.5 mm, one lesion.');
+  assert.equal(tidy(convertSpokenEn('stone five by four millimetres')), 'Stone 5 x 4 mm.');
+});
+
+test('fidelity: numbers and sides must survive translation', async () => {
+  const { fidelityWarnings } = await import('../public/js/polish-text.js');
+  assert.deepEqual(fidelityWarnings('left ureteric stone 5 mm and 2.5 mm', 'W moczowodzie lewym złóg 5 mm i 2,5 mm.'), []);
+  const w = fidelityWarnings('right kidney stone 4 mm', 'W nerce lewej złóg 3 mm.');
+  assert.equal(w.length, 2);
+  assert.match(w[0], /4/);
+  assert.match(w[1], /prawą/);
+});

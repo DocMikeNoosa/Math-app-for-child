@@ -1,5 +1,5 @@
-import { TEMPLATES, GROUPS, SNIPPETS, SNIPPET_GROUPS, getTemplate, regionLabel, templatesByRegion, reportFromTemplate, reportToText } from './templates.js';
-import { convertSpoken, tidy, scrubIdentifiers, wordDiff } from './polish-text.js';
+import { TEMPLATES, GROUPS, SNIPPETS, SNIPPET_GROUPS, SECTION_LABELS, getTemplate, regionLabel, templatesByRegion, reportFromTemplate, reportToText } from './templates.js';
+import { convertSpokenFor, tidy, scrubIdentifiers, wordDiff } from './polish-text.js';
 import { localMerge, findConflicts, applyConflicts } from './crosscheck.js';
 import { Dictation, LevelMeter, speechSupported } from './speech.js';
 
@@ -11,7 +11,7 @@ const els = Object.fromEntries(
     'clearDictation', 'speechBadge', 'snippetsBtn', 'snippetsPop',
     'undoBtn', 'redoBtn', 'acceptBtn', 'resetBtn', 'copyBtn', 'examHeader', 'bodyText', 'bodyLabel', 'conclusion', 'paper',
     'conflicts', 'conflictsList', 'fixAllBtn', 'corrections', 'correctionsList', 'correctionsTitle', 'warnings', 'warningsList',
-    'processing', 'processingText', 'footWords', 'footSource', 'footSaved', 'reportScroll',
+    'processing', 'processingText', 'footWords', 'footSource', 'footSaved', 'reportScroll', 'inLang', 'outLang', 'conclusionLabel',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
   ].map((id) => [id, $(id)]),
@@ -31,6 +31,8 @@ const state = {
   corrections: [],
   ignore: [], // template sentences the radiologist chose to keep despite a conflict
   recent: [],
+  inputLang: 'pl', // language of the dictation
+  outputLang: 'pl', // language the report is written in
   source: 'Szablon',
   busy: false,
   recording: false,
@@ -44,8 +46,10 @@ function load() {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
     if (!saved) return;
     if (saved.report && getTemplate(saved.report.templateId) && ['header', 'body', 'conclusion'].every((k) => typeof saved.report[k] === 'string')) {
-      state.report = saved.report;
+      state.report = { ...saved.report, lang: saved.report.lang === 'en' ? 'en' : 'pl' };
     }
+    state.inputLang = saved.inputLang === 'en' ? 'en' : 'pl';
+    state.outputLang = saved.outputLang === 'en' ? 'en' : 'pl';
     els.dictation.value = saved.dictation || '';
     els.stylePrefs.value = saved.style || '';
     els.autoProcess.checked = saved.autoProcess !== false;
@@ -62,6 +66,7 @@ function save() {
       localStorage.setItem(STORE_KEY, JSON.stringify({
         report: state.report, dictation: els.dictation.value, style: els.stylePrefs.value,
         autoProcess: els.autoProcess.checked, recent: state.recent, ignore: state.ignore,
+        inputLang: state.inputLang, outputLang: state.outputLang,
       }));
       els.footSaved.textContent = 'Zapisano lokalnie';
     } catch {
@@ -108,6 +113,11 @@ function renderReport() {
   const base = state.baseline;
   renderTemplateButton();
   els.examHeader.textContent = r.header;
+  const L = SECTION_LABELS[r.lang === 'en' ? 'en' : 'pl'];
+  els.bodyLabel.textContent = L.body;
+  els.conclusionLabel.textContent = L.conclusion;
+  for (const el of [els.examHeader, els.bodyText, els.conclusion]) el.lang = r.lang === 'en' ? 'en' : 'pl';
+  renderLangToggles();
   els.bodyText.innerHTML = highlighted(base?.body, r.body);
   els.conclusion.innerHTML = highlighted(base?.conclusion, r.conclusion);
   els.conclusion.parentElement.classList.toggle('changed', Boolean(base && base.conclusion !== r.conclusion));
@@ -173,6 +183,7 @@ function selectTemplate(id) {
   state.ignore = [];
   commit(reportFromTemplate(t), { source: 'Szablon' });
   toast(wasEdited ? `${t.title} — „Cofnij” przywróci poprzedni opis` : t.title, 'info');
+  if (state.outputLang === 'en') translateReport('en');
 }
 
 function undo() {
@@ -206,6 +217,7 @@ function resetReport() {
   state.ignore = [];
   commit(reportFromTemplate(template()), { source: 'Szablon' });
   toast('Nowy opis z szablonu — „Cofnij” przywróci poprzedni', 'info');
+  if (state.outputLang === 'en') translateReport('en');
 }
 
 function fixConflicts(list) {
@@ -256,6 +268,11 @@ async function process() {
 
   const t = template();
   const before = clone(state.report);
+  const needsAI = state.inputLang === 'en' || state.outputLang === 'en' || before.lang === 'en';
+  if (needsAI && !state.ai) {
+    toast('Dyktowanie lub opis po angielsku wymaga AI (Claude) — przełącz na PL albo dodaj klucz API.', 'warn', 5000);
+    return;
+  }
   let result = null;
   let source = '';
   setBusy(true);
@@ -265,13 +282,17 @@ async function process() {
         const res = await fetch('/api/format', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ templateId: t.id, report: before, dictation, instruction, style: els.stylePrefs.value }),
+          body: JSON.stringify({ templateId: t.id, report: before, dictation, instruction, style: els.stylePrefs.value, inputLang: state.inputLang, outputLang: state.outputLang }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
         result = data;
         source = `Claude · ${data.model || state.model}`;
       } catch (err) {
+        if (needsAI) {
+          toast(`${err.message} Dyktat został zachowany.`, 'err', 5000);
+          return;
+        }
         toast(`${err.message} Użyto trybu lokalnego.`, 'err', 5000);
       }
     }
@@ -298,13 +319,92 @@ async function process() {
   firstMark?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function setBusy(busy) {
+// ---------------------------------------------------------------- languages
+const translationCache = new Map(); // pristine template translations: "templateId:lang" → report
+
+function renderLangToggles() {
+  const mark = (group, value) => group.querySelectorAll('button').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.lang === value));
+    b.disabled = b.dataset.lang === 'en' && !state.ai && value !== 'en';
+    b.title = b.disabled ? 'Wymaga AI (Claude) — brak klucza API' : '';
+  });
+  mark(els.inLang, state.inputLang);
+  mark(els.outLang, state.outputLang);
+  els.dictation.lang = state.inputLang;
+  els.dictation.placeholder = state.inputLang === 'en'
+    ? 'Dictate or type in English… e.g. “left subdural haematoma, 8 mm thick, otherwise unremarkable”'
+    : 'Dyktuj lub wpisz… np. „krwiak podtwardówkowy nad lewą półkulą grubości 8 mm, reszta bez zmian”';
+}
+
+async function setInputLang(lang) {
+  if (lang === state.inputLang) return;
+  if (lang === 'en' && !state.ai) return toast('Dyktowanie po angielsku wymaga AI (Claude).', 'warn');
+  if (state.recording) await stopRecording({ auto: false });
+  state.inputLang = lang;
+  dictationEngine.lang = lang === 'en' ? 'en-US' : 'pl-PL';
+  renderLangToggles();
+  save();
+  toast(lang === 'en' ? 'Dyktowanie: angielski (opis powstaje w wybranym języku opisu)' : 'Dyktowanie: polski', 'info');
+}
+
+async function setOutputLang(lang) {
+  if (lang === state.outputLang && lang === state.report.lang) return;
+  if (lang === 'en' && !state.ai) return toast('Opis po angielsku wymaga AI (Claude).', 'warn');
+  state.outputLang = lang;
+  renderLangToggles();
+  save();
+  await translateReport(lang);
+}
+
+/** Translate the current report (cached for untouched templates). */
+async function translateReport(lang) {
+  const r = state.report;
+  if (r.lang === lang) return;
+  const pristineTpl = reportFromTemplate(template());
+  const pristine = same({ ...r, lang: 'pl' }, pristineTpl) || (r.lang === 'en' && translationCache.get(`${r.templateId}:en`) && same(r, translationCache.get(`${r.templateId}:en`)));
+  if (pristine && lang === 'pl') {
+    commit(pristineTpl, { source: 'Szablon' });
+    return;
+  }
+  const key = `${r.templateId}:${lang}`;
+  if (pristine && translationCache.has(key)) {
+    commit(clone(translationCache.get(key)), { source: 'Szablon (EN)' });
+    return;
+  }
+  if (!state.ai) {
+    state.outputLang = r.lang;
+    renderLangToggles();
+    return toast('Tłumaczenie wymaga AI (Claude).', 'warn');
+  }
+  setBusy(true, lang === 'en' ? 'Claude tłumaczy opis na angielski…' : 'Claude tłumaczy opis na polski…');
+  try {
+    const res = await fetch('/api/format', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ templateId: r.templateId, report: r, translate: true, inputLang: state.inputLang, outputLang: lang, style: els.stylePrefs.value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
+    if (pristine) translationCache.set(key, clone(data.report));
+    commit(data.report, { warnings: data.warnings || [], source: `Claude · tłumaczenie ${lang.toUpperCase()}` });
+    toast(lang === 'en' ? 'Opis przetłumaczony na angielski' : 'Opis przetłumaczony na polski', 'ok');
+  } catch (err) {
+    state.outputLang = state.report.lang;
+    renderLangToggles();
+    save();
+    toast(`Nie udało się przetłumaczyć: ${err.message}`, 'err', 5000);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function setBusy(busy, label) {
   state.busy = busy;
   els.processBtn.disabled = busy;
   els.processBtn.classList.toggle('busy', busy);
   els.processBtn.querySelector('.btn-label').textContent = busy ? 'Opracowywanie…' : state.ai ? 'Opracuj z AI' : 'Wstaw do szablonu';
   els.processing.hidden = !busy;
-  els.processingText.textContent = state.ai ? 'Claude opracowuje opis…' : 'Wstawianie do szablonu…';
+  els.processingText.textContent = label || (state.ai ? 'Claude opracowuje opis…' : 'Wstawianie do szablonu…');
 }
 
 // ---------------------------------------------------------------- copy
@@ -471,7 +571,7 @@ const dictationEngine = new Dictation({
   onFinal: (text) => {
     if (!text) return;
     const prev = els.dictation.value.replace(/\s+$/, '');
-    const chunk = convertSpoken(text);
+    const chunk = convertSpokenFor(state.inputLang)(text);
     els.dictation.value = tidy(prev ? `${prev} ${chunk}` : chunk, { closeSentences: false }) + ' ';
     els.dictation.scrollTop = els.dictation.scrollHeight;
     save();
@@ -577,6 +677,12 @@ async function checkStatus() {
   els.aiStatus.classList.toggle('local', !state.ai);
   els.aiStatus.querySelector('.label').textContent = state.ai ? 'AI: Claude' : 'Tryb lokalny (bez AI)';
   els.aiStatus.title = state.ai ? `Model: ${state.model}` : 'Brak klucza ANTHROPIC_API_KEY na serwerze — dyktat jest wstawiany i sprawdzany regułami lokalnymi.';
+  if (!state.ai) {
+    state.inputLang = 'pl';
+    state.outputLang = state.report.lang;
+  }
+  dictationEngine.lang = state.inputLang === 'en' ? 'en-US' : 'pl-PL';
+  renderLangToggles();
   setBusy(false);
 }
 
@@ -610,6 +716,10 @@ function bind() {
   els.helpBtn.addEventListener('click', () => openHelp(true));
   els.closeHelp.addEventListener('click', () => openHelp(false));
   els.helpModal.addEventListener('click', (e) => { if (e.target === els.helpModal) openHelp(false); });
+
+  // languages
+  els.inLang.addEventListener('click', (e) => { const b = e.target.closest('[data-lang]'); if (b && !b.disabled) setInputLang(b.dataset.lang); });
+  els.outLang.addEventListener('click', (e) => { const b = e.target.closest('[data-lang]'); if (b && !b.disabled && !state.busy) setOutputLang(b.dataset.lang); });
 
   // template picker
   els.tplCurrent.addEventListener('click', openPicker);
@@ -675,6 +785,7 @@ function bind() {
     if (e.key === ' ' && document.activeElement !== els.recBtn && !document.activeElement?.closest('button')) { e.preventDefault(); toggleRecording(); return; }
     if (e.key === 't' || e.key === 'T') { e.preventDefault(); openPicker(); return; }
     if (e.key === 'w' || e.key === 'W') { e.preventDefault(); toggleSnippets(); return; }
+    if (e.key === 'l' || e.key === 'L') { e.preventDefault(); setInputLang(state.inputLang === 'pl' ? 'en' : 'pl'); return; }
     if (e.key === '?') openHelp(true);
   });
   window.addEventListener('beforeunload', () => { if (state.recording) dictationEngine.stop(); });
@@ -687,8 +798,7 @@ function init() {
   renderReport();
   bind();
   if (!speechSupported) {
-    els.speechBadge.textContent = 'brak mowy';
-    els.speechBadge.classList.add('off');
+    els.speechBadge.hidden = false;
     els.speechInfo.textContent = 'Ta przeglądarka nie obsługuje rozpoznawania mowy (Web Speech API). Użyj Chrome lub Edge, albo wpisuj tekst ręcznie.';
   } else {
     els.speechInfo.textContent = 'Wbudowane rozpoznawanie mowy przeglądarki (język polski). W Chrome dźwięk jest przetwarzany przez serwery Google i wymaga internetu.';

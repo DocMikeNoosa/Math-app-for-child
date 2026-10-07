@@ -132,3 +132,48 @@ test('format: input validation', async () => {
   const bad = await fetch(`${appUrl}/api/format`, { method: 'POST', body: '{not json' });
   assert.equal(bad.status, 400);
 });
+
+test('format: English dictation → Polish report, with fidelity check', async () => {
+  const tpl = getTemplate('ct_kub_noncontrast');
+  const report = reportFromTemplate(tpl);
+  // Simulated model mistake: drops "5" and the side.
+  nextReply = {
+    json: message(JSON.stringify({ header: report.header, body: report.body + '\nW moczowodzie złóg.', conclusion: '- Złóg w moczowodzie.', corrections: [], warnings: [] })),
+  };
+  const res = await post({ templateId: tpl.id, report, dictation: 'left ureteric stone 5 mm', inputLang: 'en', outputLang: 'pl' });
+  const data = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(data));
+  const payload = JSON.parse(lastRequest.body.messages[0].content);
+  assert.equal(payload.input_language, 'en');
+  assert.equal(payload.output_language, 'pl');
+  assert.equal(payload.task, 'merge');
+  assert.match(lastRequest.body.system, /LANGUAGES/);
+  assert.equal(data.report.lang, 'pl');
+  assert.ok(data.warnings.some((w) => w.includes('5')), JSON.stringify(data.warnings));
+  assert.ok(data.warnings.some((w) => w.includes('lewą')));
+});
+
+test('format: translate task needs no dictation and returns an English report', async () => {
+  const tpl = getTemplate('ct_head_normal');
+  const report = reportFromTemplate(tpl);
+  nextReply = {
+    json: message(JSON.stringify({ header: 'Examination: CT head without contrast', body: 'Acute-care study.\n\nNo focal lesions, no intracranial haemorrhage.', conclusion: '- No acute intracranial pathology.', corrections: [{ removed: 'x', replacement: '', reason: 'y' }], warnings: [] })),
+  };
+  const res = await post({ templateId: tpl.id, report, translate: true, outputLang: 'en' });
+  const data = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(data));
+  assert.equal(JSON.parse(lastRequest.body.messages[0].content).task, 'translate');
+  assert.equal(data.report.lang, 'en');
+  assert.equal(data.report.header, 'Examination: CT head without contrast');
+  assert.deepEqual(data.corrections, [], 'a translation never reports corrections');
+});
+
+test('format: unknown language values fall back to Polish', async () => {
+  const tpl = getTemplate('ct_head_normal');
+  const report = reportFromTemplate(tpl);
+  nextReply = { json: message(JSON.stringify({ header: report.header, body: report.body, conclusion: report.conclusion, corrections: [], warnings: [] })) };
+  await post({ templateId: tpl.id, report, dictation: 'x', inputLang: 'de', outputLang: '<script>' });
+  const payload = JSON.parse(lastRequest.body.messages[0].content);
+  assert.equal(payload.input_language, 'pl');
+  assert.equal(payload.output_language, 'pl');
+});

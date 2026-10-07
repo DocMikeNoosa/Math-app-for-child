@@ -72,7 +72,12 @@
           <div class="field-head">
             <label for="dictation">Dyktat</label>
             <div class="field-tools">
-              <span class="badge-soft" id="speechBadge">pl-PL</span>
+              <div class="seg" id="inLang" role="group" aria-label="Język dyktowania" title="Język, w którym dyktujesz (L)">
+                <span class="seg-lbl">Mowa</span>
+                <button type="button" data-lang="pl" aria-pressed="true">PL</button>
+                <button type="button" data-lang="en" aria-pressed="false">EN</button>
+              </div>
+              <span class="badge-soft off" id="speechBadge" hidden>brak mowy</span>
               <div class="pop-wrap">
                 <button class="link-btn" id="snippetsBtn" aria-haspopup="menu" title="Wstaw gotowy fragment tekstu (W)">
                   <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/><path d="M18 15v6M15 18h6"/></svg>Wstawki
@@ -130,11 +135,18 @@
             <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span>Nowy opis</span>
           </button>
         </div>
+        <div class="tb-group">
+        <div class="seg" id="outLang" role="group" aria-label="Język opisu" title="Język, w którym powstaje opis">
+          <span class="seg-lbl">Opis</span>
+          <button type="button" data-lang="pl" aria-pressed="true">PL</button>
+          <button type="button" data-lang="en" aria-pressed="false">EN</button>
+        </div>
         <button class="btn btn-copy" id="copyBtn" title="Kopiuj do schowka (Ctrl+Shift+C)">
           <svg class="ic-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
           <svg class="ic-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
           <span class="btn-label">Kopiuj opis</span>
         </button>
+        </div>
       </div>
 
       <div class="report-scroll" id="reportScroll">
@@ -158,7 +170,7 @@
           </div>
 
           <div class="block conclusion-block">
-            <div class="block-label">Wnioski</div>
+            <div class="block-label" id="conclusionLabel">Wnioski</div>
             <div class="editable conclusion" id="conclusion" contenteditable="true" spellcheck="true" lang="pl"></div>
           </div>
 
@@ -255,6 +267,7 @@
         <dt><kbd>Spacja</kbd> / <kbd>F2</kbd></dt><dd>Start / stop dyktowania</dd>
         <dt><kbd>T</kbd></dt><dd>Wybór szablonu</dd>
         <dt><kbd>W</kbd></dt><dd>Wstawki</dd>
+        <dt><kbd>L</kbd></dt><dd>Język dyktowania PL / EN</dd>
         <dt><kbd>Ctrl</kbd> <kbd>↵</kbd></dt><dd>Opracuj z AI</dd>
         <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>C</kbd></dt><dd>Kopiuj opis do schowka</dd>
         <dt><kbd>Ctrl</kbd> <kbd>Z</kbd> / <kbd>Y</kbd></dt><dd>Cofnij / ponów (poza polem tekstu)</dd>
