@@ -20,3 +20,32 @@ CREATE TABLE IF NOT EXISTS records (
   PRIMARY KEY (acct, k)
 );
 CREATE INDEX IF NOT EXISTS records_seq ON records (acct, seq);
+
+-- Gabinet (organizacja): członkowie, role, zaproszenia. Klucz gabinetu (prywatny) mają wyłącznie administratorzy — na serwerze są tylko klucze publiczne i zaszyfrowane bloki.
+CREATE TABLE IF NOT EXISTS orgs (
+  org_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  pub TEXT NOT NULL,             -- klucz publiczny gabinetu (ECDH P-256, JWK)
+  policy TEXT NOT NULL,          -- zasady gabinetu, np. {"aiDpa": true}
+  created INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS members (
+  acct TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  role TEXT NOT NULL,            -- admin | member
+  status TEXT NOT NULL,          -- active | removed
+  meta TEXT NOT NULL,            -- login i nazwisko lekarza zaszyfrowane kluczem gabinetu
+  escrow TEXT NOT NULL,          -- klucz danych lekarza zaszyfrowany kluczem gabinetu (odzyskiwanie, ciągłość dokumentacji)
+  user_pub TEXT NOT NULL,        -- klucz publiczny lekarza
+  grant_blob TEXT,               -- klucz gabinetu zaszyfrowany dla nowego administratora
+  last_seen INTEGER NOT NULL DEFAULT 0,
+  joined INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS members_org ON members (org_id);
+CREATE TABLE IF NOT EXISTS invites (
+  hash TEXT PRIMARY KEY,         -- SHA-256 tajnej części kodu zaproszenia
+  org_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  expires INTEGER NOT NULL,
+  created_by TEXT NOT NULL
+);

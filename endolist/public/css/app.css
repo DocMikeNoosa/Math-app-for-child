@@ -502,3 +502,15 @@ body { overflow-x: hidden; }
 .dpa { padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 181, 71, 0.35); background: rgba(255, 181, 71, 0.06); }
 .dpa.ok { border-color: rgba(94, 230, 214, 0.3); background: rgba(94, 230, 214, 0.05); }
 @media (max-width: 720px) { .audit .ae { grid-template-columns: 1fr; gap: 0; } }
+
+/* ================================================================ gabinet / administracja */
+.invite-code { margin: 14px auto 6px; padding: 16px 18px; border-radius: 16px; text-align: center; font: 700 26px/1.2 ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: 0.08em; color: var(--strong); background: rgba(94, 230, 214, 0.08); border: 1px solid rgba(94, 230, 214, 0.35); user-select: all; -webkit-user-select: all; }
+.member { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+.member:last-child { border-bottom: 0; }
+.member.removed { opacity: 0.6; }
+.member .m-act { flex-basis: 100%; gap: 4px; flex-wrap: wrap; }
+@media (max-width: 720px) { .invite-code { font-size: 20px; } }
+
+.nav i.nl, .nav i.ns { font-style: normal; }
+.nav i.ns { display: none; }
+@media (max-width: 720px) { .nav i.nl { display: none; } .nav i.ns { display: inline; } }

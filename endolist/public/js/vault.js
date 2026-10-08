@@ -208,6 +208,14 @@ export async function deleteProfile(pid) {
   await kv.del(`sync:${pid}`);
 }
 
+/** Admin password reset: the same data key wrapped with a new password (passkeys stay valid). */
+export async function rewrapHeader(header, dekRaw, newPassword) {
+  const salt = rnd(16);
+  return { ...header, salt: b64.from(salt), pw: await wrap(await kekFromPassword(newPassword, salt), dekRaw) };
+}
+/** Opens a data key without a profile (admin reading a clinic member's data). */
+export async function sessionFor(header, dekRaw) { return new Session({ ...header, passkeys: header.passkeys || [] }, dekRaw, await importDek(dekRaw)); }
+
 /* ------------------------------------------------------------ synchronizacja: konto na nowym urządzeniu */
 export const normLogin = (u) => norm(u);
 /** Server account id: SHA-256 of the normalised sync login (the login itself is not stored on the server). */

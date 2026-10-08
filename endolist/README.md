@@ -57,6 +57,20 @@ The Centrum Stomatologiczne logo (from the clinic's website, as provided) is bui
 
 **Link for other doctors (GitHub Pages).** The `.github/workflows/pages.yml` workflow publishes the `public/` folder. Enable it under Settings → Pages → Source: *GitHub Actions*. From the link, the app can also be installed via Chrome or Edge (menu ⋮ → *Install EndoList*). Each doctor has separate, encrypted data on their own computer.
 
+## Clinic and administrators
+
+- **Setup:** Settings → **Gabinet** → *Załóż gabinet*. The person who creates the clinic becomes its first administrator. This needs sync to be on.
+- **Admins** get an **Administracja** tab, where they can:
+  - invite doctors or more admins with a one-time code valid for 7 days;
+  - grant or remove admin rights (there is always at least one admin);
+  - remove a person, which cuts off their access and wipes clinic data from their devices on the next sync, while the clinic keeps the records;
+  - reset a forgotten password;
+  - view and export a doctor's data and activity log;
+  - turn AI on or off for the whole clinic.
+- **How it works:** each doctor's data key is also locked to the clinic key, which only admins hold. The server can't read anything.
+- **Logging:** every admin action is recorded in the activity log.
+- **Joining:** a doctor enters the invite code under Settings → Gabinet → *Dołącz kodem zaproszenia*.
+
 ## AI and privacy (RODO)
 
 - **Model:** Claude (`claude-opus-5-5`), using the clinic's own API key from console.anthropic.com, which is stored encrypted.
@@ -80,6 +94,7 @@ There is no public API or import format for ProDentis (Infotel Software). The ex
 node server.mjs                      # http://localhost:4173 (+ /api/status)
 LC_ALL=C.UTF-8 node test/e2e.cjs     # end-to-end test (Playwright + Chromium)
 LC_ALL=C.UTF-8 node test/sync-e2e.cjs  # sync: computer ↔ iPhone (emulated) ↔ third device
+LC_ALL=C.UTF-8 node test/admin-e2e.cjs # clinic: admin (computer) + doctor (iPhone): invite, roles, reset, removal
 node test/sync-api.mjs <address>      # sync protocol (local server or Cloudflare Worker)
 ```
 

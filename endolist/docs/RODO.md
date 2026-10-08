@@ -51,6 +51,24 @@ Aplikacja nie używa plików cookie, analityki ani zewnętrznych czcionek i bibl
 - **Integralność i dostępność:** kopia zapasowa w folderze (najnowsza oraz 60 kopii dziennych), synchronizacja między urządzeniami, usunięcia zapisywane jako zaszyfrowane „nagrobki", żeby stara kopia ich nie przywróciła.
 - **Minimalizacja:** serwer synchronizacji nie zna tożsamości lekarza; AI dostaje wyłącznie dane kliniczne.
 
+## 3a. Gabinet i administratorzy
+
+- **Zakładanie:** gabinet zakłada pierwsza osoba, która zostaje administratorem. Kolejni lekarze i administratorzy dołączają jednorazowym kodem zaproszenia, ważnym 7 dni. Kod zawiera odcisk klucza gabinetu, więc urządzenie sprawdza, czy dołącza do właściwego gabinetu.
+- **Uprawnienia administratorów:**
+  - zapraszanie lekarzy;
+  - nadawanie i odbieranie uprawnień administratora (gabinet musi mieć co najmniej jednego);
+  - usuwanie członków;
+  - reset zapomnianego hasła;
+  - odczyt i eksport danych oraz rejestru zdarzeń lekarza (ciągłość dokumentacji, rozliczalność);
+  - decyzja o użyciu AI w całym gabinecie.
+- **Depozyt kluczy:** klucz danych każdego lekarza jest dodatkowo zaszyfrowany kluczem gabinetu. Klucz prywatny gabinetu mają wyłącznie administratorzy; serwer go nie ma. Lekarz jest o tym informowany przy dołączaniu.
+- **Usunięcie członka:** natychmiast odcina mu dostęp na serwerze. Jego urządzenia przy najbliższym połączeniu usuwają dane gabinetu. Dokumentacja pozostaje w gabinecie.
+- **Rejestr:** każda czynność administracyjna (zaproszenie, zmiana roli, reset hasła, dostęp do danych lekarza, eksport, usunięcie) trafia do rejestru zdarzeń.
+- **Ograniczenie:** odebranie uprawnień administratora natychmiast blokuje mu funkcje administracyjne na serwerze. Osoba ta mogła jednak wcześniej poznać klucz gabinetu. Przy odejściu administratora w konflikcie — zmienić hasła i, w razie wątpliwości, założyć gabinet od nowa (nowy klucz).
+- **Do dokumentacji kliniki:**
+  - lista administratorów i zakres ich upoważnień (art. 29 i 32 ust. 4 RODO);
+  - informacja dla lekarzy o depozycie kluczy.
+
 ## 4. Prawa pacjenta — jak je zrealizować w EndoList
 
 | Prawo | Gdzie |

@@ -42,6 +42,13 @@ Bez skonfigurowanego adresu synchronizację można nadal włączyć ręcznie: **
 
 Plan bezpłatny Workers + D1 powinien wystarczyć dla jednego gabinetu (aktualne limity: developers.cloudflare.com/d1/platform/limits). Jeden rekord może mieć maks. 1,9 MB (limit wiersza D1 to 2 MB).
 
+**Aktualizacja istniejącego serwera** (np. po dodaniu gabinetów i administratorów): ponownie wykonaj schemat — tworzy tylko brakujące tabele, nie usuwa danych — i wdroż kod:
+
+```
+npx wrangler d1 execute endolist-sync --remote --file schema.sql
+npx wrangler deploy
+```
+
 ## Pierwsze uruchomienie na iPhonie
 
 1. Otwórz w Safari adres wersji internetowej EndoList (GitHub Pages, https://).
@@ -70,4 +77,8 @@ iPhone wymaga **https://**, więc serwer lokalny nadaje się do testów i synchr
 | POST | `/v1/push` | `Bearer` token synchronizacji (HKDF z klucza danych) | wysłanie zaszyfrowanych rekordów |
 | GET | `/v1/pull?acct=&since=` | `Bearer` | zmiany od numeru sekwencji |
 | PUT | `/v1/header` | `Bearer` | zmiana hasła / kluczy dostępu |
-| DELETE | `/v1/account` | `Bearer` | usunięcie danych z serwera |
+| DELETE | `/v1/account` | `Bearer` | usunięcie danych z serwera (niedostępne dla członków gabinetu) |
+| POST | `/v1/org/create`, `/v1/org/join` | `Bearer` | założenie gabinetu (twórca = administrator), dołączenie kodem |
+| GET | `/v1/org` | `Bearer` | gabinet, rola; lista członków tylko dla administratorów |
+| POST | `/v1/org/invite`, `/v1/org/member`, `/v1/org/policy`, `/v1/org/name` | `Bearer` (administrator) | zaproszenia, role, usuwanie, zasady (AI) |
+| GET / PUT | `/v1/org/pull`, `/v1/org/header` | `Bearer` (administrator) | odczyt zaszyfrowanych danych członka, reset hasła |

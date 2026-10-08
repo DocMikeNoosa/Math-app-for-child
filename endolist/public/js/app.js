@@ -11,6 +11,7 @@ import { archSVG, toothDetailSVG } from './odontogram.js';
 import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT } from './letter.js';
 import { generateLetter, reviseLetter, cleanDictation, testKey } from './ai.js';
 import { Pseudonymizer } from './privacy.js';
+import { Clinic, fingerprint } from './org.js';
 import { Tooth3D, webglOk } from './tooth3d.js';
 import { Dictation, speechSupported } from './speech.js';
 import { letterPaperHTML } from './letterview.js';
@@ -70,7 +71,8 @@ const S = { session: null, folder: null, data: null, view: 'visit', visitId: nul
 const D = () => S.data;
 const settings = () => S.data.settings.get('main');
 /* RODO: AI only after the clinic confirms a data processing agreement with Anthropic; identifiers never leave the device */
-const aiKey = () => { const a = settings().ai; return a.key && a.dpa ? a.key : ''; };
+const aiAllowed = () => (S.org ? !!S.org.org.policy?.aiDpa : !!settings().ai.dpa); // in a clinic the admins decide
+const aiKey = () => { const a = settings().ai; return a.key && aiAllowed() ? a.key : ''; };
 const TITLE_WORDS = /^(lek|dent|dr|hab|n|med|prof|stom|lekarz|dentysta|pani|pan)\.?$/i;
 function pseudoFor(patient, referrer, visits = []) {
   const d = settings().doctor;
@@ -112,7 +114,7 @@ async function backupNow() {
 // One encrypted record per device per day: { id: 'YYYY-MM-DD_device', device, events: [{ at, user, action, detail, patientId }] } — synced like other data.
 const DEVICE_ID = (() => { try { let d = localStorage.getItem('endolist:device'); if (!d) { d = V.uid(); localStorage.setItem('endolist:device', d); } return d; } catch { return 'dev'; } })();
 const deviceName = () => { const u = navigator.userAgent; return /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) ? 'iPad' : /Android/.test(u) ? 'Android' : /Mac/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows' : 'komputer'; };
-const AUDIT_ACT = { login: 'logowanie', lock: 'blokada', view: 'otwarcie karty pacjenta', 'letter-create': 'utworzenie listu', pdf: 'zapis PDF', print: 'drukowanie', email: 'wysłanie e-mailem', prodentis: 'eksport ProDentis', export: 'eksport danych pacjenta', delete: 'usunięcie danych', backup: 'pobranie kopii zapasowej', ai: 'użycie AI', sync: 'synchronizacja', security: 'bezpieczeństwo konta' };
+const AUDIT_ACT = { admin: 'administracja', login: 'logowanie', lock: 'blokada', view: 'otwarcie karty pacjenta', 'letter-create': 'utworzenie listu', pdf: 'zapis PDF', print: 'drukowanie', email: 'wysłanie e-mailem', prodentis: 'eksport ProDentis', export: 'eksport danych pacjenta', delete: 'usunięcie danych', backup: 'pobranie kopii zapasowej', ai: 'użycie AI', sync: 'synchronizacja', security: 'bezpieczeństwo konta' };
 const viewed = new Map();
 function audit(action, detail = '', patientId = '') {
   if (!S.session || !S.data?.audit) return;
@@ -277,7 +279,7 @@ async function passwordLogin(username, password, btn) {
   }
   if (!S.syncUrl) throw new Error('Nie znaleziono takiego użytkownika na tym urządzeniu.');
   if (btn) btn.innerHTML = '<span class="spin"></span> Pobieranie danych z serwera…';
-  const { session, cfg } = await signInFromServer({ url: S.syncUrl, login: username, password });
+  const { session, cfg } = await signInFromServer({ url: S.syncUrl, login: username, password }).catch((e) => { if (e.code === 'removed') throw new Error('To konto zostało usunięte z gabinetu przez administratora.'); throw e; });
   const first = new SyncClient(session, cfg, {}); await first.now(); first.stop();
   if (first.status.state !== 'ok') throw new Error(first.status.msg || 'Nie udało się pobrać danych.');
   await enter(session, { password });
@@ -299,7 +301,7 @@ async function enter(session, { password } = {}) {
   S.session = session;
   localStorage.setItem('endolist:lastUser', session.profile.username);
   const all = await session.loadAll();
-  S.data = { patients: all.patients || new Map(), visits: all.visits || new Map(), letters: all.letters || new Map(), referrers: all.referrers || new Map(), settings: all.settings || new Map(), audit: all.audit || new Map() };
+  S.data = { patients: all.patients || new Map(), visits: all.visits || new Map(), letters: all.letters || new Map(), referrers: all.referrers || new Map(), settings: all.settings || new Map(), audit: all.audit || new Map(), keys: all.keys || new Map() };
   if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS));
   const st = settings(); for (const k of Object.keys(DEFAULT_SETTINGS)) if (typeof DEFAULT_SETTINGS[k] === 'object' && !Array.isArray(DEFAULT_SETTINGS[k])) st[k] = { ...DEFAULT_SETTINGS[k], ...(st[k] || {}) };
   if ((st.doctor.logoDefault || (!st.doctor.logo && isCentrum(st.doctor))) && !st.doctor.logoCleared) { const l = await brandLogoData(); if (l) { st.doctor.logo = l; st.doctor.logoDefault = true; save('settings', st); } }
@@ -319,11 +321,35 @@ async function startSync() {
   const cfg = await loadConfig(S.session.pid);
   if (!cfg?.enabled) { S.sync = null; renderStatus(); return; }
   S.sync = new SyncClient(S.session, cfg, {
-    onStatus: (st) => { S.syncStatus = { ...st }; renderStatus(); },
+    onStatus: (st) => { S.syncStatus = { ...st }; renderStatus(); if (st.state === 'ok' && S.clinic && Date.now() - (S.clinicAt || 0) > 30000) { S.clinicAt = Date.now(); refreshClinic(); } },
     onRecords: applyRemote,
     onHeader: () => { if (S.view === 'settings' && !editing()) renderView(); },
+    onRemoved: () => removedFromClinic(),
   });
-  return S.sync.start();
+  await S.sync.start();
+  await initClinic();
+}
+
+/* ================================================================ gabinet i administratorzy */
+async function initClinic() {
+  if (!S.sync || S.clinic) return;
+  S.clinic = new Clinic({ session: S.session, cfg: S.sync.cfg, token: await S.session.syncToken(), keys: D().keys, saveKey: async (k) => { save('keys', k); await flushSave.flush(); }, profileName: doctorName() });
+  await refreshClinic();
+  clearInterval(S.clinicTimer); S.clinicTimer = setInterval(() => { if (document.visibilityState === 'visible') refreshClinic(); }, 120000);
+}
+async function refreshClinic({ render = true } = {}) {
+  if (!S.clinic) return;
+  const wasAdmin = S.clinic.isAdmin(), had = !!S.org;
+  try { S.org = await S.clinic.refresh(); } catch (e) { if (e.code === 'removed') return removedFromClinic(); console.warn('clinic', e); return; }
+  if (render && (wasAdmin !== S.clinic.isAdmin() || had !== !!S.org)) { renderTop(); if (['settings', 'admin'].includes(S.view) && !editing()) renderView(); }
+}
+/** Removed by an administrator: clinic data is erased from this device (it stays with the clinic). */
+async function removedFromClinic() {
+  if (S.wiping) return; S.wiping = true;
+  const pid = S.session.pid;
+  try { await V.deleteProfile(pid); await V.kv.del(`dir:${pid}`); await V.kv.del(`lastBackup:${pid}`); localStorage.removeItem('endolist:lastUser'); } catch (e) { console.warn(e); }
+  S.session = null; S.sync?.stop(); clearInterval(S.clinicTimer);
+  renderLock(await V.listProfiles(), 'Administrator gabinetu usunął to konto. Dane gabinetu zostały usunięte z tego urządzenia.');
 }
 const editing = () => { const a = document.activeElement; return !!(a && a.closest('#view, #ws, .overlay') && (a.matches('input, textarea, select') || a.isContentEditable)); };
 let remoteRender = false;
@@ -396,7 +422,7 @@ function renderTop() {
   $('#top').innerHTML = `
     <div class="brand"><div class="mark">${I('tooth')}</div><div><b>EndoList</b><small>${esc(doctorName() || S.session.profile.username)}</small></div>${st.doctor.logo && st.doctor.logoDefault ? `<span class="clinic-logo dark"><img src="${BRAND_LOGO_LIGHT}" alt="${esc(st.doctor.practice)}"></span>` : st.doctor.logo ? `<span class="clinic-logo"><img src="${st.doctor.logo}" alt="${esc(st.doctor.practice)}"></span>` : st.doctor.practice ? `<span class="clinic-name">${esc(st.doctor.practice)}${st.doctor.group ? `<small>${esc(st.doctor.group)}</small>` : ''}</span>` : ''}</div>
     <nav class="nav">
-      ${[['visit', 'tooth', 'Wizyta'], ['patients', 'users', 'Pacjenci'], ['referrers', 'link', 'Lekarze kierujący'], ['settings', 'gear', 'Ustawienia']].map(([v, ic, l]) => `<button data-nav="${v}" class="${S.view === v || (S.view === 'letter' && v === 'patients') || (S.view === 'patient' && v === 'patients') ? 'on' : ''}">${I(ic)}<span>${l}</span></button>`).join('')}
+      ${[['visit', 'tooth', 'Wizyta'], ['patients', 'users', 'Pacjenci'], ['referrers', 'link', 'Lekarze kierujący', 'Kierujący'], ['settings', 'gear', 'Ustawienia'], ...(S.clinic?.isAdmin() ? [['admin', 'shield', 'Administracja']] : [])].map(([v, ic, l, short]) => `<button data-nav="${v}" class="${S.view === v || (S.view === 'letter' && v === 'patients') || (S.view === 'patient' && v === 'patients') ? 'on' : ''}">${I(ic)}<span>${short ? `<i class="nl">${l}</i><i class="ns">${short}</i>` : l}</span></button>`).join('')}
     </nav>
     <div class="top-right">
       <span class="pill" id="status"></span>
@@ -437,6 +463,7 @@ function renderView() {
   else if (S.view === 'patient') { v.innerHTML = viewPatient(); audit('view', '', S.patientId); }
   else if (S.view === 'referrers') v.innerHTML = viewReferrers();
   else if (S.view === 'settings') v.innerHTML = viewSettings();
+  else if (S.view === 'admin') { v.innerHTML = viewAdmin(); fillAdmin(); }
   else if (S.view === 'letter') { v.innerHTML = viewLetter(); afterLetter(); const pl = D().letters.get(S.letterId)?.patientId; if (pl) audit('view', 'list', pl); }
   $$('#top .nav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === S.view || (['letter', 'patient'].includes(S.view) && b.dataset.nav === 'patients')));
 }
@@ -1131,8 +1158,9 @@ function viewSettings() {
   </div><div>
     <section class="panel"><header><h3>${I('spark')} Asystent AI</h3><span class="sub">Claude (Anthropic)</span></header><div class="body">
       <div class="row" style="gap:18px">${sw('s.ai.enabled', 'Pisz listy z pomocą AI')}${sw('s.ai.cleanDictation', 'Poprawiaj dyktowanie (AI)')}</div>
-      <div class="dpa ${st.ai.dpa ? 'ok' : ''}" style="margin-top:12px">${sw('s.ai.dpa', 'Klinika ma z Anthropic umowę powierzenia (DPA) — akceptacja Commercial Terms konta API', { re: true })}
-      <div class="hint" style="margin-top:6px">${st.ai.dpa ? 'AI włączone. Przed każdym wysłaniem imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami; aplikacja przywraca je lokalnie.' : '<b>AI pozostaje wyłączone</b>, dopóki administrator danych (klinika) nie potwierdzi umowy powierzenia z Anthropic. Do tego czasu listy tworzy generator wbudowany — bez wysyłania danych.'}</div></div>
+      ${S.org ? `<div class="dpa ${aiAllowed() ? 'ok' : ''}" style="margin-top:12px"><b>${aiAllowed() ? 'AI dozwolone w gabinecie' : 'AI wyłączone w gabinecie'}</b> <span class="faint small">— decyzja administratora gabinetu „${esc(S.org.org.name)}"${S.clinic?.isAdmin() ? ' (zmienisz ją w zakładce Administracja)' : ''}</span>
+      <div class="hint" style="margin-top:6px">${aiAllowed() ? 'Przed każdym wysłaniem imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami; aplikacja przywraca je lokalnie.' : 'Listy tworzy generator wbudowany — bez wysyłania danych.'}</div></div>` : `<div class="dpa ${st.ai.dpa ? 'ok' : ''}" style="margin-top:12px">${sw('s.ai.dpa', 'Klinika ma z Anthropic umowę powierzenia (DPA) — akceptacja Commercial Terms konta API', { re: true })}
+      <div class="hint" style="margin-top:6px">${st.ai.dpa ? 'AI włączone. Przed każdym wysłaniem imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami; aplikacja przywraca je lokalnie.' : '<b>AI pozostaje wyłączone</b>, dopóki administrator danych (klinika) nie potwierdzi umowy powierzenia z Anthropic. Do tego czasu listy tworzy generator wbudowany — bez wysyłania danych.'}</div></div>`}
       <div class="grid g2" style="margin-top:12px"><label class="f all"><span>Klucz API</span><input type="password" data-b="s.ai.key" value="${esc(st.ai.key)}" placeholder="sk-ant-…" autocomplete="off"></label>
       <div class="f"><span>Staranność</span>${seg('s.ai.effort', { low: 'szybko', medium: 'standard', high: 'dokładnie' })}</div><div class="f"><span>&nbsp;</span><button class="btn btn-sm" data-act="test-key">Sprawdź klucz</button></div></div>
       <p class="hint" style="margin-top:12px">Do AI wysyłane są wyłącznie dane kliniczne (numery zębów, wyniki badań, opis leczenia) oraz rodzaj gramatyczny — bez imion, nazwisk, dat urodzenia i adresów, które aplikacja wstawia lokalnie. Klucz jest przechowywany w zaszyfrowanym sejfie. Bez klucza listy tworzy generator wbudowany.</p>
@@ -1145,6 +1173,7 @@ function viewSettings() {
       <div class="hint" style="margin-top:6px">${V.passkeySupported() ? 'Touch ID, Face ID, Windows Hello lub iPhone (kod QR na komputerze). Wymaga obsługi rozszerzenia PRF.' : 'Klucze dostępu działają, gdy aplikacja jest otwarta przez https:// lub localhost.'}</div>
       <div class="grid g2" style="margin-top:14px"><div class="f"><span>Automatyczna blokada</span>${seg('s.security.autolock', { 5: '5 min', 15: '15 min', 30: '30 min', 60: '60 min' })}</div><div class="f"><span>&nbsp;</span><button class="btn btn-sm" data-act="change-pw">Zmień hasło</button></div></div>
     </div></section>
+    <section class="panel" id="clinic-panel"><header><h3>${I('users')} Gabinet</h3><span class="sub">zespół i administratorzy</span></header><div class="body">${clinicPanel()}</div></section>
     <section class="panel" id="rodo-panel"><header><h3>${I('shield')} Ochrona danych (RODO)</h3></header><div class="body">${rodoPanel()}</div></section>
     <section class="panel" id="sync-panel"><header><h3>${I('sync')} Synchronizacja</h3><span class="sub">iPhone ↔ komputer ↔ przeglądarka</span></header><div class="body">${syncPanel()}</div></section>
     <section class="panel"><header><h3>${I('folder')} Folder i kopie zapasowe</h3></header><div class="body">
@@ -1231,6 +1260,130 @@ function exportAuditCsv() {
   download(new Blob(['\ufeff' + rows.map((r) => r.map(q).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' }), `endolist-rejestr-zdarzen-${today()}.csv`);
 }
 
+function clinicPanel() {
+  if (!S.sync) return `<p class="small muted" style="margin:0">Gabinet (zespół lekarzy z administratorami) wymaga synchronizacji — włącz ją powyżej lub poniżej.</p>`;
+  if (!S.org) return `<p class="small muted" style="margin:0 0 12px;line-height:1.6">Załóż gabinet, aby zostać jego <b>administratorem</b>: zapraszać lekarzy i innych administratorów, resetować zapomniane hasła, zachować dostęp do dokumentacji po odejściu lekarza i decydować o użyciu AI. Albo dołącz do istniejącego gabinetu kodem zaproszenia.</p>
+    <div class="row"><button class="btn btn-sm btn-primary" data-act="clinic-create">${I('shield')} Załóż gabinet (zostanę administratorem)</button><button class="btn btn-sm" data-act="clinic-join">${I('users')} Dołącz kodem zaproszenia</button></div>`;
+  const admin = S.clinic.isAdmin();
+  return `<div class="kv"><div>Gabinet</div><div><b>${esc(S.org.org.name)}</b></div><div>Twoja rola</div><div>${admin ? '<span class="tag">administrator</span>' : '<span class="tag">lekarz</span>'}</div></div>
+    ${admin ? `<div class="row" style="margin-top:12px"><button class="btn btn-sm btn-primary" data-nav="admin">${I('shield')} Otwórz administrację</button></div>` : ''}
+    <div class="hint" style="margin-top:10px">Administratorzy gabinetu mają dostęp do Twoich danych w celu zapewnienia ciągłości dokumentacji (np. po zmianie pracy) i mogą zresetować Twoje hasło. Każdy taki dostęp jest zapisywany w rejestrze zdarzeń.</div>`;
+}
+function clinicCreateModal() {
+  modal({ title: 'Załóż gabinet', body: `<p class="muted" style="margin-top:0">Zostaniesz pierwszym administratorem. Kolejnych lekarzy i administratorów zaprosisz kodem.</p><label class="f"><span>Nazwa gabinetu</span><input type="text" id="cl-name" value="${esc([settings().doctor.practice, settings().doctor.group].filter(Boolean).join(' · '))}"></label>`,
+    buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: `${I('shield')} Załóż`, cls: 'btn-primary', onClick: async (ov, btn) => {
+      const name = $('#cl-name', ov).value.trim(); if (!name) { toast('Podaj nazwę.', 'err'); return false; }
+      btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Tworzenie kluczy…';
+      try { S.org = await S.clinic.create(name); audit('admin', 'utworzono gabinet ' + name); toast('Gabinet utworzony — jesteś administratorem.', 'ok'); renderTop(); go('admin'); }
+      catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.innerHTML = 'Załóż'; return false; }
+    } }] });
+}
+function clinicJoinModal() {
+  modal({ title: 'Dołącz do gabinetu', body: `<p class="muted" style="margin-top:0">Wpisz kod zaproszenia od administratora gabinetu. Administratorzy będą mieli dostęp do Twoich danych (ciągłość dokumentacji, reset hasła); każdy dostęp jest rejestrowany.</p><label class="f"><span>Kod zaproszenia</span><input type="text" id="cl-code" placeholder="ABCD-EFGH-JKLM-NPQR" autocapitalize="characters" autocomplete="off" spellcheck="false"></label>`,
+    buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: `${I('users')} Dołącz`, cls: 'btn-primary', onClick: async (ov, btn) => {
+      btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Dołączanie…';
+      try { S.org = await S.clinic.join($('#cl-code', ov).value); audit('admin', 'dołączono do gabinetu ' + S.org.org.name); toast(`Dołączono do gabinetu „${S.org.org.name}".`, 'ok'); renderTop(); renderView(); }
+      catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.innerHTML = 'Dołącz'; return false; }
+    } }] });
+}
+async function clinicInvite(role) {
+  const inv = await S.clinic.invite(role);
+  audit('admin', `zaproszenie (${role === 'admin' ? 'administrator' : 'lekarz'})`);
+  const text = `Zaproszenie do gabinetu „${S.org.org.name}" w EndoList${role === 'admin' ? ' (rola: administrator)' : ''}.\nKod: ${inv.code}\nWażny do: ${new Date(inv.expires).toLocaleDateString('pl-PL')}.\nEndoList → Ustawienia → Gabinet → Dołącz kodem zaproszenia.`;
+  modal({ title: role === 'admin' ? 'Zaproszenie administratora' : 'Zaproszenie lekarza', body: `<p class="muted" style="margin-top:0">Przekaż kod osobiście lub bezpiecznym kanałem. Kod jest jednorazowy i ważny 7 dni (do ${new Date(inv.expires).toLocaleDateString('pl-PL')}). Osoba zapraszana musi mieć konto EndoList z włączoną synchronizacją.</p>
+    <div class="invite-code" id="inv-code">${inv.code}</div><div class="hint" style="text-align:center">rola: <b>${role === 'admin' ? 'administrator' : 'lekarz'}</b></div>`,
+    buttons: [{ label: 'Zamknij', cls: 'btn-ghost' }, ...(navigator.share ? [{ label: 'Udostępnij', onClick: () => { navigator.share({ text }).catch(() => {}); return false; } }] : []), { label: `${I('copy')} Kopiuj`, cls: 'btn-primary', onClick: async () => { try { await navigator.clipboard.writeText(text); toast('Skopiowano zaproszenie.', 'ok'); } catch { toast('Zaznacz kod i skopiuj go ręcznie.', 'err'); } return false; } }] });
+}
+
+function viewAdmin() {
+  if (!S.clinic?.isAdmin()) return '<div class="empty">Brak uprawnień administratora.</div>';
+  const o = S.org.org;
+  return `<div class="pagehead"><div><h2>Administracja</h2><div class="small muted">${esc(o.name)} <button class="btn btn-ghost btn-sm" data-act="clinic-rename">${I('edit')}</button></div></div><span class="grow"></span>
+      <button class="btn" data-act="clinic-invite" data-role="member">${I('plus')} Zaproś lekarza</button><button class="btn btn-soft" data-act="clinic-invite" data-role="admin">${I('shield')} Zaproś administratora</button></div>
+    <div class="settings"><div>
+      <section class="panel"><header><h3>Zespół</h3><span class="sub" id="adm-count"></span></header><div class="body" id="adm-members"><div class="row"><span class="spin"></span><span class="muted">Odszyfrowywanie listy…</span></div></div></section>
+    </div><div>
+      <section class="panel"><header><h3>${I('spark')} Zasady gabinetu</h3></header><div class="body">
+        <div class="dpa ${o.policy?.aiDpa ? 'ok' : ''}"><div class="row"><b class="grow">${o.policy?.aiDpa ? 'AI dozwolone (umowa powierzenia z Anthropic potwierdzona)' : 'AI wyłączone dla całego gabinetu'}</b><button class="btn btn-sm" data-act="clinic-policy-ai">${o.policy?.aiDpa ? 'Wyłącz' : 'Zezwól'}</button></div>
+        <div class="hint" style="margin-top:6px">Decyzja administratora danych obowiązuje wszystkich lekarzy gabinetu. Dane do AI są zawsze anonimizowane.</div></div>
+      </div></section>
+      <section class="panel"><header><h3>${I('key')} Bezpieczeństwo</h3></header><div class="body small muted" style="line-height:1.6">
+        Klucz gabinetu: <code class="path" id="adm-fp"></code><br>
+        Administratorzy mają klucz gabinetu, który otwiera depozyt kluczy lekarzy — mogą zresetować hasło i odczytać dane członka (ciągłość dokumentacji). Serwer synchronizacji nie ma tego klucza. Usunięcie członka natychmiast odcina mu dostęp, a jego urządzenia przy najbliższym połączeniu usuwają dane gabinetu. Każda czynność administracyjna trafia do rejestru zdarzeń.
+      </div></section>
+    </div></div>`;
+}
+async function fillAdmin() {
+  if (!S.clinic?.isAdmin()) return;
+  await refreshClinic({ render: false });
+  const ms = (await S.clinic.members()).sort((a, b) => (a.status === b.status ? 0 : a.status === 'active' ? -1 : 1) || (a.role === b.role ? 0 : a.role === 'admin' ? -1 : 1) || String(a.name).localeCompare(String(b.name), 'pl'));
+  const el = $('#adm-members'); if (!el) return;
+  $('#adm-count').textContent = `${ms.filter((m) => m.status === 'active').length} aktywnych`;
+  fingerprint(S.org.org.pub).then((f) => { const x = $('#adm-fp'); if (x) x.textContent = f; });
+  const admins = ms.filter((m) => m.role === 'admin' && m.status === 'active').length;
+  const ago = (t) => (t ? new Date(t).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' }) : '—');
+  el.innerHTML = ms.map((m) => `<div class="member ${m.status}">
+      <div class="grow"><b>${esc(m.name || m.login || '?')}</b>${m.self ? ' <span class="faint small">(Ty)</span>' : ''}<div class="small muted">login: ${esc(m.login || '?')} · ostatnio: ${ago(m.lastSeen)}</div></div>
+      <span class="tag ${m.role === 'admin' ? '' : 'v'}">${m.role === 'admin' ? 'administrator' : 'lekarz'}</span>${m.status === 'removed' ? '<span class="tag o">usunięty</span>' : ''}
+      <div class="row m-act">${m.status === 'active' ? `
+        ${m.role === 'admin' && admins <= 1 ? '<span class="faint small" style="padding:0 8px">jedyny administrator</span>' : `<button class="btn btn-ghost btn-sm" data-act="m-role" data-acct="${m.acct}" data-v="${m.role === 'admin' ? 'member' : 'admin'}">${m.role === 'admin' ? 'Odbierz admina' : 'Nadaj admina'}</button>`}
+        ${m.self ? '' : `<button class="btn btn-ghost btn-sm" data-act="m-reset" data-acct="${m.acct}">${I('key')} Reset hasła</button>`}
+        <button class="btn btn-ghost btn-sm" data-act="m-data" data-acct="${m.acct}">${I('doc')} Dane</button>
+        ${m.self ? '' : `<button class="btn btn-ghost btn-sm btn-danger" data-act="m-remove" data-acct="${m.acct}">${I('trash')} Usuń z gabinetu</button>`}` : `
+        <button class="btn btn-ghost btn-sm" data-act="m-data" data-acct="${m.acct}">${I('doc')} Dane</button>
+        <button class="btn btn-ghost btn-sm" data-act="m-restore" data-acct="${m.acct}">Przywróć dostęp</button>`}</div></div>`).join('') || '<div class="faint">Brak członków.</div>';
+}
+async function memberAction(kind, acct, v) {
+  const m = (await S.clinic.members()).find((x) => x.acct === acct); if (!m) return;
+  const who = m.name || m.login;
+  try {
+    if (kind === 'role') {
+      if (!(await confirmBox(v === 'admin' ? `Nadać uprawnienia administratora: ${who}?` : `Odebrać uprawnienia administratora: ${who}?`, v === 'admin' ? 'Administrator może zarządzać zespołem, resetować hasła i odczytywać dane wszystkich lekarzy gabinetu.' : 'Osoba straci dostęp do administracji na serwerze.', v === 'admin' ? 'Nadaj' : 'Odbierz'))) return;
+      await S.clinic.setRole(m, v); audit('admin', `${v === 'admin' ? 'nadano' : 'odebrano'} uprawnienia administratora: ${who}`);
+    } else if (kind === 'remove') {
+      if (!(await confirmBox(`Usunąć ${who} z gabinetu?`, 'Konto straci dostęp natychmiast; przy najbliższym połączeniu urządzenia tej osoby usuną dane gabinetu. Dokumentacja pozostaje w gabinecie — administratorzy nadal mają do niej dostęp („Dane").', 'Usuń z gabinetu'))) return;
+      await S.clinic.setStatus(m, 'removed'); audit('admin', `usunięto z gabinetu: ${who}`);
+    } else if (kind === 'restore') {
+      await S.clinic.setStatus(m, 'active'); audit('admin', `przywrócono dostęp: ${who}`);
+    } else if (kind === 'reset') return resetMemberPassword(m);
+    else if (kind === 'data') return memberDataModal(m);
+    toast('Zapisano.', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+  if (S.view === 'admin') { renderTop(); renderView(); }
+}
+function resetMemberPassword(m) {
+  const who = m.name || m.login;
+  modal({ title: `Reset hasła: ${who}`, body: `<p class="muted" style="margin-top:0">Nadaj nowe hasło tymczasowe i przekaż je osobiście. Dotychczasowe hasło przestanie działać; dane lekarza pozostają nienaruszone.</p>
+    <div class="grid"><label class="f"><span>Nowe hasło (min. 12 znaków)</span><input type="password" id="rp1" autocomplete="new-password"></label><label class="f"><span>Powtórz</span><input type="password" id="rp2" autocomplete="new-password"></label></div>`,
+    buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: `${I('key')} Ustaw nowe hasło`, cls: 'btn-primary', onClick: async (ov, btn) => {
+      const a = $('#rp1', ov).value, b = $('#rp2', ov).value;
+      if (a.length < 12) { toast('Hasło musi mieć co najmniej 12 znaków.', 'err'); return false; }
+      if (a !== b) { toast('Hasła różnią się.', 'err'); return false; }
+      btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Ustawianie…';
+      try { await S.clinic.resetPassword(m, a); audit('admin', `reset hasła: ${who}`); toast(`Nowe hasło ustawione dla: ${who}.`, 'ok'); }
+      catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.innerHTML = 'Ustaw nowe hasło'; return false; }
+    } }] });
+}
+async function memberDataModal(m) {
+  const who = m.name || m.login;
+  const busy = modal({ title: `Dane: ${who}`, body: '<div class="row"><span class="spin"></span><span class="muted">Odszyfrowywanie…</span></div>' });
+  let d;
+  try { d = await S.clinic.memberData(m); } catch (e) { busy.close(); return toast(e.message, 'err'); }
+  busy.close();
+  audit('admin', `dostęp do danych lekarza: ${who}`);
+  const pts = [...(d.patients?.values() || [])], vis = [...(d.visits?.values() || [])], lets = [...(d.letters?.values() || [])];
+  const ev = [...(d.audit?.values() || [])].flatMap((r) => (r.events || []).map((e) => ({ ...e, device: r.device }))).sort((a, b) => b.at - a.at);
+  const pn = (id) => { const p = d.patients?.get(id); return p ? [p.first, p.last].filter(Boolean).join(' ') : ''; };
+  modal({ title: `Dane: ${who}`, wide: true, body: `<div class="kv"><div>Pacjenci</div><div><b>${pts.length}</b></div><div>Wizyty</div><div>${vis.length}</div><div>Listy</div><div>${lets.length}</div></div>
+    <div class="label">Pacjenci</div><div class="small" style="max-height:160px;overflow:auto">${pts.map((p) => `<div>${esc([p.last, p.first].filter(Boolean).join(' '))} <span class="faint">${p.dob ? fmtDate(p.dob) : ''}</span></div>`).join('') || '<span class="faint">brak</span>'}</div>
+    <div class="label">Rejestr zdarzeń</div><div class="audit">${ev.slice(0, 30).map((e) => `<div class="ae"><span class="t">${new Date(e.at).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' })}</span><span>${esc(AUDIT_ACT[e.action] || e.action)}${e.detail && !/^[a-z0-9-]{12,}$/i.test(e.detail) ? ' · ' + esc(e.detail) : ''}${pn(e.patientId) ? ' · ' + esc(pn(e.patientId)) : ''}</span><span class="d">${esc(e.device || '')}</span></div>`).join('') || '<div class="faint small">Brak.</div>'}</div>
+    <p class="hint">Dostęp tylko do odczytu; został zapisany w rejestrze zdarzeń. Eksport zawiera dane osobowe i nie jest szyfrowany — przechowuj go zgodnie z zasadami gabinetu.</p>`,
+    buttons: [{ label: 'Zamknij', cls: 'btn-ghost' }, { label: `${I('save')} Eksport (JSON)`, cls: 'btn-primary', onClick: () => {
+      download(new Blob([JSON.stringify({ lekarz: { login: m.login, nazwa: m.name }, wyeksportowano: new Date().toISOString(), pacjenci: pts, wizyty: vis, listy: lets, lekarze_kierujacy: [...(d.referrers?.values() || [])], rejestr: ev }, null, 2)], { type: 'application/json' }), `Dane lekarza – ${m.login} – ${today()}.json`);
+      audit('admin', `eksport danych lekarza: ${who}`); return false;
+    } }] });
+}
+
 /* ================================================================ events */
 document.addEventListener('click', async (e) => {
   const t = e.target;
@@ -1297,12 +1450,22 @@ async function action(act, a) {
     case 'patient-delete': return deletePatient(S.patientId);
     case 'audit-csv': return exportAuditCsv();
     case 'retention-review': return retentionModal();
+    case 'clinic-create': return clinicCreateModal();
+    case 'clinic-join': return clinicJoinModal();
+    case 'clinic-invite': return clinicInvite(a.dataset.role);
+    case 'clinic-policy-ai': { const on = !S.org.org.policy?.aiDpa; if (on && !(await confirmBox('Zezwolić na AI w gabinecie?', 'Potwierdzasz jako administrator, że gabinet (administrator danych) zawarł z Anthropic umowę powierzenia (DPA). Dane będą wysyłane wyłącznie w postaci zanonimizowanej.', 'Zezwól'))) return; await S.clinic.setPolicy({ aiDpa: on }); audit('admin', on ? 'AI dozwolone w gabinecie' : 'AI wyłączone w gabinecie'); return renderView(); }
+    case 'clinic-rename': { const n = prompt('Nazwa gabinetu', S.org.org.name); if (n && n.trim()) { await S.clinic.rename(n.trim()); audit('admin', 'zmiana nazwy gabinetu'); renderView(); } return; }
+    case 'm-role': return memberAction('role', a.dataset.acct, a.dataset.v);
+    case 'm-remove': return memberAction('remove', a.dataset.acct);
+    case 'm-restore': return memberAction('restore', a.dataset.acct);
+    case 'm-reset': return memberAction('reset', a.dataset.acct);
+    case 'm-data': return memberAction('data', a.dataset.acct);
     case 'patient-delete-from-list': document.querySelectorAll('.overlay').forEach((o) => o.remove()); return deletePatient(a.dataset.id);
     case 'sync-signin': return syncSignInModal();
     case 'sync-setup': return syncSetupModal();
     case 'sync-now': if (S.sync) { await S.sync.now(); if (S.syncStatus?.state === 'ok') toast('Zsynchronizowano.', 'ok'); else toast(S.syncStatus?.msg || 'Synchronizacja nie powiodła się.', 'err'); renderView(); } return;
-    case 'sync-off': if (await confirmBox('Wyłączyć synchronizację na tym urządzeniu?', 'Dane zostają na tym urządzeniu i na serwerze. Inne urządzenia nadal się synchronizują.', 'Wyłącz')) { audit('sync', 'wyłączono na urządzeniu'); await S.sync?.disable(); S.sync = null; S.syncStatus = null; renderStatus(); renderBanner(); renderView(); } return;
-    case 'sync-wipe': if (await confirmBox('Usunąć dane z serwera?', 'Zaszyfrowane dane tego konta zostaną usunięte z serwera synchronizacji, a synchronizacja wyłączona na wszystkich urządzeniach. Dane na urządzeniach pozostają.', 'Usuń z serwera')) { try { audit('sync', 'usunięto dane z serwera'); await S.sync?.disable({ wipe: true }); S.sync = null; S.syncStatus = null; toast('Usunięto dane z serwera.', 'ok'); } catch (er) { toast(er.message, 'err'); } renderStatus(); renderView(); } return;
+    case 'sync-off': if (await confirmBox('Wyłączyć synchronizację na tym urządzeniu?', 'Dane zostają na tym urządzeniu i na serwerze. Inne urządzenia nadal się synchronizują.', 'Wyłącz')) { audit('sync', 'wyłączono na urządzeniu'); await S.sync?.disable(); S.sync = null; S.clinic = null; S.org = null; clearInterval(S.clinicTimer); S.syncStatus = null; renderStatus(); renderBanner(); renderView(); } return;
+    case 'sync-wipe': if (await confirmBox('Usunąć dane z serwera?', 'Zaszyfrowane dane tego konta zostaną usunięte z serwera synchronizacji, a synchronizacja wyłączona na wszystkich urządzeniach. Dane na urządzeniach pozostają.', 'Usuń z serwera')) { try { audit('sync', 'usunięto dane z serwera'); await S.sync?.disable({ wipe: true }); S.sync = null; S.clinic = null; S.org = null; S.syncStatus = null; toast('Usunięto dane z serwera.', 'ok'); } catch (er) { toast(er.message, 'err'); } renderStatus(); renderView(); } return;
     case 'lock': return lockNow();
     case 'install': if (S.installEvt) { S.installEvt.prompt(); S.installEvt = null; renderTop(); } return;
     /* folder */
@@ -1457,7 +1620,7 @@ async function logoData(file) {
     cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); return cv.toDataURL('image/png');
   } finally { URL.revokeObjectURL(url); }
 }
-async function reloadData() { const all = await S.session.loadAll(); for (const k of ['patients', 'visits', 'letters', 'referrers', 'settings', 'audit']) if (all[k]) S.data[k] = all[k]; if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS)); }
+async function reloadData() { const all = await S.session.loadAll(); for (const k of ['patients', 'visits', 'letters', 'referrers', 'settings', 'audit', 'keys']) if (all[k]) S.data[k] = all[k]; if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS)); }
 async function lockNow() {
   audit('lock');
   await Promise.race([(async () => { await flushSave.flush(); await S.sync?.now(); })(), new Promise((r) => setTimeout(r, 4000))]).catch(() => {});
@@ -1511,4 +1674,4 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 boot().catch((e) => { console.error(e); $('#root').innerHTML = `<div class="auth"><div class="auth-card"><h1>Błąd uruchomienia</h1><p class="lead">${esc(e.message)}</p><p class="hint">Upewnij się, że nie używasz trybu prywatnego / incognito.</p></div></div>`; });
 
 // test hooks (used by the automated tests only)
-window.__endolist = { S, save, settings, rerender: () => (S.view === 'letter' ? rerenderLetter() : renderView()) };
+window.__endolist = { S, save, settings, rerender: () => (S.view === 'letter' ? rerenderLetter() : renderView()), refreshClinic };

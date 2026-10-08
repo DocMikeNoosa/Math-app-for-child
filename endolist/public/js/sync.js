@@ -14,7 +14,7 @@ export function normUrl(u) {
   return s;
 }
 
-async function api(base, method, path, { body, token, query } = {}) {
+export async function api(base, method, path, { body, token, query } = {}) {
   let r;
   try {
     r = await fetch(base + path + (query ? '?' + new URLSearchParams(query) : ''), {
@@ -25,6 +25,7 @@ async function api(base, method, path, { body, token, query } = {}) {
   } catch { const e = new Error('Brak połączenia z serwerem synchronizacji.'); e.offline = true; throw e; }
   let data = null; try { data = await r.json(); } catch {}
   if (!r.ok) {
+    if (r.status === 403 && data?.error === 'removed') { const e = new Error('Konto zostało usunięte z gabinetu przez administratora.'); e.status = 403; e.code = 'removed'; throw e; }
     const msg = { 401: 'Nieprawidłowy login lub hasło (albo konto nie istnieje na tym serwerze).', 409: 'Ten login jest już zajęty na serwerze synchronizacji.', 429: 'Zbyt wiele nieudanych prób — spróbuj ponownie za kilka minut.', 413: 'Za duże dane do wysłania.' }[r.status] || `Błąd serwera synchronizacji (${r.status}).`;
     const e = new Error(msg); e.status = r.status; e.code = data?.error; throw e;
   }
@@ -164,6 +165,7 @@ export class SyncClient {
       this.setStatus({ state: tooBig.length ? 'error' : 'ok', last: this.cfg.last, msg: tooBig.length ? `${tooBig.length} rekord(y) za duże do synchronizacji` : '' });
     } catch (e) {
       await saveConfig(this.s.pid, this.cfg).catch(() => {});
+      if (e.code === 'removed') { this.stop(); this.h.onRemoved?.(); return; }
       this.setStatus({ state: e.offline ? 'offline' : 'error', msg: e.message });
       if (!e.offline) console.warn('sync', e);
     }
