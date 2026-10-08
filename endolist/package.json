@@ -1,6 +1,6 @@
 {
   "name": "endolist",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "private": true,
   "description": "EndoList — listy do lekarzy kierujących dla endodonty (PL).",
   "type": "module",
