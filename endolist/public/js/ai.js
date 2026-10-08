@@ -77,7 +77,8 @@ const DICTATION_SCHEMA = { type: 'object', properties: { text: { type: 'string' 
 
 export class AIError extends Error { constructor(msg, code) { super(msg); this.code = code; } }
 
-function client(apiKey) { return new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, timeout: 120000 }); }
+// baseURL is only overridden in tests (a local stand-in for the API)
+function client(apiKey) { return new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, timeout: 300000, ...(globalThis.__ENDOLIST_AI_BASE ? { baseURL: globalThis.__ENDOLIST_AI_BASE } : {}) }); }
 
 /** pseudo: Pseudonymizer — identifiers are replaced before sending and put back into the answer locally. */
 async function call(apiKey, system, payload, schema, effort, pseudo = null) {
@@ -85,16 +86,18 @@ async function call(apiKey, system, payload, schema, effort, pseudo = null) {
   if (!apiKey) throw new AIError('Brak klucza API — dodaj go w Ustawieniach.', 'no_key');
   let resp;
   try {
-    resp = await client(apiKey).beta.messages.create({
+    // streamed: a long letter (the model always thinks first) can take minutes; streaming avoids request timeouts
+    resp = await client(apiKey).beta.messages.stream({
       model: MODEL,
-      max_tokens: 16000,
+      max_tokens: 32000,
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       output_config: { effort, format: { type: 'json_schema', schema } },
       messages: [{ role: 'user', content: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 1) }],
-    });
+    }).finalMessage();
   } catch (e) {
+    if (globalThis.__ENDOLIST_AI_DEBUG) console.error('AI error', e, e?.cause);
     if (e instanceof Anthropic.AuthenticationError) throw new AIError('Klucz API jest nieprawidłowy.', 'auth');
     if (e instanceof Anthropic.PermissionDeniedError) throw new AIError('Klucz API nie ma dostępu do modelu.', 'perm');
     if (e instanceof Anthropic.RateLimitError) throw new AIError('Przekroczono limit zapytań — spróbuj za chwilę.', 'rate');

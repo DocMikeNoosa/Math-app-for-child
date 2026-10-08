@@ -71,8 +71,9 @@ const S = { session: null, folder: null, data: null, view: 'visit', visitId: nul
 const D = () => S.data;
 const settings = () => S.data.settings.get('main');
 /* RODO: AI only after the clinic confirms a data processing agreement with Anthropic; identifiers never leave the device */
-const aiAllowed = () => (S.org ? !!S.org.org.policy?.aiDpa : !!settings().ai.dpa); // in a clinic the admins decide
-const aiKey = () => { const a = settings().ai; return a.key && aiAllowed() ? a.key : ''; };
+// a saved API key switches AI on; in a clinic the administrators can switch it off for everyone
+const aiAllowed = () => (S.org ? !!S.org.org.policy?.aiDpa : true);
+const aiKey = () => { const a = settings().ai, k = (a.key || '').trim(); return k && a.enabled !== false && aiAllowed() ? k : ''; };
 const TITLE_WORDS = /^(lek|dent|dr|hab|n|med|prof|stom|lekarz|dentysta|pani|pan)\.?$/i;
 function pseudoFor(patient, referrer, visits = []) {
   const d = settings().doctor;
@@ -927,17 +928,7 @@ async function startLetter(fromVisitId) {
   await createLetter({ patientId: v.patientId, referrerId: v.referrerId, visitIds: ids });
 }
 function usedFor(refId) { const st = settings(); st.used[refId] ??= { openings: [], closings: [] }; return st.used[refId]; }
-/** Key saved but AI not yet allowed (RODO): ask once per session instead of silently using the built-in writer. */
-function askAiConsent() {
-  return new Promise((res) => {
-    modal({ title: 'Użyć AI do napisania listu?', body: `<p class="muted" style="margin-top:0">Klucz API jest zapisany, ale AI jest wyłączone, dopóki nie potwierdzisz, że gabinet ma z Anthropic umowę powierzenia danych (DPA — akceptowana razem z warunkami Commercial Terms przy zakładaniu konta API).</p>
-      <p class="small muted">Do AI trafiają wyłącznie dane kliniczne; imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami.</p>`,
-      buttons: [{ label: 'Generator wbudowany', cls: 'btn-ghost', onClick: () => res(false) }, { label: `${I('spark')} Potwierdzam — użyj AI`, cls: 'btn-primary', onClick: () => { const st = settings(); st.ai.dpa = true; save('settings', st); audit('security', 'potwierdzono umowę powierzenia z Anthropic (AI włączone)'); res(true); } }],
-      onClose: () => res(false) });
-  });
-}
 async function createLetter({ patientId, referrerId, visitIds, existing }) {
-  { const st = settings(); if (st.ai.enabled && st.ai.key && !aiAllowed() && !S.org && !S.aiAsked) { S.aiAsked = true; await askAiConsent(); } }
   audit('letter-create', existing ? 'ponowne wygenerowanie' : '', patientId);
   const patient = D().patients.get(patientId), referrer = D().referrers.get(referrerId);
   const visits = visitIds.map((id) => D().visits.get(id)).filter(Boolean);
@@ -1079,7 +1070,7 @@ async function reviseWithAI(L) {
   const st = settings();
   const inst = ($('#gen-text')?.value || L.instruction || '').trim();
   const notes = (L.notes || []).filter((x) => x.comment);
-  if (!aiKey()) return toast(st.ai.key ? 'AI jest wyłączone do czasu potwierdzenia umowy powierzenia z Anthropic (Ustawienia → Asystent AI). Użyj edycji ręcznej.' : 'Poprawki AI wymagają klucza API — dodaj go w Ustawieniach lub użyj edycji ręcznej.', 'err');
+  if (!aiKey()) return toast(st.ai.key ? (S.org ? 'AI jest wyłączone przez administratora gabinetu. Użyj edycji ręcznej.' : 'AI jest wyłączone w Ustawieniach (Asystent AI). Użyj edycji ręcznej.') : 'Poprawki AI wymagają klucza API — dodaj go w Ustawieniach lub użyj edycji ręcznej.', 'err');
   if (!notes.length && !inst) return toast('Dodaj uwagę lub polecenie.', 'err');
   const p = D().patients.get(L.patientId) || {}, r = D().referrers.get(L.referrerId);
   const visits = L.visitIds.map((id) => D().visits.get(id)).filter(Boolean);
@@ -1208,8 +1199,8 @@ function viewSettings() {
     <section class="panel"><header><h3>${I('spark')} Asystent AI</h3><span class="sub">Claude (Anthropic)</span></header><div class="body">
       <div class="row" style="gap:18px">${sw('s.ai.enabled', 'Pisz listy z pomocą AI')}${sw('s.ai.cleanDictation', 'Poprawiaj dyktowanie (AI)')}</div>
       ${S.org ? `<div class="dpa ${aiAllowed() ? 'ok' : ''}" style="margin-top:12px"><b>${aiAllowed() ? 'AI dozwolone w gabinecie' : 'AI wyłączone w gabinecie'}</b> <span class="faint small">— decyzja administratora gabinetu „${esc(S.org.org.name)}"${S.clinic?.isAdmin() ? ' (zmienisz ją w zakładce Administracja)' : ''}</span>
-      <div class="hint" style="margin-top:6px">${aiAllowed() ? 'Przed każdym wysłaniem imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami; aplikacja przywraca je lokalnie.' : 'Listy tworzy generator wbudowany — bez wysyłania danych.'}</div></div>` : `<div class="dpa ${st.ai.dpa ? 'ok' : ''}" style="margin-top:12px">${sw('s.ai.dpa', 'Klinika ma z Anthropic umowę powierzenia (DPA) — akceptacja Commercial Terms konta API', { re: true })}
-      <div class="hint" style="margin-top:6px">${st.ai.dpa ? 'AI włączone. Przed każdym wysłaniem imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami; aplikacja przywraca je lokalnie.' : '<b>AI pozostaje wyłączone</b>, dopóki administrator danych (klinika) nie potwierdzi umowy powierzenia z Anthropic. Do tego czasu listy tworzy generator wbudowany — bez wysyłania danych.'}</div></div>`}
+      <div class="hint" style="margin-top:6px">${aiAllowed() ? 'Przed każdym wysłaniem imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami; aplikacja przywraca je lokalnie.' : 'Listy tworzy generator wbudowany — bez wysyłania danych.'}</div></div>` : `<div class="dpa ${aiKey() ? 'ok' : ''}" style="margin-top:12px"><b>${aiKey() ? 'AI włączone' : st.ai.key ? 'AI wyłączone (przełącznik powyżej)' : 'Wpisz klucz API, aby włączyć AI'}</b>
+      <div class="hint" style="margin-top:6px">Przed każdym wysłaniem imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami; aplikacja przywraca je lokalnie. Klucz z konta API kliniki (console.anthropic.com) — warunki Commercial Terms obejmują umowę powierzenia danych (DPA).</div></div>`}
       <div class="grid g2" style="margin-top:12px"><label class="f all"><span>Klucz API</span><input type="password" data-b="s.ai.key" value="${esc(st.ai.key)}" placeholder="sk-ant-…" autocomplete="off"></label>
       <div class="f"><span>Staranność</span>${seg('s.ai.effort', { low: 'szybko', medium: 'standard', high: 'dokładnie' })}</div><div class="f"><span>&nbsp;</span><button class="btn btn-sm" data-act="test-key">Sprawdź klucz</button></div></div>
       <p class="hint" style="margin-top:12px">Do AI wysyłane są wyłącznie dane kliniczne (numery zębów, wyniki badań, opis leczenia) oraz rodzaj gramatyczny — bez imion, nazwisk, dat urodzenia i adresów, które aplikacja wstawia lokalnie. Klucz jest przechowywany w zaszyfrowanym sejfie. Bez klucza listy tworzy generator wbudowany.</p>
@@ -1253,7 +1244,7 @@ function rodoPanel() {
   const ev = auditEvents(), old = retentionCandidates();
   const pName = (id) => { const p = D().patients.get(id); return p ? patientName(p) : ''; };
   return `<div class="kv"><div>Szyfrowanie</div><div>AES-256-GCM na urządzeniu; serwer synchronizacji widzi tylko szyfrogram</div>
-      <div>AI</div><div>${aiKey() ? '<span class="tag">włączone · dane zanonimizowane</span>' : settings().ai.key ? '<span class="tag o">wyłączone — brak potwierdzenia DPA</span>' : '<span class="tag">wyłączone (brak klucza)</span>'}</div>
+      <div>AI</div><div>${aiKey() ? '<span class="tag">włączone · dane zanonimizowane</span>' : settings().ai.key ? '<span class="tag o">wyłączone</span>' : '<span class="tag">wyłączone (brak klucza)</span>'}</div>
       <div>Blokada</div><div>po ${esc(String(settings().security.autolock))} min bezczynności</div>
       <div>Przechowywanie</div><div>${old.length ? `<span class="tag o">${old.length} pacjent(ów) po okresie przechowywania</span> <button class="btn btn-sm" data-act="retention-review">Przejrzyj</button>` : 'brak danych po okresie 20 lat'}</div></div>
     <div class="label">Rejestr zdarzeń <span class="faint">(${ev.length})</span></div>
@@ -1638,7 +1629,6 @@ document.addEventListener('change', (e) => {
   if (el.id === 'gen-edit') { const L = D().letters.get(S.letterId); L.genEdit = el.checked; save('letters', L); $('#gen-box').hidden = !el.checked; if (el.checked) $('#gen-text').focus(); return; }
   if (el.dataset.noteDone) { const L = D().letters.get(S.letterId); const n = L.notes.find((x) => x.id === el.dataset.noteDone); if (n) { n.done = el.checked; save('letters', L); rerenderLetter(); } return; }
   if (el.dataset.arr) { const arr = [...(val(el.dataset.arr) || [])]; const i = arr.indexOf(el.value); if (el.checked && i < 0) arr.push(el.value); if (!el.checked && i >= 0) arr.splice(i, 1); setBound(el.dataset.arr, arr); if (el.dataset.arr.startsWith('t.')) refreshWorkspace(); return; }
-  if (el.dataset.b === 's.ai.dpa') audit('security', el.checked ? 'potwierdzono umowę powierzenia z Anthropic (AI włączone)' : 'cofnięto potwierdzenie umowy z Anthropic (AI wyłączone)');
   if (el.dataset.b && el.type === 'checkbox') { setBound(el.dataset.b, el.checked); if (el.dataset.re) rerender(el.dataset.b); return; }
   if (el.dataset.b && el.tagName === 'SELECT') { setBound(el.dataset.b, el.value); if (el.dataset.re || el.dataset.b.startsWith('s.')) rerender(el.dataset.b); }
 });

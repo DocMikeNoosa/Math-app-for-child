@@ -42,7 +42,15 @@ async function mockAI(p, reviseOut) {
     if (sys.includes('automatycznego rozpoznawania mowy')) out = { text: 'Usunięto stary wkład metalowy przy użyciu ultradźwięków.', warnings: [] };
     else if (sys.includes('Poprawiasz istniejący list')) out = reviseOut(body);
     else out = { opening: 'MOCK', sections: [], recommendations: [], closing: 'MOCK', warnings: [] };
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'msg_test', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: JSON.stringify(out) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } }) });
+    // the app streams (SSE) — answer like the real API does
+    const text = JSON.stringify(out), ev = (e, d) => `event: ${e}\ndata: ${JSON.stringify(d)}\n\n`;
+    const sseBody = ev('message_start', { type: 'message_start', message: { id: 'msg_test', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } })
+      + ev('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
+      + ev('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })
+      + ev('content_block_stop', { type: 'content_block_stop', index: 0 })
+      + ev('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 10 } })
+      + ev('message_stop', { type: 'message_stop' });
+    await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
   });
 }
 
@@ -111,13 +119,9 @@ async function mockAI(p, reviseOut) {
   await shot(p, '07-ws-materials');
   // manual description with dictation (fake recogniser) + AI cleanup (MOCK)
   await mockAI(p, () => ({}));
-  // RODO: with an API key but without the clinic's confirmation of a processing agreement, nothing is sent to AI
-  await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.key = 'sk-ant-test'; st.ai.dpa = false; window.__endolist.save('settings', st); });
+  // a saved API key is enough: AI works straight away
+  await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.key = ' sk-ant-test '; window.__endolist.save('settings', st); });
   await p.click('[data-ttab=manual]');
-  await p.click('[data-mic="t.manual"]'); await p.waitForTimeout(500); await p.click('[data-mic="t.manual"]'); await p.waitForTimeout(1200);
-  ok(aiCalls.length === 0 && (await p.inputValue('[data-b="t.manual"]')) === 'usunięto stary wkład metalowy', 'RODO: no AI call before the processing agreement is confirmed');
-  await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.dpa = true; window.__endolist.save('settings', st); });
-  await p.fill('[data-b="t.manual"]', '');
   await p.evaluate((pes) => { window.__speak = `pacjentka Anna Kowalska PESEL ${pes} telefon 501 234 567 kierowała doktor Maria Nowak usunięto stary wkład metalowy`; }, PES);
   await p.click('[data-mic="t.manual"]'); await p.waitForTimeout(500); await p.click('[data-mic="t.manual"]'); await p.waitForTimeout(1200);
   ok((await p.inputValue('[data-b="t.manual"]')) === 'Usunięto stary wkład metalowy przy użyciu ultradźwięków.', 'dictation → AI-cleaned text in manual description');
@@ -171,7 +175,7 @@ async function mockAI(p, reviseOut) {
   await shot(p, '13-notes', { fullPage: true });
   // AI revision (MOCK response, applies a visible change so the flow can be checked)
   await mockAI(p, (body) => { const inp = JSON.parse(body.messages[0].content); const l = inp.letter; l.sections[0].paragraphs[0] = l.sections[0].paragraphs[0].replace(/W badaniu [^.]*\./, 'W badaniu ząb nie reagował na testy żywotności, a opukiwanie było bolesne.'); return { ...l, changes: ['Skrócono opis badania zęba 36.', 'Ujednolicono styl na bardziej formalny.'], warnings: [] }; });
-  await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.key = 'sk-ant-test'; st.ai.dpa = true; window.__endolist.save('settings', st); });
+  await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.key = 'sk-ant-test'; window.__endolist.save('settings', st); });
   await p.evaluate(() => window.__endolist.rerender());
   await p.click('[data-act=revise]'); await p.waitForTimeout(1500);
   const rv = aiCalls.at(-1); const rIn = JSON.parse(rv.body.messages[0].content);

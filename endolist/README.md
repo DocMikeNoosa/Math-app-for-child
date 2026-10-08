@@ -74,7 +74,7 @@ The Centrum Stomatologiczne logo (from the clinic's website, as provided) is bui
 ## AI and privacy (RODO)
 
 - **Model:** Claude (`claude-opus-5-5`), using the clinic's own API key from console.anthropic.com, which is stored encrypted.
-- **AI is off until confirmed:** it stays off until the clinic confirms in Settings that it has a data processing agreement (DPA) with Anthropic. Until then the built-in generator writes letters and nothing is sent.
+- **AI on with a key:** AI works as soon as the clinic's API key is saved in Settings (Anthropic's Commercial Terms for API accounts include a data processing agreement). Without a key, nothing is sent and the built-in writer is used. In a clinic, an admin can turn AI off for everyone.
 - **Pseudonymisation:** before anything is sent to AI, the app replaces names (including inflected forms), PESEL, dates of birth, phone numbers, e-mail addresses and the referrer's details with tokens. It puts them back locally in the reply. This covers dictated and hand-typed text too.
 - **Settings → Ochrona danych (RODO):**
   - a log of activity (logins, opened records, letters, PDFs, e-mails, AI use, deletions), exportable to CSV;
@@ -94,6 +94,7 @@ There is no public API or import format for ProDentis (Infotel Software). The ex
 node server.mjs                      # http://localhost:4173 (+ /api/status)
 LC_ALL=C.UTF-8 node test/e2e.cjs     # end-to-end test (Playwright + Chromium)
 LC_ALL=C.UTF-8 node test/sync-e2e.cjs  # sync: computer ↔ iPhone (emulated) ↔ third device
+node test/ai-sdk.mjs                 # Claude API through the real SDK (local stand-in, no key needed)
 LC_ALL=C.UTF-8 node test/admin-e2e.cjs # clinic: admin (computer) + doctor (iPhone): invite, roles, reset, removal
 node test/sync-api.mjs <address>      # sync protocol (local server or Cloudflare Worker)
 ```

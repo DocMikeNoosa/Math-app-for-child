@@ -24,7 +24,7 @@ Opisuje, jak EndoList przetwarza dane osobowe, jakie zabezpieczenia ma wbudowane
 | Folder kopii zapasowej na komputerze | kopia danych | zaszyfrowana (jak wyżej) |
 | Folder `Listy/` na komputerze | listy w PDF | **niezaszyfrowane** — wymagane szyfrowanie dysku (BitLocker / FileVault) |
 | Serwer synchronizacji (Cloudflare Workers + D1, opcjonalnie) | zaszyfrowane rekordy | szyfrowanie end-to-end: serwer nie zna hasła, klucza danych, loginu (przechowuje skrót) ani nazwiska lekarza. Baza wyłącznie w UE (`--jurisdiction eu`). Widoczne metadane: liczba, rodzaj i czas zmian rekordów |
-| Anthropic (Claude API, opcjonalnie) | dane kliniczne do napisania / poprawy listu | **pseudonimizacja** przed wysłaniem (pkt 3); AI działa dopiero po potwierdzeniu umowy powierzenia |
+| Anthropic (Claude API, opcjonalnie) | dane kliniczne do napisania / poprawy listu | **pseudonimizacja** przed wysłaniem (pkt 3); AI działa po wpisaniu klucza API kliniki |
 | E-mail | list w PDF | zależy od poczty kliniki — zalecana poczta służbowa z szyfrowaniem TLS |
 | GitHub Pages | tylko kod aplikacji | brak danych pacjentów (serwer widzi adres IP otwierającego stronę) |
 
@@ -38,7 +38,7 @@ Aplikacja nie używa plików cookie, analityki ani zewnętrznych czcionek i bibl
   - opcjonalnie passkey (Face ID / Touch ID / Windows Hello);
   - automatyczna blokada (5–60 min);
   - blokada konta na serwerze po 8 nieudanych próbach logowania.
-- **AI tylko za zgodą administratora:** bez zaznaczenia w Ustawieniach, że klinika ma z Anthropic umowę powierzenia, nic nie jest wysyłane do AI. Listy tworzy wtedy generator wbudowany, lokalnie.
+- **AI tylko z kluczem kliniki:** AI działa po wpisaniu klucza API z konta kliniki (console.anthropic.com), którego warunki (Commercial Terms) obejmują umowę powierzenia (DPA). Bez klucza nic nie jest wysyłane, a listy tworzy generator wbudowany, lokalnie. W gabinecie administrator może wyłączyć AI dla wszystkich.
 - **Pseudonimizacja przed AI:**
   - imiona i nazwiska (pacjenta, lekarzy, także odmienione), PESEL, daty urodzenia, numery telefonów, adresy e-mail i dane adresata są zastępowane znacznikami `[OSOBA-1]`, `[PESEL]`… i przywracane lokalnie w odpowiedzi;
   - PESEL, adres i data urodzenia nigdy nie są potrzebne AI;
@@ -85,7 +85,7 @@ EndoList nie zastępuje głównej dokumentacji medycznej gabinetu (np. ProDentis
 1. **Rejestr czynności przetwarzania** (art. 30): dopisać czynność według wzoru w pkt 6.
 2. **Umowy powierzenia (art. 28):**
    - **Cloudflare** — jeśli działa synchronizacja: konto firmowe kliniki; Cloudflare udostępnia DPA (Data Processing Addendum).
-   - **Anthropic** — jeśli używane jest AI: klucz API z konta firmowego kliniki (console.anthropic.com); DPA jest częścią Commercial Terms i zawiera standardowe klauzule umowne (SCC) na transfer poza EOG. Sprawdzić u Anthropic: okres przechowywania zapytań i dostępność zero data retention. Dopiero potem zaznaczyć potwierdzenie w Ustawieniach.
+   - **Anthropic** — jeśli używane jest AI: klucz API z konta firmowego kliniki (console.anthropic.com); DPA jest częścią Commercial Terms i zawiera standardowe klauzule umowne (SCC) na transfer poza EOG. Sprawdzić u Anthropic: okres przechowywania zapytań i dostępność zero data retention.
    - **Dostawca poczty**, jeśli listy są wysyłane e-mailem.
 3. **Upoważnienie** lekarza do przetwarzania danych (art. 29 i 32 ust. 4).
 4. **Urządzenia:**
