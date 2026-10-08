@@ -100,7 +100,7 @@ export class Tooth3D {
     this.resize = () => {
       const w = el.clientWidth || 400, h = el.clientHeight || 400;
       r.setPixelRatio(Math.max(0.5, Math.min(window.devicePixelRatio || 1, 1.5, 2048 / Math.max(w, h))));
-      r.setSize(w, h, false); this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
+      r.setSize(w, h, false); this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); this.fit();
       r.render(this.scene, this.camera); this.onResized?.();
     };
     this.ro = new ResizeObserver(this.resize); this.ro.observe(el); this.resize();
@@ -160,9 +160,19 @@ export class Tooth3D {
     this.group.rotation.set(ti.upper ? Math.PI : 0, 0, 0); this.group.position.set(0, 0, 0); this.group.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(this.group), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
     this.group.position.sub(c);
-    const dist = (Math.max(size.y, size.x * 1.4) / 2) / Math.tan((this.camera.fov * Math.PI) / 360) * 1.4;
-    this.camera.position.set(dist * 0.55, dist * 0.12, dist * 0.84); this.controls.target.set(0, 0, 0);
-    this.controls.minDistance = dist * 0.6; this.controls.maxDistance = dist * 1.8; this.controls.update();
+    this.fitSize = size.clone();
+    this.fit(true);
+  }
+  /** Frame the whole tooth for the current panel shape (vertical and horizontal field of view). */
+  fit(resetView = false) {
+    if (!this.fitSize) return;
+    const size = this.fitSize, vt = Math.tan((this.camera.fov * Math.PI) / 360), ht = vt * Math.max(0.3, this.camera.aspect);
+    const radius = Math.max(size.x, size.z) * 0.75; // rotating: the widest side faces the camera at some point
+    const dist = Math.max((size.y / 2) / vt, radius / ht) * 1.35;
+    if (resetView || !this.dist) this.camera.position.set(dist * 0.55, dist * 0.12, dist * 0.84);
+    else this.camera.position.multiplyScalar(dist / this.camera.position.length());
+    this.dist = dist; this.controls.target.set(0, 0, 0);
+    this.controls.minDistance = dist * 0.8; this.controls.maxDistance = dist * 1.8; this.controls.update();
   }
   snapshot() { return this.renderer.domElement.toDataURL('image/png'); }
   dispose() {
