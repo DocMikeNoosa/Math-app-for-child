@@ -576,7 +576,7 @@ function workspaceHTML() {
     <div class="ws-body">
       <div class="ws-left">
         <div class="stage" id="stage"></div>
-        <div class="stage-bar"><label class="switch"><input type="checkbox" id="xray" ${S.xray !== false ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok rentgenowski</label><span class="grow"></span><span class="hint">Przeciągnij, aby obrócić</span></div>
+        <div class="stage-bar"><label class="switch"><input type="checkbox" id="xray" ${S.xray !== false ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok rentgenowski</label><label class="switch"><input type="checkbox" id="flat2d" ${localStorage.getItem('endolist:no3d') === '1' ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok 2D</label><span class="grow"></span><span class="hint">Przeciągnij, aby obrócić</span></div>
         <div class="stage-legend"><span><i style="background:#ff3b66"></i>miazga / kanał</span><span><i style="background:#14d8c0"></i>wypełnienie kanałowe</span><span><i style="background:#9a86ff"></i>kanał boczny</span></div>
       </div>
       <div class="ws-right"><div class="tabs" id="ws-tabs">${tabs.map(([k, l, b]) => `<button data-ttab="${k}" class="${S.ttab === k ? 'on' : ''}">${l}${b ? ` <span class="badge">${b}</span>` : ''}</button>`).join('')}</div>
@@ -602,12 +602,22 @@ function mount3D() {
     const xr = $('#xray')?.closest('label'); if (xr) xr.hidden = true;
   };
   if (localStorage.getItem('endolist:no3d') === '1' || !webglOk()) return flat(localStorage.getItem('endolist:no3d') === '1' ? 'turned off' : 'no WebGL 2');
-  try {
-    S.t3d = new Tooth3D(el); S.t3d.xray = S.xray !== false; S.t3d.setTooth(t, opts3D(t));
-    S.t3d.renderer.domElement.addEventListener('webglcontextlost', (e) => { e.preventDefault(); flat('context lost'); });
+  let retried = false;
+  const start = () => {
+    S.t3d = new Tooth3D(el); S.t3d.xray = S.xray !== false; S.t3d.setTooth(S.ws?.draft || t, opts3D(S.ws?.draft || t));
     const mine = S.t3d;
-    setTimeout(() => { if (S.t3d === mine && !drewSomething(mine)) flat('nothing rendered'); }, 1500);
-  } catch (e) { flat(e); }
+    // health check: after opening and after every resize (e.g. maximising the window) the tooth must really be drawn
+    const check = () => {
+      if (S.t3d !== mine) return;
+      if (drewSomething(mine)) return;
+      if (!retried) { retried = true; try { mine.dispose(); } catch {} S.t3d = null; el.innerHTML = ''; try { start(); } catch (e) { flat(e); } return; }
+      flat('nothing rendered');
+    };
+    mine.onResized = debounce(check, 900);
+    mine.renderer.domElement.addEventListener('webglcontextlost', (e) => { e.preventDefault(); if (!retried) { retried = true; setTimeout(() => { if (S.t3d === mine) { try { mine.dispose(); } catch {} S.t3d = null; el.innerHTML = ''; try { start(); } catch (er) { flat(er); } } }, 300); } else flat('context lost'); });
+    setTimeout(check, 1500);
+  };
+  try { start(); } catch (e) { flat(e); }
 }
 const update3D = debounce(() => { if (!S.ws) return; const t = S.ws.draft; if (S.t3d) S.t3d.setTooth(t, opts3D(t)); else $('#stage').innerHTML = toothDetailSVG(t, { done: opts3D(t).done ? 'all' : false }); }, 120);
 function closeWorkspace() { if (S.t3d) { S.t3d.dispose(); S.t3d = null; } $('#ws')?.remove(); S.ws = null; refreshVisit(); }
@@ -1624,6 +1634,7 @@ document.addEventListener('mouseup', (e) => { if (e.target.closest && e.target.c
 document.addEventListener('change', (e) => {
   const el = e.target;
   if (el.id === 'xray') { S.xray = el.checked; if (S.t3d) S.t3d.setXray(el.checked); return; }
+  if (el.id === 'flat2d') { try { localStorage.setItem('endolist:no3d', el.checked ? '1' : '0'); } catch {} if (S.t3d) { S.t3d.dispose(); S.t3d = null; } const st = $('#stage'); if (st) { st.innerHTML = ''; st.classList.remove('flat'); const xr = $('#xray')?.closest('label'); if (xr) xr.hidden = false; mount3D(); } return; }
   if (el.id === 'mat-cat') { S.matCat = el.value; return refreshWorkspace(); }
   if (el.id === 'manual-edit') { S.manualEdit = el.checked; return renderView(); }
   if (el.id === 'gen-edit') { const L = D().letters.get(S.letterId); L.genEdit = el.checked; save('letters', L); $('#gen-box').hidden = !el.checked; if (el.checked) $('#gen-text').focus(); return; }

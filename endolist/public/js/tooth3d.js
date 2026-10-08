@@ -76,11 +76,16 @@ function rootSpot(name, n, i, W, D, ti) {
 export class Tooth3D {
   constructor(el) {
     this.el = el;
-    const r = this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // opaque canvas with its own background: transparent WebGL layers over blurred UI fail to show on some Windows GPUs
+    const r = this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: true, powerPreference: 'default' });
+    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.25; r.outputColorSpace = THREE.SRGBColorSpace;
     el.appendChild(r.domElement);
     this.scene = new THREE.Scene();
+    { const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
+      const g = x.createRadialGradient(256, 230, 20, 256, 256, 360); g.addColorStop(0, '#1d3a63'); g.addColorStop(0.55, '#0f2140'); g.addColorStop(1, '#070f1e');
+      x.fillStyle = g; x.fillRect(0, 0, 512, 512);
+      const bg = new THREE.CanvasTexture(c); bg.colorSpace = THREE.SRGBColorSpace; this.scene.background = bg; }
     const pm = new THREE.PMREMGenerator(r);
     this.scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 500);
@@ -91,7 +96,13 @@ export class Tooth3D {
     const fill = new THREE.DirectionalLight(0x7f8cff, 0.8); fill.position.set(0, -30, 15); this.scene.add(fill);
     this.group = new THREE.Group(); this.scene.add(this.group);
     this.xray = true;
-    this.resize = () => { const w = el.clientWidth || 400, h = el.clientHeight || 400; r.setSize(w, h, false); this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); };
+    // drawing buffer capped (≤ 2048 px a side) so large / high-DPI screens stay within weaker GPUs' limits
+    this.resize = () => {
+      const w = el.clientWidth || 400, h = el.clientHeight || 400;
+      r.setPixelRatio(Math.max(0.5, Math.min(window.devicePixelRatio || 1, 1.5, 2048 / Math.max(w, h))));
+      r.setSize(w, h, false); this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
+      r.render(this.scene, this.camera); this.onResized?.();
+    };
     this.ro = new ResizeObserver(this.resize); this.ro.observe(el); this.resize();
     const loop = () => { if (this.dead) return; this.raf = requestAnimationFrame(loop); this.controls.update(); r.render(this.scene, this.camera); };
     loop();
@@ -169,7 +180,8 @@ export function drewSomething(t3d) {
     const src = t3d.renderer.domElement; if (!src.width || !src.height) return false;
     const c = document.createElement('canvas'); c.width = 48; c.height = 48; const x = c.getContext('2d');
     x.drawImage(src, 0, 0, 48, 48); const d = x.getImageData(0, 0, 48, 48).data;
-    for (let i = 3; i < d.length; i += 4) if (d[i] > 0) return true;
-    return false;
+    // the tooth is light, the background dark: some bright pixels must be there
+    let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 420) n++;
+    return n > 6;
   } catch { return false; }
 }
