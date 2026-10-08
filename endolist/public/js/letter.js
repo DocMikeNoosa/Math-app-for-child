@@ -60,6 +60,11 @@ const MAT_INS = { kompozyt: 'materiałem kompozytowym', 'kompozyt typu bulk-fill
 const ANESTH_INS = { infil: 'nasiękowym', block: 'przewodowym', pdl: 'śródwięzadłowym', intrapulp: 'dokomorowym' };
 const TEMP_INS = { cavit: 'opatrunkiem tymczasowym (Cavit)', gic: 'opatrunkiem z cementu glasjonomerowego', cavitgic: 'opatrunkiem tymczasowym (Cavit + cement glasjonomerowy)', teflon: 'opatrunkiem tymczasowym (taśma PTFE + Cavit)' };
 
+const PROD_PREFIX = { files: 'narzędzia', glide: 'ścieżka szybowania', apex: 'endometr', motor: 'endomotor', activation: '', sealer: 'uszczelniacz', obtsys: 'system obturacji', repair: '', medic: '', temp: '', composite: 'kompozyt', adhesive: 'system łączący', post: '', cement: 'cement', anesth: '', isolation: '', micro: 'mikroskop', imaging: '', other: '' };
+export function productList(rec) {
+  return (rec.products || []).map((x) => { const pre = PROD_PREFIX[x.cat]; return pre && !x.name.toLowerCase().includes(pre.slice(0, 6)) ? `${pre} ${x.name}` : x.name; }).join(', ');
+}
+
 /** Canal anatomy goes into the letter only once the dentist has confirmed it (or entered working lengths). */
 export const anatKnown = (rec) => !!rec.anatOk || (rec.roots || []).some((r) => r.canals.some((c) => c.wl));
 
@@ -85,6 +90,7 @@ export function endoSentences(rec, P) {
     let s = single ? 'Opracowano chemomechanicznie kanał' : `Opracowano chemomechanicznie ${n} ${canalsWord(n)}${names.length ? ` (${names.join(', ')})` : ''}`;
     if (wl.length) s += single ? ` do długości roboczej ${plNum(wl[0].wl)} mm` : `; długość robocza: ${wl.map((c) => `${canalLabel(c.name)} ${plNum(c.wl)} mm`).join(', ')}`;
     out.push(s + '.');
+    if (e.apexloc || e.wlxray) out.push(`Długość roboczą wyznaczono ${[e.apexloc && 'endometrem', e.wlxray && 'na podstawie zdjęcia RTG'].filter(Boolean).join(' i ')}.`);
     const maf = canals.filter((c) => c.maf);
     if (maf.length) out.push(`Rozmiar końcowy opracowania: ${maf.map((c) => (single ? c.maf : `${canalLabel(c.name)} ${c.maf}`)).join(', ')}.`);
     const ir = (e.irrig || []).filter((k) => !['us', 'sonic', 'xp', 'laser'].includes(k)).map((k) => (k === 'naocl' && e.naocl ? `${plNum(e.naocl)}% NaOCl` : IRRIG[k]));
@@ -101,6 +107,7 @@ export function endoSentences(rec, P) {
   }
   if (e.temp === 'comp') out.push('Ząb odbudowano materiałem kompozytowym.');
   else if (e.temp) out.push(`Ząb zaopatrzono ${TEMP_INS[e.temp]}.`);
+  if (e.postxray) out.push('Wykonano kontrolne zdjęcie RTG.');
   if ((e.findings || []).length) out.push(`Śródzabiegowo: ${join(e.findings.map((k) => FINDINGS[k]), '; ', '; ')}.`);
   if (e.status === 'stage' && pr.staged) out.push(`${P.nom} zgłosi się na kolejną wizytę w celu zakończenia leczenia.`);
   if (e.note) out.push(cap(e.note.trim().replace(/([^.])$/, '$1.')));
@@ -112,10 +119,10 @@ export function workSentence(w) {
   switch (w.type) {
     case 'FILL': {
       const surf = (w.surf || []).join('');
-      return `Wykonano wypełnienie ubytku${w.cls ? ` klasy ${w.cls} wg Blacka` : ''}${surf ? ` (${surf})` : ''}${w.mat ? ` ${MAT_INS[w.mat] || `materiałem: ${w.mat}`}` : ''}.${note}`;
+      return `Wykonano wypełnienie ubytku${w.cls ? ` klasy ${w.cls} wg Blacka` : ''}${surf ? ` (${surf})` : ''}${w.mat ? ` ${MAT_INS[w.mat] || `materiałem: ${w.mat}`}` : ''}${w.product ? ` (${w.product})` : ''}.${note}`;
     }
-    case 'BUILDUP': return `Wykonano odbudowę zęba po leczeniu kanałowym${w.mat ? ` ${MAT_INS[w.mat] || w.mat}` : ''}${w.postType ? ` z wkładem ${POST_TYPE[w.postType]}` : ''}.${note}`;
-    case 'POST': return `Osadzono wkład koronowo-korzeniowy${w.postType ? ` ${POST_TYPE[w.postType]}` : ''}.${note}`;
+    case 'BUILDUP': return `Wykonano odbudowę zęba po leczeniu kanałowym${w.mat ? ` ${MAT_INS[w.mat] || w.mat}` : ''}${w.postType ? ` z wkładem ${POST_TYPE[w.postType]}` : ''}${w.product ? ` (${w.product})` : ''}.${note}`;
+    case 'POST': return `Osadzono wkład koronowo-korzeniowy${w.postType ? ` ${POST_TYPE[w.postType]}` : ''}${w.product ? ` (${w.product})` : ''}.${note}`;
     case 'CROWNPREP': return `Opracowano ząb pod koronę protetyczną.${note}`;
     case 'TEMPCROWN': return `Osadzono koronę tymczasową.${note}`;
     case 'CROWN': return `Osadzono koronę protetyczną.${note}`;
@@ -266,6 +273,9 @@ export function buildOffline({ visits, patient, doctor, referrer, used = { openi
       if (d && (rec.endo?.proc || ex.length)) lines.push(`Rozpoznanie: ${d}.`);
       lines.push(...endoSentences(rec, P));
       for (const w of rec.work || []) { const s = workSentence(w); if (s) lines.push(s); }
+      const prods = productList(rec);
+      if (prods) lines.push(`Użyte materiały i sprzęt: ${prods}.`);
+      if (rec.manual && rec.manual.trim()) lines.push(cap(rec.manual.trim().replace(/([^.!?])$/, '$1.')));
       if (lines.length) paras.push(prefix + lines.join(' '));
       if (visit.performer !== 'other') recs.push(...recSentences(rec).map((s) => (teeth.length > 1 ? `Ząb ${fdi}: ${low(s)}` : s)));
       if (rec.rec?.prog && visit.performer !== 'other') recs.push(`${teeth.length > 1 ? `Ząb ${fdi} — rokowanie` : 'Rokowanie'}: ${PROG[rec.rec.prog]}.`);
@@ -301,6 +311,8 @@ export function aiPayload({ visits, patient, doctor, referrer, used, repeat, icd
         anatomy: (anatKnown(rec) ? rec.roots || [] : []).map((r) => ({ root: r.label || r.name, canals: r.canals.map((c) => ({ canal: canalLabel(c.name), working_length_mm: c.wl ? plNum(c.wl) : null, reference: c.ref || null, final_size: c.maf || null })), lateral_canal: r.lateral ? LATERAL[r.lateral] : null })),
         endodontic_treatment: rec.endo?.proc ? { procedure: ENDO[rec.endo.proc]?.label, status: ENDO_STATUS[rec.endo.status], sentences: endoSentences(rec, PT[patient.sex === 'm' ? 'm' : 'f']) } : null,
         other_work: (rec.work || []).map(workSentence).filter(Boolean),
+        products: (rec.products || []).map((x) => `${x.name} (${x.cat})`),
+        free_text_notes: rec.manual || '',
         recommendations: visit.performer === 'other' ? [] : recSentences(rec),
         prognosis: visit.performer === 'other' ? null : (rec.rec?.prog ? PROG[rec.rec.prog] : null),
       })),

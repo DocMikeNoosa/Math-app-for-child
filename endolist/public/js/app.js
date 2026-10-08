@@ -3,12 +3,16 @@ import * as V from './vault.js';
 import {
   toothInfo, anatomy, configRoots, rootsForCount, canalLabel, LATERAL, PULP_DX, PERI_DX, T_COLD, T_HEAT, T_EPT, T_PERC, T_PALP, T_BITE, T_MOB, T_SWELL, T_SINUS,
   RADIO, ENDO, ENDO_STATUS, ANESTH, IRRIG, OBTUR, SEALER, MEDIC, TEMP, MATERIAL_ENDO, FINDINGS, BLACK, SURFACES, FILL_MAT, WORK, POST_TYPE, IMPL_PREP,
+  PRODUCTS, PRODUCT_CATS, QUICK, parsePesel,
   RESTOR, CONTROL, PROG, DOC_TITLES,
 } from './data.js';
 import { suggestDx, finalDx } from './dx.js';
 import { archSVG, toothDetailSVG } from './odontogram.js';
-import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT, OPENINGS, OPENINGS_REPEAT, CLOSINGS } from './letter.js';
-import { generateLetter, testKey } from './ai.js';
+import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT } from './letter.js';
+import { generateLetter, reviseLetter, cleanDictation, testKey } from './ai.js';
+import { Tooth3D, webglOk } from './tooth3d.js';
+import { Dictation, speechSupported } from './speech.js';
+import { letterPaperHTML } from './letterview.js';
 import { buildLetterPDF } from './pdf.js';
 import { Folder, fsSupported, names, download, emlDraft, canShareFile, mailto, prodentisText } from './files.js';
 
@@ -43,15 +47,18 @@ const ICONS = {
   copy: '<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
   shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.4-4.6"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
   install: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 7v6M9.5 10.5 12 13l2.5-2.5M8 20h8"/>',
 };
 
 /* ================================================================ state */
 const DEFAULT_SETTINGS = {
   id: 'main',
-  doctor: { title: 'lek. dent.', first: '', last: '', gender: 'f', specialty: '', practice: '', address: '', city: '', phone: '', email: '', npwz: '', signature: '', useSignature: true },
+  doctor: { title: 'lek. dent.', first: '', last: '', gender: 'f', specialty: '', practice: 'Centrum Stomatologiczne', group: 'Niewiński Group', address: 'ul. Henryka Sienkiewicza 54, Siedlce', city: 'Siedlce', phone: '', email: '', npwz: '', signature: '', useSignature: true, logo: '', groupLogo: '' },
   letter: { signoff: 'Z wyrazami szacunku,', icd: true, title: 'Informacja o przeprowadzonym leczeniu' },
-  ai: { key: '', enabled: true, effort: 'medium' },
+  ai: { key: '', enabled: true, effort: 'medium', cleanDictation: true },
+  customProducts: {},
   security: { autolock: 15 },
   used: {},
 };
@@ -69,7 +76,7 @@ const flushSave = debounce(async () => {
   try { for (const [store, obj] of items) await S.session.put(store, obj); } catch (e) { toast('Nie udało się zapisać: ' + e.message, 'err'); }
   S.saving--; renderStatus(); scheduleBackup();
 }, 350);
-function save(store, obj) { obj.updatedAt = Date.now(); D()[store].set(obj.id, obj); dirty.set(store + obj.id, [store, obj]); flushSave(); }
+function save(store, obj) { if (store === 'settings') mirrorBrand(); obj.updatedAt = Date.now(); D()[store].set(obj.id, obj); dirty.set(store + obj.id, [store, obj]); flushSave(); }
 async function remove(store, id) { D()[store].delete(id); await S.session.del(store, id); scheduleBackup(); }
 const scheduleBackup = debounce(backupNow, 2500);
 async function backupNow() {
@@ -92,7 +99,7 @@ function newToothRec(fdi, other = false) {
 }
 function newVisit(patientId = '', referrerId = '') { return { id: V.uid(), patientId, referrerId, date: today(), performer: 'self', otherDentist: '', teeth: [], notes: '', createdAt: Date.now(), updatedAt: Date.now() }; }
 const curVisit = () => D().visits.get(S.visitId);
-const curTooth = () => { const v = curVisit(); return v && v.teeth.find((t) => t.fdi === S.fdi); };
+const curTooth = () => S.ws?.draft || null;
 const patientName = (p) => (p ? [p.first, p.last].filter(Boolean).join(' ') : '');
 const refName = (r) => (!r ? '' : r.kind === 'clinic' ? r.clinic || 'Klinika' : [r.title, r.first, r.last].filter(Boolean).join(' '));
 const visitsOf = (pid) => [...D().visits.values()].filter((v) => v.patientId === pid).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -115,12 +122,20 @@ async function boot() {
   if (!profiles.length) renderOnboarding(); else renderLock(profiles);
 }
 
+/** Clinic branding (not sensitive) is mirrored to localStorage so it can be shown before login. */
+function brandHTML() {
+  let b = {}; try { b = JSON.parse(localStorage.getItem('endolist:brand') || '{}'); } catch {}
+  const logos = [b.logo, b.groupLogo].filter(Boolean);
+  if (logos.length) return `<div class="auth-brand">${logos.map((l) => `<img src="${l}" alt="">`).join('')}</div>`;
+  return b.practice ? `<div class="auth-brand text">${esc(b.practice)}${b.group ? `<small>${esc(b.group)}</small>` : ''}</div>` : '';
+}
+function mirrorBrand() { try { const d = settings().doctor; localStorage.setItem('endolist:brand', JSON.stringify({ logo: d.logo, groupLogo: d.groupLogo, practice: d.practice, group: d.group })); } catch {} }
 function authShell(inner, wide = false) { $('#root').innerHTML = `<div class="auth"><div class="auth-card ${wide ? 'wide' : ''}">${inner}</div></div>`; }
 
 function renderLock(profiles, err = '') {
   const last = localStorage.getItem('endolist:lastUser') || profiles[0]?.username || '';
   authShell(`
-    <div class="auth-logo">${I('tooth')}</div>
+    ${brandHTML()}<div class="auth-logo">${I('tooth')}</div>
     <h1>EndoList</h1><p class="lead">Zaloguj się, aby odblokować zaszyfrowane dane.</p>
     <form id="login" class="grid" autocomplete="on">
       <label class="f"><span>Login</span><input type="text" name="username" autocomplete="username" value="${esc(last)}" required></label>
@@ -160,13 +175,17 @@ function renderOnboarding(step = 0) {
      </div><p class="hint" style="margin-top:10px">Forma (Pani/Pan) pozwala poprawnie odmieniać zwroty w listach, np. „mogłam/mogłem pomóc".</p>`,
     `<h1>Gabinet</h1><p class="lead">Dane do nagłówka listu.</p>
      <div class="grid g2">
-      <label class="f all"><span>Nazwa gabinetu</span><input type="text" data-ob="practice" value="${esc(d.practice)}" placeholder="np. Gabinet Endodontyczny"></label>
+      <label class="f"><span>Gabinet / klinika</span><input type="text" data-ob="practice" value="${esc(d.practice)}"></label>
+      <label class="f"><span>Grupa</span><input type="text" data-ob="group" value="${esc(d.group)}"></label>
       <label class="f all"><span>Adres</span><input type="text" data-ob="address" value="${esc(d.address)}" placeholder="ul. Przykładowa 1, 50-001 Wrocław"></label>
       <label class="f"><span>Miejscowość (do daty)</span><input type="text" data-ob="city" value="${esc(d.city)}" placeholder="Wrocław"></label>
       <label class="f"><span>Nr prawa wykonywania zawodu</span><input type="text" data-ob="npwz" value="${esc(d.npwz)}" placeholder="opcjonalnie"></label>
       <label class="f"><span>Telefon</span><input type="tel" data-ob="phone" value="${esc(d.phone)}"></label>
       <label class="f"><span>E-mail</span><input type="email" data-ob="email" value="${esc(d.email)}"></label>
-     </div>`,
+     </div>
+     <div class="label">Logo kliniki i grupy</div>
+     <div class="grid g2">${['logo', 'groupLogo'].map((k) => `<div class="logo-slot">${d[k] ? `<img src="${d[k]}" alt="">` : `<span class="faint small">${k === 'logo' ? 'Logo kliniki (np. Centrum Stomatologiczne)' : 'Logo grupy (np. Niewiński Group)'}</span>`}<div class="row" style="margin-top:8px"><button class="btn btn-sm" data-act="ob-logo" data-k="${k}">${d[k] ? 'Zmień' : 'Dodaj plik'}</button></div></div>`).join('')}</div>
+     <input type="file" id="ob-logo-input" accept="image/*" hidden>`,
     `<h1>Podpis</h1><p class="lead">Dodaj skan podpisu, aby listy wyglądały profesjonalnie.</p>
      <div style="text-align:center">${d.signature ? `<img class="sig-prev" style="margin:0 auto 14px" src="${d.signature}" alt="">` : '<div class="hint" style="margin-bottom:14px">Najlepiej zdjęcie podpisu na białej kartce lub plik PNG.</div>'}
      <div class="row" style="justify-content:center"><button class="btn btn-soft" data-act="ob-sig">${I('plus')} ${d.signature ? 'Zmień' : 'Wybierz'} plik podpisu</button>${d.signature ? `<button class="btn btn-ghost" data-act="ob-sig-clear">Usuń</button>` : ''}</div>
@@ -206,6 +225,7 @@ async function enter(session) {
   S.data = { patients: all.patients || new Map(), visits: all.visits || new Map(), letters: all.letters || new Map(), referrers: all.referrers || new Map(), settings: all.settings || new Map() };
   if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS));
   const st = settings(); for (const k of Object.keys(DEFAULT_SETTINGS)) if (typeof DEFAULT_SETTINGS[k] === 'object' && !Array.isArray(DEFAULT_SETTINGS[k])) st[k] = { ...DEFAULT_SETTINGS[k], ...(st[k] || {}) };
+  mirrorBrand();
   S.folder = new Folder(session.pid);
   if (fsSupported()) await S.folder.init();
   S.view = 'visit'; S.visitId = null;
@@ -221,7 +241,7 @@ function renderApp() {
 function renderTop() {
   const st = settings();
   $('#top').innerHTML = `
-    <div class="brand"><div class="mark">${I('tooth')}</div><div><b>EndoList</b><small>${esc(doctorName() || S.session.profile.username)}</small></div></div>
+    <div class="brand"><div class="mark">${I('tooth')}</div><div><b>EndoList</b><small>${esc(doctorName() || S.session.profile.username)}</small></div>${st.doctor.logo ? `<span class="clinic-logo"><img src="${st.doctor.logo}" alt="${esc(st.doctor.practice)}"></span>` : st.doctor.practice ? `<span class="clinic-name">${esc(st.doctor.practice)}${st.doctor.group ? `<small>${esc(st.doctor.group)}</small>` : ''}</span>` : ''}</div>
     <nav class="nav">
       ${[['visit', 'tooth', 'Wizyta'], ['patients', 'users', 'Pacjenci'], ['referrers', 'link', 'Lekarze kierujący'], ['settings', 'gear', 'Ustawienia']].map(([v, ic, l]) => `<button data-nav="${v}" class="${S.view === v || (S.view === 'letter' && v === 'patients') || (S.view === 'patient' && v === 'patients') ? 'on' : ''}">${I(ic)}<span>${l}</span></button>`).join('')}
     </nav>
@@ -287,18 +307,21 @@ function sw(path, label, { re = false } = {}) { return `<label class="switch"><i
 /* ================================================================ VISIT */
 function ensureVisit() {
   let v = curVisit();
-  if (!v) { v = newVisit(); D().visits.set(v.id, v); S.visitId = v.id; S.fdi = null; }
+  if (!v) { v = newVisit(); D().visits.set(v.id, v); S.visitId = v.id; }
   return v;
+}
+function visitMarks(v) {
+  const marks = {}, inv = new Set();
+  for (const t of v.teeth) { const m = markFor([{ visit: v, rec: t }]); if (m) marks[t.fdi] = m; else inv.add(t.fdi); }
+  return { marks, inv };
 }
 function viewVisit() {
   const v = ensureVisit();
-  if (S.fdi && !v.teeth.some((t) => t.fdi === S.fdi)) S.fdi = null;
   const p = D().patients.get(v.patientId), r = D().referrers.get(v.referrerId);
-  const marks = {}, inv = new Set();
-  for (const t of v.teeth) { const m = markFor([{ visit: v, rec: t }]); if (m) marks[t.fdi] = m; else inv.add(t.fdi); }
+  const { marks, inv } = visitMarks(v);
   return `
   <div class="visitbar">
-    <button class="who ${p ? '' : 'empty'}" data-act="pick-patient"><span class="av">${p ? esc(initials(p.first, p.last).toUpperCase()) : I('user')}</span><span><small>Pacjent</small><b>${p ? esc(patientName(p)) : 'Wybierz pacjenta'}</b></span></button>
+    <button class="who ${p ? '' : 'empty'}" data-act="pick-patient"><span class="av">${p ? esc(initials(p.first, p.last).toUpperCase()) : I('user')}</span><span><small>Pacjent</small><b>${p ? esc(patientName(p)) : 'Wybierz pacjenta'}</b>${p && (p.pesel || p.dob) ? `<em>${p.pesel ? 'PESEL ' + esc(p.pesel) : 'ur. ' + fmtDate(p.dob)}</em>` : ''}</span></button>
     <button class="who ${r ? '' : 'empty'}" data-act="pick-referrer"><span class="av ref">${r ? esc((r.kind === 'clinic' ? (r.clinic || 'K')[0] : initials(r.first, r.last)).toUpperCase()) : I('link')}</span><span><small>Lekarz kierujący</small><b>${r ? esc(refName(r)) : 'Wybierz adresata'}</b></span></button>
     <label class="f datebox"><span>Data wizyty</span><input type="date" data-b="v.date" value="${esc(v.date)}"></label>
     <div class="f"><span>Kto leczył</span>${seg('v.performer', { self: 'Ja', other: 'Inny lekarz' }, { re: true })}</div>
@@ -306,72 +329,112 @@ function viewVisit() {
     <span class="grow"></span>
     <button class="btn btn-ghost" data-act="new-visit">${I('plus')} Nowa wizyta</button>
   </div>
-  <div class="visit">
+  <div class="visit2">
     <section class="panel">
-      <header><h3>Uzębienie</h3><span class="sub">Kliknij ząb, aby go dodać lub wybrać · numeracja FDI</span></header>
-      <div class="arch-wrap" id="arch">${archSVG({ marks, selected: S.fdi, multi: inv })}</div>
+      <header><h3>Uzębienie</h3><span class="sub">Kliknij ząb, aby otworzyć jego kartę · numeracja FDI</span></header>
+      <div class="arch-wrap" id="arch">${archSVG({ marks, selected: null, multi: inv })}</div>
       <div class="legend"><span><i class="lg-endo"></i>leczenie kanałowe</span><span><i class="lg-stage"></i>w trakcie</span><span><i class="lg-work"></i>inne prace</span><span><i class="lg-plan"></i>plan / konsultacja</span></div>
-      <div class="teeth-strip" id="strip">${toothStrip(v)}</div>
     </section>
-    <section class="panel tooth-panel" id="tpanel">${toothPanel()}</section>
+    <section class="panel vside">
+      <header><h3>Zęby w tej wizycie</h3><span class="sub" id="vcount">${v.teeth.length || ''}</span></header>
+      <div class="body" id="vteeth">${visitTeethList(v)}</div>
+      <div class="body" style="border-top:1px solid var(--line)">
+        <div class="row" style="margin-bottom:8px"><span class="label" style="margin:0">Uwagi do całej wizyty</span><span class="grow"></span>${micBtn('v.notes')}</div>
+        <textarea data-b="v.notes" rows="3" placeholder="Opcjonalnie — np. ogólny stan, zalecenia dla pacjenta. AI uwzględni je w liście.">${esc(v.notes)}</textarea>
+      </div>
+    </section>
   </div>`;
 }
-function toothStrip(v) {
-  if (!v.teeth.length) return `<span class="faint small">Brak wybranych zębów. Kliknij ząb na schemacie.</span>`;
-  return v.teeth.map((t) => `<button class="tchip ${t.fdi === S.fdi ? 'on' : ''}" data-tooth="${t.fdi}"><b>${t.fdi}</b><small>${esc(toothSummary(t))}</small></button>`).join('');
+function visitTeethList(v) {
+  if (!v.teeth.length) return `<div class="empty" style="padding:36px 10px"><b>Brak zębów</b>Kliknij ząb na schemacie — otworzy się powiększona karta zęba z jego anatomią.</div>`;
+  return v.teeth.map((t) => { const d = finalDx(t.dx), ti = toothInfo(t.fdi);
+    return `<button class="vtooth" data-open-tooth="${t.fdi}"><span class="vt-num">${t.fdi}</span><span class="grow"><b>${esc(ti.name[0].toUpperCase() + ti.name.slice(1))}</b><small>${esc(toothSummary(t))}</small>${d.pulp || d.peri ? `<small class="faint">${esc([d.pulp && PULP_DX[d.pulp].label, d.peri && PERI_DX[d.peri].label].filter(Boolean).join(' · '))}</small>` : ''}</span><span class="vt-edit">${I('edit')}</span></button>`; }).join('');
 }
 function afterVisit() {
-  const v = curVisit();
-  const n = v.teeth.length;
-  $('#actionbar').innerHTML = `<div class="actionbar"><span class="sum">${n ? `<b>${n}</b> ${n === 1 ? 'ząb' : n < 5 ? 'zęby' : 'zębów'}: ${v.teeth.map((t) => t.fdi).join(', ')}` : 'Wybierz ząb na schemacie'}</span>
+  const v = curVisit(), n = v.teeth.length;
+  $('#actionbar').innerHTML = `<div class="actionbar"><span class="sum">${n ? `<b>${n}</b> ${n === 1 ? 'ząb' : n < 5 ? 'zęby' : 'zębów'}: ${v.teeth.map((t) => t.fdi).join(', ')}` : 'Kliknij ząb na schemacie'}</span>
     <button class="btn" data-act="save-visit">${I('check')} Zapisz wizytę</button>
     <button class="btn btn-primary" data-act="gen-letter" ${n ? '' : 'disabled'}>${I('spark')} Generuj list</button></div>`;
-  renderDx();
 }
-function refreshVisit({ panel = false } = {}) {
+function refreshVisit() {
   const v = curVisit(); if (!v || S.view !== 'visit') return;
-  const marks = {}, inv = new Set();
-  for (const t of v.teeth) { const m = markFor([{ visit: v, rec: t }]); if (m) marks[t.fdi] = m; else inv.add(t.fdi); }
-  $('#arch').innerHTML = archSVG({ marks, selected: S.fdi, multi: inv });
-  $('#strip').innerHTML = toothStrip(v);
-  if (panel) { const y = $('.tp-body')?.scrollTop || 0; $('#tpanel').innerHTML = toothPanel(); const b = $('.tp-body'); if (b) b.scrollTop = y; }
-  else { const d = $('#tdetail'); if (d && curTooth()) d.innerHTML = toothDetailSVG(curTooth(), { done: curTooth().endo.status === 'done' && ENDO[curTooth().endo.proc]?.obt ? 'all' : false }); }
+  const { marks, inv } = visitMarks(v);
+  $('#arch').innerHTML = archSVG({ marks, selected: S.ws?.fdi ?? null, multi: inv });
+  $('#vteeth').innerHTML = visitTeethList(v); $('#vcount').textContent = v.teeth.length || '';
   afterVisit();
 }
 
-function toothPanel() {
-  const t = curTooth();
-  if (!t) return `<div class="empty" style="padding:80px 30px"><b>Wybierz ząb</b>Kliknij ząb na schemacie. Pojawi się jego najczęstsza anatomia — liczba korzeni i kanałów — którą możesz dopasować.</div>`;
-  const ti = toothInfo(t.fdi);
-  const counts = { anat: (t.roots || []).reduce((a, r) => a + r.canals.length, 0), work: (t.work || []).length };
-  const tabs = [['anat', 'Anatomia', counts.anat], ['dx', 'Badanie i rozpoznanie'], ['endo', 'Endodoncja', t.endo.proc ? '✓' : ''], ['work', 'Inne prace', counts.work || ''], ['rec', 'Zalecenia']];
-  return `<div class="tp-head"><div class="tp-num">${t.fdi}</div><div class="grow"><div style="color:var(--strong);font-weight:600">${esc(ti.name[0].toUpperCase() + ti.name.slice(1))}</div><div class="tp-name">${esc(toothSummary(t))}</div></div>
-    <button class="btn btn-ghost btn-sm btn-danger" data-act="rm-tooth">${I('trash')} Usuń</button></div>
-    <div class="tabs">${tabs.map(([k, l, b]) => `<button data-ttab="${k}" class="${S.ttab === k ? 'on' : ''}">${l}${b ? ` <span class="badge">${b}</span>` : ''}</button>`).join('')}</div>
-    <div class="tp-body">${{ anat: tabAnat, dx: tabDx, endo: tabEndo, work: tabWork, rec: tabRec }[S.ttab](t)}</div>`;
+/* ================================================================ TOOTH WORKSPACE (powiększona karta zęba) */
+function openTooth(fdi) {
+  const v = curVisit(), ex = v.teeth.find((t) => t.fdi === fdi);
+  S.ws = { fdi, isNew: !ex, draft: clone(ex || newToothRec(fdi, v.performer === 'other')), dirty: !ex };
+  S.ttab = 'anat';
+  const ov = document.createElement('div'); ov.className = 'ws-overlay'; ov.id = 'ws';
+  ov.innerHTML = workspaceHTML();
+  $('#modal-root').appendChild(ov);
+  mount3D(); renderDx(); refreshVisit();
+}
+function workspaceHTML() {
+  const t = S.ws.draft, ti = toothInfo(t.fdi);
+  const counts = { anat: (t.roots || []).reduce((a, r) => a + r.canals.length, 0), work: (t.work || []).length, mat: (t.products || []).length, manual: t.manual ? '✓' : '' };
+  const tabs = [['anat', 'Anatomia', counts.anat], ['dx', 'Badanie i rozpoznanie'], ['endo', 'Endodoncja', t.endo.proc ? '✓' : ''], ['work', 'Inne prace', counts.work || ''], ['mat', 'Materiały i sprzęt', counts.mat || ''], ['manual', 'Opis własny', counts.manual], ['rec', 'Zalecenia']];
+  return `<div class="ws" role="dialog" aria-modal="true" aria-label="Ząb ${t.fdi}">
+    <header class="ws-head"><div class="tp-num">${t.fdi}</div><div class="grow"><div class="ws-title">${esc(ti.name[0].toUpperCase() + ti.name.slice(1))}</div><div class="tp-name" id="ws-sum">${esc(toothSummary(t))}</div></div>
+      ${S.ws.isNew ? '' : `<button class="btn btn-ghost btn-sm btn-danger" data-act="rm-tooth">${I('trash')} Usuń ząb</button>`}
+      <button class="btn btn-ghost" data-act="ws-cancel">Anuluj</button>
+      <button class="btn btn-primary" data-act="ws-save">${I('check')} Zapisz ząb</button></header>
+    <div class="ws-body">
+      <div class="ws-left">
+        <div class="stage" id="stage"></div>
+        <div class="stage-bar"><label class="switch"><input type="checkbox" id="xray" ${S.xray !== false ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok rentgenowski</label><span class="grow"></span><span class="hint">Przeciągnij, aby obrócić</span></div>
+        <div class="stage-legend"><span><i style="background:#ff3b66"></i>miazga / kanał</span><span><i style="background:#14d8c0"></i>wypełnienie kanałowe</span><span><i style="background:#9a86ff"></i>kanał boczny</span></div>
+      </div>
+      <div class="ws-right"><div class="tabs" id="ws-tabs">${tabs.map(([k, l, b]) => `<button data-ttab="${k}" class="${S.ttab === k ? 'on' : ''}">${l}${b ? ` <span class="badge">${b}</span>` : ''}</button>`).join('')}</div>
+        <div class="tp-body" id="ws-tab">${tabBody(t)}</div></div>
+    </div></div>`;
+}
+const tabBody = (t) => ({ anat: tabAnat, dx: tabDx, endo: tabEndo, work: tabWork, mat: tabMat, manual: tabManual, rec: tabRec }[S.ttab])(t);
+function refreshWorkspace({ tabs = true, model = false } = {}) {
+  if (!S.ws) return;
+  const t = S.ws.draft;
+  if (tabs) { const y = $('#ws-tab').scrollTop; const nb = document.createElement('div'); nb.innerHTML = workspaceHTML(); $('#ws-tabs').innerHTML = nb.querySelector('#ws-tabs').innerHTML; $('#ws-tab').innerHTML = tabBody(t); $('#ws-tab').scrollTop = y; renderDx(); }
+  $('#ws-sum').textContent = toothSummary(t);
+  if (model) update3D();
+}
+function opts3D(t) { return { done: t.endo.status === 'done' && !!ENDO[t.endo.proc]?.obt, all: true }; }
+function mount3D() {
+  const el = $('#stage'), t = S.ws.draft;
+  if (webglOk()) { try { S.t3d = new Tooth3D(el); S.t3d.xray = S.xray !== false; S.t3d.setTooth(t, opts3D(t)); return; } catch (e) { console.warn('3D unavailable', e); } }
+  el.innerHTML = toothDetailSVG(t, { done: opts3D(t).done ? 'all' : false }); el.classList.add('flat');
+}
+const update3D = debounce(() => { if (!S.ws) return; const t = S.ws.draft; if (S.t3d) S.t3d.setTooth(t, opts3D(t)); else $('#stage').innerHTML = toothDetailSVG(t, { done: opts3D(t).done ? 'all' : false }); }, 120);
+function closeWorkspace() { if (S.t3d) { S.t3d.dispose(); S.t3d = null; } $('#ws')?.remove(); S.ws = null; refreshVisit(); }
+function saveWorkspace() {
+  const v = curVisit(), t = S.ws.draft;
+  const i = v.teeth.findIndex((x) => x.fdi === t.fdi);
+  if (i >= 0) v.teeth[i] = t; else v.teeth.push(t);
+  v.teeth.sort((a, b) => a.fdi - b.fdi);
+  save('visits', v); toast(`Zapisano ząb ${t.fdi}.`, 'ok'); closeWorkspace();
 }
 
 function tabAnat(t) {
   const a = anatomy(t.fdi), n = t.roots.length;
-  return `<div class="anat"><div id="tdetail">${toothDetailSVG(t, { done: t.endo.status === 'done' && ENDO[t.endo.proc]?.obt ? 'all' : false })}</div>
-    <div>
-      <div class="hintbox"><b>Najczęstsza anatomia:</b> ${esc(a.hint)}</div>
-      <div class="label">Konfiguracja${t.anatOk ? '' : ' <span style="color:#ffd796;text-transform:none;letter-spacing:0">— kliknij, aby potwierdzić</span>'}</div>
-      <div class="chips">${a.configs.map((c, i) => `<button class="chip ${t.config === i && t.anatOk ? 'on' : ''}" data-act="cfg" data-i="${i}">${esc(c.label)}</button>`).join('')}</div>
-      <div class="label">Liczba korzeni</div>
-      <div class="seg">${[1, 2, 3, 4].map((k) => `<button data-act="roots" data-n="${k}" class="${n === k ? 'on' : ''}">${k}</button>`).join('')}</div>
-    </div></div>
+  return `<div class="hintbox"><b>Najczęstsza anatomia:</b> ${esc(a.hint)}</div>
+    <div class="label">Konfiguracja${t.anatOk ? '' : ' <span class="todo">— kliknij, aby potwierdzić</span>'}</div>
+    <div class="chips">${a.configs.map((c, i) => `<button class="chip ${t.config === i && t.anatOk ? 'on' : ''}" data-act="cfg" data-i="${i}">${esc(c.label)}</button>`).join('')}</div>
+    <div class="label">Liczba korzeni</div>
+    <div class="seg">${[1, 2, 3, 4].map((k) => `<button data-act="roots" data-n="${k}" class="${n === k ? 'on' : ''}">${k}</button>`).join('')}</div>
     <div class="label">Korzenie i kanały</div>
     ${t.roots.map((r, ri) => `<div class="rootcard"><div class="rh">${esc(r.label || 'korzeń')} <small>${r.canals.length} ${r.canals.length === 1 ? 'kanał' : r.canals.length < 5 ? 'kanały' : 'kanałów'}</small><span class="grow"></span>
-      <select data-b="t.roots.${ri}.lateral" style="width:auto;height:30px;font-size:12px" title="Kanał boczny">${Object.entries(LATERAL).map(([k, l]) => `<option value="${k}" ${r.lateral === k ? 'selected' : ''}>${k ? 'Kanał boczny: ' + l : 'Kanał boczny: brak'}</option>`).join('')}</select></div>
+      <select data-b="t.roots.${ri}.lateral" class="mini" title="Kanał boczny">${Object.entries(LATERAL).map(([k, l]) => `<option value="${k}" ${r.lateral === k ? 'selected' : ''}>${k ? 'Kanał boczny: ' + l : 'Kanał boczny: brak'}</option>`).join('')}</select></div>
       <div class="chips">${r.canals.map((c, ci) => `<span class="canal-chip"><input data-b="t.roots.${ri}.canals.${ci}.name" value="${esc(c.name)}" aria-label="Nazwa kanału"><button data-act="rm-canal" data-r="${ri}" data-c="${ci}" title="Usuń kanał">×</button></span>`).join('')}
       ${[...new Set([...(anatomy(t.fdi).extra || []), 'dodatkowy'])].filter((x) => !r.canals.some((c) => c.name === x)).slice(0, 5).map((x) => `<button class="chip add" data-act="add-canal" data-r="${ri}" data-name="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div></div>`).join('')}
-    <div class="hint" style="margin-top:12px">Długości robocze wpisz w zakładce Endodoncja. Nazwę kanału można edytować bezpośrednio.</div>`;
+    <div class="hint" style="margin-top:12px">Model po lewej odświeża się na bieżąco. Długości robocze wpiszesz w zakładce Endodoncja.</div>`;
 }
 
 function tabDx(t) {
   return `<div class="label">Wywiad</div>
-    ${inp('t.dx.history.cc', '', { ph: 'Powód zgłoszenia, np. ból przy nagryzaniu od 2 tygodni' })}
+    <div class="row nowrap">${inp('t.dx.history.cc', '', { ph: 'Powód zgłoszenia, np. ból przy nagryzaniu od 2 tygodni' })}${micBtn('t.dx.history.cc')}</div>
     <div class="row" style="margin-top:10px;gap:16px">${sw('t.dx.history.spontaneous', 'Ból samoistny')}${sw('t.dx.history.night', 'Ból nocny')}${sw('t.dx.history.deep', 'Głęboka próchnica / obnażenie')}</div>
     <div class="test" style="margin-top:8px"><span>Stan zęba</span>${seg('t.dx.history.status', { virgin: 'nieleczony', treated: 'leczony kanałowo', initiated: 'leczenie rozpoczęte' })}</div>
     <div class="label">Testy</div>
@@ -387,7 +450,7 @@ function tabDx(t) {
     <div class="test"><span>Przetoka</span>${seg('t.dx.tests.sinus', T_SINUS, { bad: ['yes'] })}</div>
     <div class="label">RTG / CBCT</div>
     ${chipsArr('t.dx.radio', RADIO)}
-    <div style="margin-top:8px">${inp('t.dx.radioNote', '', { ph: 'Dodatkowy opis, np. zmiana ok. 4 mm przy wierzchołku korzenia bliższego' })}</div>
+    <div class="row nowrap" style="margin-top:8px">${inp('t.dx.radioNote', '', { ph: 'Dodatkowy opis, np. zmiana ok. 4 mm przy wierzchołku korzenia bliższego' })}${micBtn('t.dx.radioNote')}</div>
     <div class="label">Rozpoznanie</div><div id="dxbox"></div>
     <div class="grid g2" style="margin-top:10px">
       ${sel('t.dx.pulp', 'Miazga (zmień ręcznie)', { '': 'jak sugerowane', ...Object.fromEntries(Object.entries(PULP_DX).map(([k, v]) => [k, v.label])) })}
@@ -402,56 +465,130 @@ function renderDx() {
     ${s.warn.map((w) => `<div class="warnline">${esc(w)}</div>`).join('')}<div class="hint" style="margin-top:8px">Terminologia AAE, kody ICD-10. Sugestia na podstawie wpisanych danych — zawsze do potwierdzenia klinicznego.</div></div>`;
 }
 
+function quickOn(t, key) {
+  const e = t.endo, [f, v] = key.split(':');
+  if (!v) return !!e[f];
+  if (f === 'irrig') return (e.irrig || []).includes(v);
+  return e[f] === v;
+}
+function quickToggle(t, key) {
+  const e = t.endo, [f, v] = key.split(':'), on = quickOn(t, key);
+  if (!v) e[f] = !on;
+  else if (f === 'irrig') e.irrig = on ? e.irrig.filter((x) => x !== v) : [...(e.irrig || []), v];
+  else e[f] = on ? '' : v;
+  if (!on && ['obtur', 'sealer'].includes(f) && !e.proc) e.proc = 'RCT';
+}
 function tabEndo(t) {
   const e = t.endo, pr = ENDO[e.proc];
   const procs = { '': '— brak leczenia endodontycznego —', ...Object.fromEntries(Object.entries(ENDO).map(([k, v]) => [k, v.label])) };
-  if (!pr) return `${sel('t.endo.proc', 'Procedura', procs, { re: true })}<div class="hint" style="margin-top:10px">Wybierz procedurę endodontyczną. Prace inne niż endodontyczne (wypełnienia, korony, implanty) dodasz w zakładce „Inne prace".</div>`;
+  const quick = `<div class="label">Najczęstsze — zaznacz</div><div class="chips">${QUICK.map(([k, l]) => `<button class="chip ${quickOn(t, k) ? 'on' : ''}" data-quick="${esc(k)}">${quickOn(t, k) ? '✓ ' : ''}${esc(l)}</button>`).join('')}</div>`;
+  if (!pr) return `${sel('t.endo.proc', 'Procedura', procs, { re: true })}${quick}<div class="hint" style="margin-top:10px">Wybierz procedurę endodontyczną. Prace inne niż endodontyczne dodasz w zakładce „Inne prace", a wszystko, czego nie ma w formularzu — w zakładce „Opis własny".</div>`;
   const canals = t.roots.flatMap((r, ri) => r.canals.map((c, ci) => ({ c, ri, ci })));
   return `<div class="grid g3">${sel('t.endo.proc', 'Procedura', procs, { cls: 'span2', re: true })}${pr.consult ? '' : `<div class="f"><span>Status</span>${seg('t.endo.status', ENDO_STATUS, { re: true })}</div>`}</div>
-    ${pr.consult ? `<div style="margin-top:12px">${inp('t.endo.note', 'Opis konsultacji', { area: true, rows: 4, ph: 'Wnioski z konsultacji, zalecany plan leczenia…' })}</div>` : e.status === 'planned' ? `<div style="margin-top:12px">${inp('t.endo.note', 'Uwagi', { area: true, rows: 2 })}</div>` : `
-    <div class="label">Warunki zabiegu</div>
-    <div class="test"><span>Znieczulenie</span>${seg('t.endo.anesth', ANESTH)}</div>
-    <div class="row" style="margin:6px 0 4px">${inp('t.endo.agent', '', { ph: 'Środek i dawka, np. 4% artykaina z adrenaliną 1:100 000' })}</div>
-    <div class="row" style="gap:18px;margin-top:8px">${pr.surgical ? '' : sw('t.endo.dam', 'Koferdam')}${sw('t.endo.micro', 'Mikroskop zabiegowy')}</div>
+    ${pr.consult ? `<div class="row nowrap" style="margin-top:12px">${inp('t.endo.note', 'Opis konsultacji', { area: true, rows: 4, ph: 'Wnioski z konsultacji, zalecany plan leczenia…' })}${micBtn('t.endo.note')}</div>` : e.status === 'planned' ? `<div style="margin-top:12px">${inp('t.endo.note', 'Uwagi', { area: true, rows: 2 })}</div>` : `
+    ${quick}
+    <div class="label">Znieczulenie</div>
+    <div class="test"><span>Rodzaj</span>${seg('t.endo.anesth', ANESTH)}</div>
+    <div class="row" style="margin:6px 0 4px"><input type="text" data-b="t.endo.agent" value="${esc(e.agent)}" list="dl-anesth" placeholder="Środek i dawka, np. Ubistesin forte, 1 karpula"></div>
+    <datalist id="dl-anesth">${PRODUCTS.anesth.map((x) => `<option>${esc(x)}</option>`).join('')}</datalist>
     ${pr.canals ? `<div class="label">Kanały — długość robocza</div>
     <table class="wl"><thead><tr><th>Kanał</th><th>DR (mm)</th><th>Punkt odniesienia</th><th>Rozmiar końcowy</th></tr></thead><tbody>
     ${canals.map(({ c, ri, ci }) => `<tr><td>${esc(canalLabel(c.name))}</td><td><input type="text" inputmode="decimal" data-b="t.roots.${ri}.canals.${ci}.wl" value="${esc(c.wl)}" placeholder="21,0"></td><td><input type="text" data-b="t.roots.${ri}.canals.${ci}.ref" value="${esc(c.ref)}" placeholder="np. guzek MB"></td><td><input type="text" data-b="t.roots.${ri}.canals.${ci}.maf" value="${esc(c.maf)}" placeholder="np. 35/.04"></td></tr>`).join('')}
-    </tbody></table><div class="hint">${t.anatOk ? 'Kanały pochodzą z zakładki Anatomia.' : '<span style="color:#ffd796">Liczba kanałów nie jest jeszcze potwierdzona</span> — wybierz konfigurację w zakładce Anatomia lub wpisz długości robocze; do tego czasu list nie podaje liczby kanałów.'}</div>
+    </tbody></table><div class="hint">${t.anatOk ? 'Kanały pochodzą z zakładki Anatomia.' : '<span class="todo">Liczba kanałów nie jest jeszcze potwierdzona</span> — wybierz konfigurację w zakładce Anatomia lub wpisz długości robocze.'}</div>
     <div class="label">Płukanie</div>${chipsArr('t.endo.irrig', IRRIG)}
     ${e.irrig.includes('naocl') ? `<div style="max-width:200px;margin-top:8px">${inp('t.endo.naocl', 'Stężenie NaOCl (%)', { ph: 'np. 5,25' })}</div>` : ''}` : ''}
     <div class="grid g2" style="margin-top:14px">
-      ${pr.obt && e.status === 'done' ? sel('t.endo.obtur', 'Wypełnienie kanałów', OBTUR, { re: true }) + `<label class="f"><span>Uszczelniacz</span><input type="text" data-b="t.endo.sealer" value="${esc(e.sealer)}" list="dl-sealer" placeholder="np. uszczelniacz bioceramiczny"></label>` : ''}
+      ${pr.obt && e.status === 'done' ? sel('t.endo.obtur', 'Wypełnienie kanałów', OBTUR, { re: true }) + `<label class="f"><span>Uszczelniacz</span><input type="text" data-b="t.endo.sealer" value="${esc(e.sealer)}" list="dl-sealer" placeholder="np. AH Plus, BioRoot RCS"></label>` : ''}
       ${pr.canals ? sel('t.endo.medic', 'Opatrunek leczniczy w kanale', MEDIC) : ''}
-      ${pr.material ? `<label class="f"><span>Materiał</span><input type="text" data-b="t.endo.material" value="${esc(e.material)}" list="dl-mat" placeholder="np. MTA"></label>` : ''}
+      ${pr.material ? `<label class="f"><span>Materiał</span><input type="text" data-b="t.endo.material" value="${esc(e.material)}" list="dl-mat" placeholder="np. Biodentine"></label>` : ''}
       ${pr.surgical && e.proc === 'IND' ? '' : sel('t.endo.temp', 'Zaopatrzenie zęba po zabiegu', TEMP)}
     </div>
-    <datalist id="dl-sealer">${SEALER.map((s) => `<option>${esc(s)}</option>`).join('')}</datalist><datalist id="dl-mat">${MATERIAL_ENDO.map((s) => `<option>${esc(s)}</option>`).join('')}</datalist>
+    <datalist id="dl-sealer">${[...SEALER, ...PRODUCTS.sealer, ...custom('sealer')].map((s) => `<option>${esc(s)}</option>`).join('')}</datalist><datalist id="dl-mat">${[...MATERIAL_ENDO, ...PRODUCTS.repair, ...custom('repair')].map((s) => `<option>${esc(s)}</option>`).join('')}</datalist>
     <div class="label">Obserwacje śródzabiegowe</div>${chipsArr('t.endo.findings', FINDINGS)}
-    <div style="margin-top:12px">${inp('t.endo.note', 'Dodatkowe uwagi do listu', { area: true, rows: 2, ph: 'Opcjonalnie' })}</div>`}`;
+    <div class="row nowrap" style="margin-top:12px">${inp('t.endo.note', 'Dodatkowe uwagi do listu', { area: true, rows: 2, ph: 'Opcjonalnie' })}${micBtn('t.endo.note')}</div>`}`;
 }
 
 function tabWork(t) {
+  const matOpts = { '': '—', ...Object.fromEntries(FILL_MAT.map((m) => [m, m])) };
   const items = (t.work || []).map((w, i) => {
     let body = '';
     if (w.type === 'FILL') body = `<div class="f"><span>Klasa wg Blacka</span>${seg(`t.work.${i}.cls`, { I: 'I', II: 'II', III: 'III', IV: 'IV', V: 'V', VI: 'VI' })}</div>
       ${w.cls ? `<div class="hint" style="margin:6px 0 2px">${esc(BLACK[w.cls])}</div>` : ''}
       <div class="f" style="margin-top:10px"><span>Powierzchnie</span><div class="chips">${Object.entries(SURFACES).map(([k, l]) => `<label class="chip" title="${esc(l)}"><input type="checkbox" data-arr="t.work.${i}.surf" value="${k}" ${(w.surf || []).includes(k) ? 'checked' : ''}>${k}</label>`).join('')}</div></div>
-      <div class="grid g2" style="margin-top:10px">${sel(`t.work.${i}.mat`, 'Materiał', { '': '—', ...Object.fromEntries(FILL_MAT.map((m) => [m, m])) })}${inp(`t.work.${i}.note`, 'Uwagi', { ph: 'opcjonalnie' })}</div>`;
-    else if (w.type === 'BUILDUP') body = `<div class="grid g2">${sel(`t.work.${i}.mat`, 'Materiał', { '': '—', ...Object.fromEntries(FILL_MAT.map((m) => [m, m])) })}${sel(`t.work.${i}.postType`, 'Wkład', { '': 'bez wkładu', ...POST_TYPE })}</div><div style="margin-top:10px">${inp(`t.work.${i}.note`, 'Uwagi', { ph: 'opcjonalnie' })}</div>`;
-    else if (w.type === 'POST') body = `<div class="grid g2">${sel(`t.work.${i}.postType`, 'Rodzaj wkładu', { '': '—', ...POST_TYPE })}${inp(`t.work.${i}.note`, 'Uwagi', { ph: 'opcjonalnie' })}</div>`;
+      <div class="grid g2" style="margin-top:10px">${sel(`t.work.${i}.mat`, 'Rodzaj materiału', matOpts)}<label class="f"><span>Produkt</span><input type="text" data-b="t.work.${i}.product" value="${esc(w.product || '')}" list="dl-comp" placeholder="np. Filtek One Bulk Fill"></label></div>
+      <div style="margin-top:10px">${inp(`t.work.${i}.note`, 'Uwagi', { ph: 'opcjonalnie' })}</div>`;
+    else if (w.type === 'BUILDUP') body = `<div class="grid g2">${sel(`t.work.${i}.mat`, 'Materiał', matOpts)}${sel(`t.work.${i}.postType`, 'Wkład', { '': 'bez wkładu', ...POST_TYPE })}<label class="f all"><span>Produkt</span><input type="text" data-b="t.work.${i}.product" value="${esc(w.product || '')}" list="dl-post" placeholder="np. Rebilda DC, RelyX Fiber Post"></label></div><div style="margin-top:10px">${inp(`t.work.${i}.note`, 'Uwagi', { ph: 'opcjonalnie' })}</div>`;
+    else if (w.type === 'POST') body = `<div class="grid g2">${sel(`t.work.${i}.postType`, 'Rodzaj wkładu', { '': '—', ...POST_TYPE })}<label class="f"><span>Produkt</span><input type="text" data-b="t.work.${i}.product" value="${esc(w.product || '')}" list="dl-post"></label></div><div style="margin-top:10px">${inp(`t.work.${i}.note`, 'Uwagi', { ph: 'opcjonalnie' })}</div>`;
     else if (w.type === 'IMPLPREP') body = `${chipsArr(`t.work.${i}.prep`, IMPL_PREP)}<div style="margin-top:10px">${inp(`t.work.${i}.note`, 'Uwagi', { ph: 'opcjonalnie' })}</div>`;
-    else body = inp(`t.work.${i}.note`, w.type === 'OTHER' ? 'Opis procedury' : 'Uwagi', { ph: w.type === 'OTHER' ? 'Opisz wykonaną procedurę' : 'opcjonalnie', area: w.type === 'OTHER' });
+    else body = `<div class="row nowrap">${inp(`t.work.${i}.note`, w.type === 'OTHER' ? 'Opis procedury' : 'Uwagi', { ph: w.type === 'OTHER' ? 'Opisz wykonaną procedurę' : 'opcjonalnie', area: w.type === 'OTHER', rows: 3 })}${micBtn(`t.work.${i}.note`)}</div>`;
     return `<div class="workcard"><div class="wh">${esc(WORK[w.type].label)}<span class="grow"></span><button class="btn btn-ghost btn-sm" data-act="rm-work" data-i="${i}">${I('x')}</button></div>${body}</div>`;
   }).join('');
   return `${items || '<div class="hint" style="margin-bottom:12px">Brak innych prac przy tym zębie.</div>'}
-    <div class="label">Dodaj</div><div class="chips">${Object.entries(WORK).map(([k, v]) => `<button class="chip add" data-act="add-work" data-type="${k}">+ ${esc(v.label)}</button>`).join('')}</div>`;
+    <datalist id="dl-comp">${[...PRODUCTS.composite, ...custom('composite')].map((x) => `<option>${esc(x)}</option>`).join('')}</datalist><datalist id="dl-post">${[...PRODUCTS.post, ...custom('post')].map((x) => `<option>${esc(x)}</option>`).join('')}</datalist>
+    <div class="label">Dodaj pracę</div><div class="chips">${Object.entries(WORK).map(([k, v]) => `<button class="chip add" data-act="add-work" data-type="${k}">+ ${esc(v.label)}</button>`).join('')}</div>
+    <div class="hint" style="margin-top:12px">Nie ma tu wykonanej procedury? Opisz ją w zakładce <b>Opis własny</b> — AI włączy ją do listu.</div>`;
 }
 
+const custom = (cat) => (settings().customProducts || {})[cat] || [];
+function tabMat(t) {
+  const cat = S.matCat || 'files';
+  const all = [...PRODUCTS[cat], ...custom(cat)];
+  const chosen = t.products || [];
+  return `<div class="label">Użyte materiały i sprzęt</div>
+    <div class="chips">${chosen.length ? chosen.map((x, i) => `<span class="chip on prod">${esc(x.name)}<small>${esc(PRODUCT_CATS[x.cat] || '')}</small><button data-act="rm-prod" data-i="${i}">×</button></span>`).join('') : '<span class="hint">Nic jeszcze nie dodano.</span>'}</div>
+    <div class="label">Dodaj</div>
+    <div class="grid g2"><label class="f"><span>Kategoria</span><select id="mat-cat">${Object.entries(PRODUCT_CATS).map(([k, l]) => `<option value="${k}" ${k === cat ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      <label class="f"><span>Nazwa (wybierz lub wpisz własną)</span><div class="row nowrap"><input type="text" id="mat-name" list="dl-cat" placeholder="Zacznij pisać…"><button class="btn btn-soft" data-act="add-prod">${I('plus')}</button></div></label></div>
+    <datalist id="dl-cat">${all.map((x) => `<option>${esc(x)}</option>`).join('')}</datalist>
+    <div class="label">Szybki wybór — ${esc(PRODUCT_CATS[cat])}</div>
+    <div class="chips">${all.length ? all.map((x) => `<button class="chip add ${chosen.some((c) => c.name === x) ? 'on' : ''}" data-act="pick-prod" data-name="${esc(x)}">${esc(x)}</button>`).join('') : '<span class="hint">Brak podpowiedzi — wpisz nazwę powyżej.</span>'}</div>
+    <div class="hint" style="margin-top:12px">Produkty wpisane ręcznie są zapamiętywane i pojawią się jako podpowiedzi przy kolejnych zębach. Lista podpowiedzi obejmuje popularne produkty dostępne w Polsce — można dopisać dowolne inne.</div>`;
+}
+function tabManual(t) {
+  return `<div class="hintbox">Opisz własnymi słowami pracę, której nie ma w formularzu — możesz też <b>podyktować</b> (przycisk mikrofonu). AI uporządkuje tekst, przełoży go na język stomatologiczny i sprawdzi zgodność z resztą danych przy tworzeniu listu.</div>
+    <div class="row" style="margin:14px 0 8px"><span class="label" style="margin:0">Opis wykonanej pracy</span><span class="grow"></span>${micBtn('t.manual', true)}<button class="btn btn-sm" data-act="clean-manual" ${settings().ai.key ? '' : 'disabled title="Wymaga klucza API"'}>${I('spark')} Popraw tekst (AI)</button></div>
+    <textarea data-b="t.manual" rows="10" placeholder="np. Usunięto stary wkład metalowy ultradźwiękami, kanał D udrożniono do pełnej długości, pozostawiono pod obserwacją rysę na ścianie mezjalnej…">${esc(t.manual || '')}</textarea>
+    <div class="interim" id="interim-t.manual"></div>`;
+}
 function tabRec(t) {
   return `<div class="grid g2">${sel('t.rec.restor', 'Odbudowa', RESTOR, { re: true })}${!['', 'none', 'after'].includes(t.rec.restor) ? `<div class="f"><span>Termin</span>${seg('t.rec.time', { '2w': '2 tyg.', '30d': '30 dni', '60d': '2 mies.', asap: 'pilnie', '': 'bez terminu' })}</div>` : '<div></div>'}</div>
     <div class="label">Kontrola</div>${seg('t.rec.control', CONTROL)}
     <div class="label">Rokowanie</div>${seg('t.rec.prog', PROG)}
-    <div style="margin-top:14px">${inp('t.rec.note', 'Dodatkowe zalecenia', { area: true, rows: 2, ph: 'Opcjonalnie' })}</div>`;
+    <div class="row nowrap" style="margin-top:14px">${inp('t.rec.note', 'Dodatkowe zalecenia', { area: true, rows: 2, ph: 'Opcjonalnie' })}${micBtn('t.rec.note')}</div>`;
+}
+
+/* ================================================================ dyktowanie */
+function micBtn(path, big = false) { return speechSupported ? `<button type="button" class="mic ${big ? 'big' : ''}" data-mic="${esc(path)}" title="Dyktuj (Chrome/Edge)">${I('mic')}</button>` : ''; }
+let DICT = null;
+async function toggleMic(btn) {
+  if (DICT) { const same = DICT.btn === btn; await stopMic(); if (same) return; }
+  const target = btn.dataset.mic, el = target.startsWith('#') ? $(target) : $(`[data-b="${target}"]`);
+  if (!el) return;
+  const base = el.value.trim(), finals = [];
+  const interim = $(`#interim-${CSS.escape(target)}`);
+  const d = new Dictation({
+    lang: 'pl-PL',
+    onFinal: (txt) => { if (!txt) return; finals.push(txt); el.value = [base, finals.join(' ')].filter(Boolean).join(' '); el.dispatchEvent(new Event('input', { bubbles: true })); },
+    onInterim: (txt) => { if (interim) interim.textContent = txt; },
+    onError: (m) => toast(m, 'err'),
+    onStateChange: (on) => { btn.classList.toggle('rec', on); },
+  });
+  DICT = { d, btn, el, base, finals, target };
+  try { d.start(); btn.classList.add('rec'); } catch { DICT = null; toast('Dyktowanie działa w przeglądarce Chrome lub Edge.', 'err'); }
+}
+async function stopMic() {
+  const x = DICT; if (!x) return; DICT = null;
+  await x.d.stop(); x.btn.classList.remove('rec');
+  const dictated = x.finals.join(' ').trim();
+  const st = settings();
+  if (!dictated || !st.ai.key || st.ai.cleanDictation === false) return;
+  x.btn.classList.add('busy');
+  try {
+    const r = await cleanDictation(st.ai.key, dictated, 'Pole: ' + x.target);
+    x.el.value = [x.base, r.text].filter(Boolean).join(' '); x.el.dispatchEvent(new Event('input', { bubbles: true }));
+    if ((r.warnings || []).length) toast('Dyktowanie: ' + r.warnings.join(' '), 'err');
+  } catch (e) { toast('Nie udało się poprawić dyktowania: ' + e.message, 'err'); }
+  x.btn.classList.remove('busy');
 }
 
 /* ================================================================ modals */
@@ -472,22 +609,31 @@ function patientForm(p = {}) {
   return `<div class="grid g2">
     <label class="f"><span>Imię</span><input type="text" data-f="first" value="${esc(p.first || '')}" autofocus></label>
     <label class="f"><span>Nazwisko</span><input type="text" data-f="last" value="${esc(p.last || '')}"></label>
-    <label class="f"><span>Płeć (do odmiany w liście)</span><select data-f="sex"><option value="f" ${p.sex !== 'm' ? 'selected' : ''}>Pacjentka</option><option value="m" ${p.sex === 'm' ? 'selected' : ''}>Pacjent</option></select></label>
+    <label class="f"><span>PESEL</span><input type="text" inputmode="numeric" maxlength="11" data-f="pesel" value="${esc(p.pesel || '')}" placeholder="11 cyfr (opcjonalnie)"><em class="pesel-state"></em></label>
     <label class="f"><span>Data urodzenia</span><input type="date" data-f="dob" value="${esc(p.dob || '')}"></label>
+    <label class="f"><span>Płeć (do odmiany w liście)</span><select data-f="sex"><option value="f" ${p.sex !== 'm' ? 'selected' : ''}>Pacjentka</option><option value="m" ${p.sex === 'm' ? 'selected' : ''}>Pacjent</option></select></label>
     <label class="f"><span>Telefon</span><input type="tel" data-f="phone" value="${esc(p.phone || '')}"></label>
-    <label class="f"><span>E-mail</span><input type="email" data-f="email" value="${esc(p.email || '')}"></label>
-  </div>`;
+    <label class="f all"><span>E-mail</span><input type="email" data-f="email" value="${esc(p.email || '')}"></label>
+  </div><div class="hint" style="margin-top:8px">PESEL uzupełnia datę urodzenia i płeć. W liście pojawi się PESEL (lub data urodzenia). Dane osobowe nigdy nie są wysyłane do AI.</div>`;
 }
+/** PESEL → data urodzenia i płeć, z kontrolą sumy kontrolnej */
+function wirePesel(el) {
+  const f = $('[data-f=pesel]', el); if (!f) return;
+  const upd = () => { const v = f.value.replace(/\D/g, ''); const st = $('.pesel-state', el); if (!v) { st.textContent = ''; return; } const r = parsePesel(v); if (r) { $('[data-f=dob]', el).value = r.dob; $('[data-f=sex]', el).value = r.sex; st.textContent = '✓ poprawny'; st.className = 'pesel-state ok'; } else { st.textContent = v.length === 11 ? '✗ błędna suma kontrolna' : `${v.length}/11`; st.className = 'pesel-state ' + (v.length === 11 ? 'bad' : ''); } };
+  f.addEventListener('input', upd); upd();
+}
+function validPatient(f) { if (!f.last && !f.first) { toast('Podaj imię i nazwisko.', 'err'); return false; } if (f.pesel && !parsePesel(f.pesel)) { toast('PESEL jest nieprawidłowy — popraw go lub usuń.', 'err'); return false; } f.pesel = f.pesel.replace(/\D/g, ''); return true; }
 const readForm = (el) => Object.fromEntries($$('[data-f]', el).map((i) => [i.dataset.f, i.type === 'checkbox' ? i.checked : i.value.trim()]));
 
 function pickPatient() {
   return new Promise((res) => {
     const list = [...D().patients.values()].sort((a, b) => (a.last || '').localeCompare(b.last || '', 'pl'));
-    const rows = (q) => list.filter((p) => !q || `${p.first} ${p.last} ${p.dob}`.toLowerCase().includes(q.toLowerCase())).slice(0, 40)
-      .map((p) => `<button class="pick" data-pid="${p.id}"><span class="check">${I('user')}</span><span class="grow"><b>${esc(patientName(p))}</b><small>${p.dob ? 'ur. ' + fmtDate(p.dob) : ''}${visitsOf(p.id).length ? ` · wizyt: ${visitsOf(p.id).length}` : ''}</small></span></button>`).join('') || '<div class="hint">Brak pacjentów — dodaj nowego poniżej.</div>';
+    const rows = (q) => list.filter((p) => !q || `${p.first} ${p.last} ${p.dob} ${p.pesel || ''}`.toLowerCase().includes(q.toLowerCase())).slice(0, 40)
+      .map((p) => `<button class="pick" data-pid="${p.id}"><span class="check">${I('user')}</span><span class="grow"><b>${esc(patientName(p))}</b><small>${p.pesel ? 'PESEL ' + p.pesel + ' · ' : ''}${p.dob ? 'ur. ' + fmtDate(p.dob) : ''}${visitsOf(p.id).length ? ` · wizyt: ${visitsOf(p.id).length}` : ''}</small></span></button>`).join('') || '<div class="hint">Brak pacjentów — dodaj nowego poniżej.</div>';
     const m = modal({ title: 'Pacjent', wide: true, body: `${list.length ? `<input type="search" id="psearch" placeholder="Szukaj po nazwisku…" autofocus><div id="plist" style="margin:12px 0 16px">${rows('')}</div><div class="label">Nowy pacjent</div>` : ''}${patientForm()}`,
-      buttons: [{ label: 'Anuluj', cls: 'btn-ghost', onClick: () => res(null) }, { label: `${I('plus')} Dodaj pacjenta`, cls: 'btn-primary', onClick: (ov) => { const f = readForm(ov); if (!f.last && !f.first) { toast('Podaj imię i nazwisko.', 'err'); return false; } const p = { id: V.uid(), ...f, createdAt: Date.now() }; save('patients', p); res(p); } }],
+      buttons: [{ label: 'Anuluj', cls: 'btn-ghost', onClick: () => res(null) }, { label: `${I('plus')} Dodaj pacjenta`, cls: 'btn-primary', onClick: (ov) => { const f = readForm(ov); if (!validPatient(f)) return false; const p = { id: V.uid(), ...f, createdAt: Date.now() }; save('patients', p); res(p); } }],
       onClose: () => res(null) });
+    wirePesel(m.el);
     const s = $('#psearch', m.el); if (s) s.oninput = () => { $('#plist', m.el).innerHTML = rows(s.value); };
     m.el.addEventListener('click', (e) => { const b = e.target.closest('[data-pid]'); if (b) { res(D().patients.get(b.dataset.pid)); m.el.remove(); } });
   });
@@ -577,7 +723,7 @@ async function createLetter({ patientId, referrerId, visitIds, existing }) {
   busy.close();
   const letter = existing || { id: V.uid(), createdAt: Date.now(), files: [] };
   Object.assign(letter, {
-    patientId, referrerId, visitIds, date: existing?.date || today(), source, warnings,
+    patientId, referrerId, visitIds, date: existing?.date || today(), source, warnings, notes: [], lastChanges: [], instruction: '', genEdit: false,
     content: { title: st.letter.title, salutation: salutation(referrer), signoff: st.letter.signoff, ...content },
     glance: glance(visits),
   });
@@ -587,46 +733,124 @@ async function createLetter({ patientId, referrerId, visitIds, existing }) {
   go('letter', { letterId: letter.id });
 }
 
-/* ================================================================ LETTER view */
+/* ================================================================ LETTER view (przegląd, uwagi, poprawki AI) */
 function viewLetter() {
   const L = D().letters.get(S.letterId); if (!L) return '<div class="empty">Nie znaleziono listu.</div>';
-  const p = D().patients.get(L.patientId), r = D().referrers.get(L.referrerId), c = L.content;
+  const p = D().patients.get(L.patientId), r = D().referrers.get(L.referrerId);
+  L.notes ??= [];
   return `<div class="pagehead"><button class="btn btn-ghost" data-act="letter-back">${I('back')} Wróć</button>
     <div><h2>List — ${esc(patientName(p))}</h2><div class="small muted">do: ${esc(refName(r))} · ${fmtDate(L.date)} · <span class="ai-badge ${L.source === 'ai' ? '' : 'off'}">${L.source === 'ai' ? `${I('spark')} AI` : 'generator wbudowany'}</span></div></div>
     <span class="grow"></span>
-    <button class="btn" data-act="regen">${I('refresh')} Wygeneruj ponownie</button>
+    <button class="btn" data-act="regen">${I('refresh')} Wygeneruj od nowa</button>
+    <button class="btn" data-act="pdf-preview">${I('doc')} Podgląd PDF</button>
     <button class="btn" data-act="prodentis">${I('copy')} ProDentis</button>
     <button class="btn" data-act="print">${I('print')} Drukuj</button>
-    <button class="btn btn-soft" data-act="email">${I('mail')} Wyślij e-mailem</button>
+    <button class="btn btn-soft" data-act="email">${I('mail')} E-mail</button>
     <button class="btn btn-primary" data-act="save-pdf">${I('save')} Zapisz PDF</button></div>
-  ${(L.warnings || []).length ? `<div class="warnline" style="margin-bottom:14px">${L.warnings.map(esc).join('<br>')}</div>` : ''}
-  <div class="letter">
-    <section class="panel edit"><div class="body">
-      <label class="f"><span>Zwrot grzecznościowy</span><input type="text" data-b="L.salutation" value="${esc(c.salutation)}"></label>
-      <div class="row" style="margin:14px 0 6px"><span class="label" style="margin:0">Wstęp</span><span class="grow"></span><button class="btn btn-ghost btn-sm" data-act="alt-open">${I('refresh')} Inny wariant</button></div>
-      <textarea data-b="L.opening" rows="2">${esc(c.opening)}</textarea>
-      ${(c.sections || []).map((s, i) => `<div class="sec-edit" style="margin-top:12px"><input type="text" data-b="L.sections.${i}.heading" value="${esc(s.heading)}" style="font-weight:650;margin-bottom:8px"><textarea data-paras="${i}" rows="6">${esc((s.paragraphs || []).join('\n\n'))}</textarea></div>`).join('')}
-      <div class="label">Zalecenia (każde w osobnej linii)</div><textarea data-recs rows="4">${esc((c.recommendations || []).join('\n'))}</textarea>
-      <div class="row" style="margin:14px 0 6px"><span class="label" style="margin:0">Zakończenie</span><span class="grow"></span><button class="btn btn-ghost btn-sm" data-act="alt-close">${I('refresh')} Inny wariant</button></div>
-      <textarea data-b="L.closing" rows="2">${esc(c.closing)}</textarea>
-      <div class="grid g2" style="margin-top:12px"><label class="f"><span>Formuła końcowa</span><input type="text" data-b="L.signoff" value="${esc(c.signoff)}"></label><label class="f"><span>Tytuł listu</span><input type="text" data-b="L.title" value="${esc(c.title)}"></label></div>
-      ${L.files.length ? `<div class="hint" style="margin-top:14px">Zapisano: <code class="path">${esc(L.files.at(-1).path)}</code></div>` : ''}
-    </div></section>
-    <section class="panel" style="padding:10px"><iframe id="pdfprev" title="Podgląd listu"></iframe></section>
+  <div class="review">
+    <div class="paper-wrap">
+      <div class="paper-tools"><span class="hint">${S.manualEdit ? 'Edycja ręczna: kliknij w tekst i popraw go bezpośrednio.' : 'Zaznacz myszką fragment, który jest nie tak — pojawi się okienko na uwagę.'}</span><span class="grow"></span>
+        <label class="switch"><input type="checkbox" id="manual-edit" ${S.manualEdit ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Edycja ręczna</label></div>
+      <div id="paper">${paperHTML(L)}</div>
+    </div>
+    <aside class="panel review-side" id="rside">${reviewSide(L)}</aside>
   </div>`;
+}
+function paperHTML(L) { return letterPaperHTML(letterCtxFull(L), S.manualEdit ? [] : L.notes || [], { editable: S.manualEdit }); }
+function reviewSide(L) {
+  const notes = L.notes || [], hasKey = !!settings().ai.key, n = notes.filter((x) => x.comment).length;
+  const inst = L.instruction || '';
+  return `<div class="body">
+    <div class="rs-h">${I('edit')} Uwagi do poprawy <span class="badge">${notes.length || ''}</span></div>
+    ${notes.length ? notes.map((x) => `<div class="note-card ${x.done ? 'done' : ''}" data-note-card="${x.id}">
+        <button class="nq" data-act="goto-note" data-id="${x.id}">„${esc(x.quote.length > 90 ? x.quote.slice(0, 90) + '…' : x.quote)}"</button>
+        <textarea data-note-text="${x.id}" rows="2" placeholder="Co poprawić?">${esc(x.comment)}</textarea>
+        <div class="row"><label class="chk-done"><input type="checkbox" data-note-done="${x.id}" ${x.done ? 'checked' : ''}>Gotowe</label><span class="grow"></span><button class="btn btn-ghost btn-sm" data-act="rm-note" data-id="${x.id}">${I('trash')}</button></div></div>`).join('')
+      : '<div class="hint">Zaznacz w liście fragment, który brzmi źle lub jest nieprawdziwy, i opisz, jak ma wyglądać. Możesz dodać kilka uwag po kolei.</div>'}
+    <div class="rs-sep"></div>
+    <label class="chk-done big"><input type="checkbox" id="gen-edit" ${L.genEdit || inst ? 'checked' : ''}>Edytuj cały list</label>
+    <div id="gen-box" ${L.genEdit || inst ? '' : 'hidden'}>
+      <div class="row nowrap" style="margin-top:8px"><textarea id="gen-text" rows="4" placeholder="Opisz własnymi słowami, jak zmienić list, np. „krócej", „bardziej formalnie", „dodaj, że ząb wymaga pilnej odbudowy"…">${esc(inst)}</textarea>${micBtn('#gen-text')}</div>
+    </div>
+    <button class="btn btn-primary btn-lg" style="width:100%;margin-top:14px" data-act="revise" ${n || inst ? '' : 'disabled'}>${I('spark')} Popraw list z AI${n ? ` (${n} ${n === 1 ? 'uwaga' : n < 5 ? 'uwagi' : 'uwag'})` : ''}</button>
+    ${hasKey ? '' : '<div class="hint" style="margin-top:8px">Poprawki AI wymagają klucza API (Ustawienia). Bez niego włącz „Edycja ręczna" i popraw tekst bezpośrednio.</div>'}
+    ${(L.warnings || []).length ? `<div class="rs-sep"></div><div class="rs-h">${I('spark')} Sugestie AI</div>${L.warnings.map((w, i) => `<div class="sugg"><span>${esc(w)}</span><button class="btn btn-ghost btn-sm" data-act="use-sugg" data-i="${i}" title="Dodaj do poleceń">${I('plus')}</button></div>`).join('')}` : ''}
+    ${(L.lastChanges || []).length ? `<div class="rs-sep"></div><div class="rs-h">${I('check')} Ostatnie zmiany AI</div><ul class="changes">${L.lastChanges.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
+    ${L.files.length ? `<div class="rs-sep"></div><div class="hint">Zapisano: <code class="path">${esc(L.files.at(-1).path)}</code></div>` : ''}
+  </div>`;
+}
+function rerenderLetter() { const p = $('#paper'); if (!p) return; const L = D().letters.get(S.letterId); p.innerHTML = paperHTML(L); $('#rside').innerHTML = reviewSide(L); }
+function letterCtxFull(L) {
+  const ctx = letterCtx(L);
+  if (!ctx.dates.length) ctx.dates = [...new Set(L.visitIds.map((id) => D().visits.get(id)?.date).filter(Boolean))].sort();
+  return ctx;
 }
 function letterCtx(L) {
   const st = settings(), p = D().patients.get(L.patientId), r = D().referrers.get(L.referrerId);
   const visits = L.visitIds.map((id) => D().visits.get(id)).filter(Boolean);
-  return { doctor: st.doctor, patient: p || {}, referrer: r, content: L.content, glance: L.glance, dates: [...new Set(visits.filter((v) => v.performer !== 'other').map((v) => v.date))].sort().concat([]), letterDate: L.date, title: L.content.title };
+  return { doctor: st.doctor, patient: p || {}, referrer: r, content: L.content, glance: L.glance, dates: [...new Set(visits.filter((v) => v.performer !== 'other').map((v) => v.date))].sort(), letterDate: L.date, title: L.content.title };
 }
-async function letterBlob(L) { const ctx = letterCtx(L); if (!ctx.dates.length) ctx.dates = [...new Set(L.visitIds.map((id) => D().visits.get(id)?.date).filter(Boolean))].sort(); return buildLetterPDF(ctx); }
-const refreshPreview = debounce(async () => {
-  const L = D().letters.get(S.letterId), fr = $('#pdfprev'); if (!L || !fr) return;
-  try { const b = await letterBlob(L); if (S.previewUrl) URL.revokeObjectURL(S.previewUrl); S.previewUrl = URL.createObjectURL(b); fr.src = S.previewUrl + '#view=FitH&toolbar=0'; }
-  catch (e) { console.error(e); toast('Błąd podglądu PDF: ' + e.message, 'err'); }
-}, 600);
-function afterLetter() { refreshPreview.flush(); }
+async function letterBlob(L) { return buildLetterPDF(letterCtxFull(L)); }
+function afterLetter() {}
+/* selection → note popover */
+function onPaperSelect() {
+  if (S.view !== 'letter' || S.manualEdit) return;
+  const sel = window.getSelection(); if (!sel || sel.isCollapsed) return;
+  const quote = sel.toString().replace(/\s+/g, ' ').trim(); if (quote.length < 2) return;
+  const node = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
+  const host = node && node.closest('#paper [data-loc]'); if (!host) return;
+  const endNode = sel.focusNode && (sel.focusNode.nodeType === 1 ? sel.focusNode : sel.focusNode.parentElement);
+  const loc = host.dataset.loc, sameBlock = endNode && endNode.closest('[data-loc]') === host;
+  const rect = sel.getRangeAt(0).getBoundingClientRect();
+  showNotePop({ loc, quote: sameBlock ? quote : host.innerText.trim(), rect });
+}
+function showNotePop({ loc, quote, rect }) {
+  $('.note-pop')?.remove();
+  const pop = document.createElement('div'); pop.className = 'note-pop';
+  pop.innerHTML = `<div class="np-q">„${esc(quote.length > 140 ? quote.slice(0, 140) + '…' : quote)}"</div>
+    <div class="row nowrap"><textarea id="np-text" rows="3" placeholder="Co jest nie tak i jak powinno być?"></textarea>${micBtn('#np-text')}</div>
+    <div class="row" style="margin-top:8px"><label class="chk-done"><input type="checkbox" id="np-done">Gotowe — zapisz uwagę</label><span class="grow"></span><button class="btn btn-ghost btn-sm" id="np-cancel">Anuluj</button></div>`;
+  document.body.appendChild(pop);
+  const w = 360, x = Math.min(window.innerWidth - w - 14, Math.max(14, rect.left + rect.width / 2 - w / 2));
+  const y = rect.bottom + 10 + 220 > window.innerHeight ? Math.max(14, rect.top - 230) : rect.bottom + 10;
+  Object.assign(pop.style, { left: x + 'px', top: y + 'px', width: w + 'px' });
+  const ta = $('#np-text', pop); ta.focus();
+  const commit = () => {
+    const comment = ta.value.trim();
+    if (!comment) { toast('Opisz, co poprawić.', 'err'); $('#np-done', pop).checked = false; return; }
+    const L = D().letters.get(S.letterId);
+    L.notes = [...(L.notes || []), { id: V.uid(), loc, quote, comment, done: true }]; save('letters', L);
+    pop.remove(); window.getSelection()?.removeAllRanges(); rerenderLetter();
+  };
+  $('#np-done', pop).onchange = (e) => { if (e.target.checked) commit(); };
+  ta.onkeydown = (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) commit(); if (e.key === 'Escape') pop.remove(); };
+  $('#np-cancel', pop).onclick = () => { if (DICT) stopMic(); pop.remove(); };
+}
+async function reviseWithAI(L) {
+  const st = settings();
+  const inst = ($('#gen-text')?.value || L.instruction || '').trim();
+  const notes = (L.notes || []).filter((x) => x.comment);
+  if (!st.ai.key) return toast('Poprawki AI wymagają klucza API — dodaj go w Ustawieniach lub użyj edycji ręcznej.', 'err');
+  if (!notes.length && !inst) return toast('Dodaj uwagę lub polecenie.', 'err');
+  const p = D().patients.get(L.patientId) || {}, r = D().referrers.get(L.referrerId);
+  const visits = L.visitIds.map((id) => D().visits.get(id)).filter(Boolean);
+  const facts = aiPayload({ visits, patient: p, doctor: st.doctor, referrer: r, used: { openings: [], closings: [] }, icd: st.letter.icd });
+  delete facts.draft;
+  const { opening, sections, recommendations, closing } = L.content;
+  const busy = modal({ title: 'AI poprawia list…', body: `<div class="row" style="gap:14px;padding:8px 0 4px"><span class="spin big"></span><span class="muted">Wprowadzam ${notes.length} ${notes.length === 1 ? 'uwagę' : 'uwag(i)'}${inst ? ' i polecenie ogólne' : ''}.</span></div>` });
+  try {
+    const out = await reviseLetter(st.ai.key, { letter: { opening, sections, recommendations, closing }, annotations: notes.map((x) => ({ location: x.loc, quote: x.quote, comment: x.comment })), instruction: inst, facts: facts.teeth, visit_notes: facts.visit_notes, doctor: facts.doctor, patient: facts.patient, addressee: facts.addressee, include_icd10: facts.include_icd10 }, { effort: st.ai.effort });
+    L.history = [...(L.history || []), { at: Date.now(), content: clone(L.content), notes, instruction: inst }].slice(-15);
+    Object.assign(L.content, { opening: out.opening, sections: out.sections, recommendations: out.recommendations, closing: out.closing });
+    L.notes = []; L.instruction = ''; L.genEdit = false; L.lastChanges = out.changes || []; L.warnings = out.warnings || []; L.source = 'ai';
+    save('letters', L); busy.close(); renderView(); toast('List poprawiony.', 'ok');
+  } catch (e) { busy.close(); toast(e.message, 'err'); }
+}
+async function pdfPreview(L) {
+  const b = await letterBlob(L); const url = URL.createObjectURL(b);
+  modal({ title: 'Podgląd PDF', wide: true, body: `<iframe src="${url}#view=FitH" style="width:100%;height:72vh;border:0;border-radius:12px;background:#2a3242"></iframe>`, onClose: () => URL.revokeObjectURL(url) });
+}
+
 function letterFileInfo(L) {
   const p = D().patients.get(L.patientId) || {}, r = D().referrers.get(L.referrerId);
   return names(p, L, r, L.glance.map((g) => g.fdi));
@@ -696,7 +920,7 @@ function viewPatients() {
 function viewPatient() {
   const p = D().patients.get(S.patientId); if (!p) return '<div class="empty">Nie znaleziono pacjenta.</div>';
   const vs = visitsOf(p.id), ls = lettersOf(p.id);
-  return `<div class="pagehead"><button class="btn btn-ghost" data-nav="patients">${I('back')} Pacjenci</button><div><h2>${esc(patientName(p))}</h2><div class="small muted">${p.dob ? 'ur. ' + fmtDate(p.dob) : ''}${p.phone ? ' · ' + esc(p.phone) : ''}</div></div><span class="grow"></span>
+  return `<div class="pagehead"><button class="btn btn-ghost" data-nav="patients">${I('back')} Pacjenci</button><div><h2>${esc(patientName(p))}</h2><div class="small muted">${p.pesel ? 'PESEL ' + esc(p.pesel) + ' · ' : ''}${p.dob ? 'ur. ' + fmtDate(p.dob) : ''}${p.phone ? ' · ' + esc(p.phone) : ''}</div></div><span class="grow"></span>
     <button class="btn" data-act="edit-patient">Edytuj dane</button><button class="btn" data-act="other-visit">${I('plus')} Leczenie z innego gabinetu</button><button class="btn btn-soft" data-act="patient-visit">${I('plus')} Nowa wizyta</button><button class="btn btn-primary" data-act="patient-letter" ${vs.some((v) => v.teeth.length) ? '' : 'disabled'}>${I('spark')} Nowy list</button></div>
   <div class="settings">
     <section class="panel"><header><h3>Wizyty</h3><span class="sub">${vs.length}</span></header>${vs.length ? `<table class="list"><tbody>${vs.map((v) => `<tr class="click" data-open-visit="${v.id}"><td style="width:110px">${fmtDate(v.date)}</td><td>${v.performer === 'other' ? `<span class="tag o">${esc(v.otherDentist || 'inny lekarz')}</span>` : '<span class="tag g">moje leczenie</span>'}</td><td>${v.teeth.map((t) => `<span class="tag ${markFor([{ visit: v, rec: t }]) === 'work' ? 'v' : ''}" title="${esc(toothSummary(t))}">${t.fdi}</span>`).join('') || '<span class="faint">—</span>'}</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" data-act="del-visit" data-id="${v.id}">${I('trash')}</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Brak wizyt.</div>'}</section>
@@ -719,9 +943,12 @@ function viewSettings() {
       ${sel('s.doctor.title', 'Tytuł', Object.fromEntries(DOC_TITLES.map((t) => [t, t])))}${sel('s.doctor.gender', 'Forma', { f: 'Pani', m: 'Pan' })}
       ${inp('s.doctor.first', 'Imię')}${inp('s.doctor.last', 'Nazwisko')}
       ${inp('s.doctor.specialty', 'Specjalizacja', { cls: 'all', ph: 'np. specjalista endodoncji' })}
-      ${inp('s.doctor.practice', 'Gabinet', { cls: 'all' })}${inp('s.doctor.address', 'Adres', { cls: 'all' })}
+      ${inp('s.doctor.practice', 'Gabinet / klinika')}${inp('s.doctor.group', 'Grupa')}${inp('s.doctor.address', 'Adres', { cls: 'all' })}
       ${inp('s.doctor.city', 'Miejscowość')}${inp('s.doctor.npwz', 'NPWZ')}${inp('s.doctor.phone', 'Telefon')}${inp('s.doctor.email', 'E-mail')}
     </div>
+    <div class="label">Logo kliniki i grupy (w aplikacji i na listach)</div>
+    <div class="grid g2">${['logo', 'groupLogo'].map((k) => `<div class="logo-slot">${d[k] ? `<img src="${d[k]}" alt="">` : `<span class="faint small">${k === 'logo' ? 'Logo kliniki' : 'Logo grupy'}</span>`}<div class="row" style="margin-top:8px"><button class="btn btn-sm" data-act="logo-pick" data-k="${k}">${d[k] ? 'Zmień' : 'Dodaj'}</button>${d[k] ? `<button class="btn btn-ghost btn-sm" data-act="logo-clear" data-k="${k}">Usuń</button>` : ''}</div></div>`).join('')}</div>
+    <input type="file" id="logo-input" accept="image/*" hidden>
     <div class="label">Podpis</div><div class="row">${d.signature ? `<img class="sig-prev" src="${d.signature}" alt="">` : '<span class="faint small">Brak</span>'}<span class="grow"></span><button class="btn btn-sm" data-act="sig-pick">${d.signature ? 'Zmień' : 'Dodaj'} podpis</button>${d.signature ? '<button class="btn btn-ghost btn-sm" data-act="sig-clear">Usuń</button>' : ''}</div>
     <div style="margin-top:10px">${sw('s.doctor.useSignature', 'Umieszczaj podpis na listach')}</div><input type="file" id="sig-input" accept="image/*" hidden>
     </div></section>
@@ -729,7 +956,7 @@ function viewSettings() {
       <div class="row" style="margin-top:14px"><button class="btn btn-sm" data-act="sample">${I('doc')} Podgląd przykładowego listu</button></div></div></section>
   </div><div>
     <section class="panel"><header><h3>${I('spark')} Asystent AI</h3><span class="sub">Claude (Anthropic)</span></header><div class="body">
-      <div class="row">${sw('s.ai.enabled', 'Pisz listy z pomocą AI')}</div>
+      <div class="row" style="gap:18px">${sw('s.ai.enabled', 'Pisz listy z pomocą AI')}${sw('s.ai.cleanDictation', 'Poprawiaj dyktowanie (AI)')}</div>
       <div class="grid g2" style="margin-top:12px"><label class="f all"><span>Klucz API</span><input type="password" data-b="s.ai.key" value="${esc(st.ai.key)}" placeholder="sk-ant-…" autocomplete="off"></label>
       <div class="f"><span>Staranność</span>${seg('s.ai.effort', { low: 'szybko', medium: 'standard', high: 'dokładnie' })}</div><div class="f"><span>&nbsp;</span><button class="btn btn-sm" data-act="test-key">Sprawdź klucz</button></div></div>
       <p class="hint" style="margin-top:12px">Do AI wysyłane są wyłącznie dane kliniczne (numery zębów, wyniki badań, opis leczenia) oraz rodzaj gramatyczny — bez imion, nazwisk, dat urodzenia i adresów, które aplikacja wstawia lokalnie. Klucz jest przechowywany w zaszyfrowanym sejfie. Bez klucza listy tworzy generator wbudowany.</p>
@@ -761,11 +988,13 @@ document.addEventListener('click', async (e) => {
   const nav = t.closest('[data-nav]'); if (nav && S.session) { S.search = ''; go(nav.dataset.nav); return; }
   const segb = t.closest('.seg[data-seg] button');
   if (segb) { const sg = segb.parentElement; setBound(sg.dataset.seg, segb.dataset.v); $$('button', sg).forEach((b) => b.classList.toggle('on', b === segb)); if (sg.dataset.re || sg.dataset.seg.startsWith('v.')) rerender(sg.dataset.seg); return; }
-  const tooth = t.closest('#arch g.tooth'); if (tooth) { toggleTooth(+tooth.dataset.fdi); return; }
-  const tch = t.closest('[data-tooth]'); if (tch) { S.fdi = +tch.dataset.tooth; refreshVisit({ panel: true }); return; }
-  const tt = t.closest('[data-ttab]'); if (tt) { S.ttab = tt.dataset.ttab; $('#tpanel').innerHTML = toothPanel(); renderDx(); return; }
+  const mic = t.closest('[data-mic]'); if (mic) { toggleMic(mic); return; }
+  const tooth = t.closest('#arch g.tooth'); if (tooth) { openTooth(+tooth.dataset.fdi); return; }
+  const tch = t.closest('[data-open-tooth]'); if (tch) { openTooth(+tch.dataset.openTooth); return; }
+  const tt = t.closest('[data-ttab]'); if (tt) { S.ttab = tt.dataset.ttab; refreshWorkspace(); return; }
+  const qk = t.closest('[data-quick]'); if (qk && S.ws) { quickToggle(S.ws.draft, qk.dataset.quick); S.ws.dirty = true; refreshWorkspace({ model: true }); return; }
   const row = t.closest('[data-open-patient]'); if (row) { go('patient', { patientId: row.dataset.openPatient }); return; }
-  const rv = t.closest('[data-open-visit]'); if (rv && !t.closest('button')) { const v = D().visits.get(rv.dataset.openVisit); go('visit', { visitId: v.id, fdi: v.teeth[0]?.fdi || null }); return; }
+  const rv = t.closest('[data-open-visit]'); if (rv && !t.closest('button')) { go('visit', { visitId: rv.dataset.openVisit }); return; }
   const rl = t.closest('[data-open-letter]'); if (rl && !t.closest('button')) { go('letter', { letterId: rl.dataset.openLetter }); return; }
   const re = t.closest('[data-edit-ref]'); if (re && !t.closest('button')) { await editReferrer(D().referrers.get(re.dataset.editRef)); renderView(); return; }
   const a = t.closest('[data-act]'); if (!a) return;
@@ -781,6 +1010,7 @@ async function action(act, a) {
     case 'ob-next': readOB(); if (OB.step === 0 && !OB.doctor.last) return toast('Podaj nazwisko.', 'err'); return renderOnboarding(OB.step + 1);
     case 'ob-prev': readOB(); return renderOnboarding(OB.step - 1);
     case 'ob-sig': return $('#ob-sig-input').click();
+    case 'ob-logo': { const el = $('#ob-logo-input'), k = a.dataset.k; el.onchange = async () => { const f = el.files[0]; if (f) { readOB(); OB.doctor[k] = await logoData(f); renderOnboarding(1); } }; return el.click(); }
     case 'ob-sig-clear': readOB(); OB.doctor.signature = ''; return renderOnboarding(2);
     case 'ob-create': {
       const f = new FormData($('#ob-acc'));
@@ -819,36 +1049,50 @@ async function action(act, a) {
     case 'backup-now': S.folder.error = ''; if (await backupNow()) toast('Kopia zapasowa utworzona.', 'ok'); renderBanner(); return renderView();
     case 'download-backup': download(new Blob([JSON.stringify(await S.session.exportBackup())], { type: 'application/json' }), `endolist-kopia-${today()}.json`); return toast('Pobrano zaszyfrowaną kopię. Do odtworzenia potrzebne jest hasło.', 'ok');
     /* visit */
-    case 'new-visit': { const nv = newVisit(v?.patientId || '', v?.referrerId || ''); D().visits.set(nv.id, nv); return go('visit', { visitId: nv.id, fdi: null, ttab: 'anat' }); }
+    case 'new-visit': { const nv = newVisit(v?.patientId || '', v?.referrerId || ''); D().visits.set(nv.id, nv); return go('visit', { visitId: nv.id }); }
     case 'pick-patient': { const p = await pickPatient(); if (p) { v.patientId = p.id; save('visits', v); renderView(); } return; }
     case 'pick-referrer': { const r = await pickReferrer(); if (r) { v.referrerId = r.id; save('visits', v); renderView(); } return; }
     case 'save-visit': if (!v.patientId) { const p = await pickPatient(); if (!p) return; v.patientId = p.id; } save('visits', v); renderView(); return toast('Wizyta zapisana.', 'ok');
     case 'gen-letter': save('visits', v); return startLetter(v.id);
-    case 'rm-tooth': if (!(await confirmBox('Usunąć ząb z wizyty?', `Ząb ${rec.fdi} i wszystkie wpisane dla niego dane zostaną usunięte z tej wizyty.`))) return; v.teeth = v.teeth.filter((x) => x !== rec); S.fdi = v.teeth[0]?.fdi || null; save('visits', v); return refreshVisit({ panel: true });
-    case 'cfg': { const c = anatomy(rec.fdi).configs[+a.dataset.i]; rec.config = +a.dataset.i; rec.anatOk = true; rec.roots = configRoots(c, rec.roots); save('visits', v); return refreshVisit({ panel: true }); }
-    case 'roots': rec.anatOk = true; rec.roots = rootsForCount(rec.fdi, +a.dataset.n, rec.roots); rec.config = anatomy(rec.fdi).configs.findIndex((c) => c.roots.length === +a.dataset.n); save('visits', v); return refreshVisit({ panel: true });
-    case 'add-canal': { const name = a.dataset.name === 'dodatkowy' ? 'X' : a.dataset.name; rec.roots[+a.dataset.r].canals.push({ name, wl: '', ref: '', maf: '' }); rec.config = -1; rec.anatOk = true; save('visits', v); return refreshVisit({ panel: true }); }
-    case 'rm-canal': rec.roots[+a.dataset.r].canals.splice(+a.dataset.c, 1); rec.config = -1; rec.anatOk = true; save('visits', v); return refreshVisit({ panel: true });
-    case 'add-work': rec.work.push({ id: V.uid(), type: a.dataset.type, cls: '', surf: [], mat: '', postType: '', prep: [], note: '' }); save('visits', v); return refreshVisit({ panel: true });
-    case 'rm-work': rec.work.splice(+a.dataset.i, 1); save('visits', v); return refreshVisit({ panel: true });
+    case 'ws-save': return saveWorkspace();
+    case 'ws-cancel': if (S.ws.dirty && !(await confirmBox('Odrzucić zmiany?', `Zmiany w zębie ${S.ws.fdi} nie zostały zapisane.`, 'Odrzuć'))) return; return closeWorkspace();
+    case 'rm-tooth': if (!(await confirmBox('Usunąć ząb z wizyty?', `Ząb ${rec.fdi} i wszystkie wpisane dla niego dane zostaną usunięte z tej wizyty.`))) return; v.teeth = v.teeth.filter((x) => x.fdi !== rec.fdi); save('visits', v); return closeWorkspace();
+    case 'cfg': { const c = anatomy(rec.fdi).configs[+a.dataset.i]; rec.config = +a.dataset.i; rec.anatOk = true; rec.roots = configRoots(c, rec.roots); S.ws.dirty = true; return refreshWorkspace({ model: true }); }
+    case 'roots': rec.anatOk = true; rec.roots = rootsForCount(rec.fdi, +a.dataset.n, rec.roots); rec.config = anatomy(rec.fdi).configs.findIndex((c) => c.roots.length === +a.dataset.n); S.ws.dirty = true; return refreshWorkspace({ model: true });
+    case 'add-canal': { const name = a.dataset.name === 'dodatkowy' ? 'X' : a.dataset.name; rec.roots[+a.dataset.r].canals.push({ name, wl: '', ref: '', maf: '' }); rec.config = -1; rec.anatOk = true; S.ws.dirty = true; return refreshWorkspace({ model: true }); }
+    case 'rm-canal': rec.roots[+a.dataset.r].canals.splice(+a.dataset.c, 1); rec.config = -1; rec.anatOk = true; S.ws.dirty = true; return refreshWorkspace({ model: true });
+    case 'add-work': rec.work.push({ id: V.uid(), type: a.dataset.type, cls: '', surf: [], mat: '', product: '', postType: '', prep: [], note: '' }); S.ws.dirty = true; return refreshWorkspace();
+    case 'rm-work': rec.work.splice(+a.dataset.i, 1); S.ws.dirty = true; return refreshWorkspace();
+    case 'add-prod': case 'pick-prod': {
+      const cat = S.matCat || 'files', name = (act === 'pick-prod' ? a.dataset.name : $('#mat-name').value).trim(); if (!name) return;
+      rec.products ??= [];
+      const i = rec.products.findIndex((x) => x.name === name);
+      if (i >= 0 && act === 'pick-prod') rec.products.splice(i, 1); else if (i < 0) rec.products.push({ cat, name });
+      if (!PRODUCTS[cat].includes(name)) { const st = settings(); st.customProducts ??= {}; const l = st.customProducts[cat] ??= []; if (!l.includes(name)) { l.push(name); save('settings', st); } }
+      S.ws.dirty = true; return refreshWorkspace();
+    }
+    case 'rm-prod': rec.products.splice(+a.dataset.i, 1); S.ws.dirty = true; return refreshWorkspace();
+    case 'clean-manual': {
+      if (!rec.manual?.trim()) return toast('Najpierw wpisz lub podyktuj opis.', 'err');
+      a.disabled = true; a.innerHTML = '<span class="spin"></span> Poprawianie…';
+      try { const r = await cleanDictation(settings().ai.key, rec.manual, 'Opis wykonanej pracy przy zębie ' + rec.fdi); rec.manual = r.text; S.ws.dirty = true; refreshWorkspace(); if (r.warnings?.length) toast(r.warnings.join(' '), 'err'); else toast('Tekst poprawiony.', 'ok'); } catch (er) { toast(er.message, 'err'); a.disabled = false; }
+      return;
+    }
     /* letter */
     case 'letter-back': { const L = D().letters.get(S.letterId); return go('patient', { patientId: L.patientId }); }
     case 'save-pdf': return saveLetterPdf(D().letters.get(S.letterId));
     case 'email': return emailLetter(D().letters.get(S.letterId));
     case 'prodentis': return prodentisModal(D().letters.get(S.letterId));
     case 'print': { const b = await letterBlob(D().letters.get(S.letterId)); const w = window.open(URL.createObjectURL(b)); if (!w) toast('Zezwól na wyskakujące okna, aby drukować.', 'err'); else setTimeout(() => { try { w.print(); } catch {} }, 800); return; }
-    case 'regen': { const L = D().letters.get(S.letterId); return createLetter({ patientId: L.patientId, referrerId: L.referrerId, visitIds: L.visitIds, existing: L }); }
-    case 'alt-open': case 'alt-close': {
-      const L = D().letters.get(S.letterId), p = D().patients.get(L.patientId) || {}, P = PT[p.sex === 'm' ? 'm' : 'f'], g = settings().doctor.gender;
-      const list = act === 'alt-open' ? [...OPENINGS, ...OPENINGS_REPEAT].map((f) => f(P)) : CLOSINGS.map((f) => f(P, g));
-      const cur = act === 'alt-open' ? L.content.opening : L.content.closing;
-      const pool = list.filter((x) => x !== cur); const pick = pool[Math.floor(Math.random() * pool.length)];
-      if (act === 'alt-open') L.content.opening = pick; else L.content.closing = pick;
-      save('letters', L); $(`[data-b="L.${act === 'alt-open' ? 'opening' : 'closing'}"]`).value = pick; return refreshPreview();
-    }
+    case 'regen': { const L = D().letters.get(S.letterId); if (!(await confirmBox('Wygenerować list od nowa?', 'Obecna treść i uwagi zostaną zastąpione nową wersją listu.', 'Wygeneruj'))) return; return createLetter({ patientId: L.patientId, referrerId: L.referrerId, visitIds: L.visitIds, existing: L }); }
+    case 'pdf-preview': return pdfPreview(D().letters.get(S.letterId));
+    case 'revise': { const L = D().letters.get(S.letterId); L.instruction = $('#gen-text')?.value || ''; return reviseWithAI(L); }
+    case 'use-sugg': { const L = D().letters.get(S.letterId); const w = L.warnings[+a.dataset.i]; L.genEdit = true; L.instruction = [L.instruction || $('#gen-text')?.value || '', w].filter(Boolean).join('\n'); save('letters', L); return rerenderLetter(); }
+    case 'rm-note': { const L = D().letters.get(S.letterId); L.notes = L.notes.filter((x) => x.id !== a.dataset.id); save('letters', L); return rerenderLetter(); }
+    case 'goto-note': { const m = $(`mark[data-note="${a.dataset.id}"]`); if (m) { m.scrollIntoView({ behavior: 'smooth', block: 'center' }); m.classList.add('flash'); setTimeout(() => m.classList.remove('flash'), 1200); } return; }
     /* patients */
     case 'add-patient': { const p = await pickPatient(); if (p) go('patient', { patientId: p.id }); return; }
-    case 'edit-patient': { const p = D().patients.get(S.patientId); modal({ title: 'Dane pacjenta', wide: true, body: patientForm(p), buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: 'Zapisz', cls: 'btn-primary', onClick: (ov) => { Object.assign(p, readForm(ov)); save('patients', p); renderView(); } }] }); return; }
+    case 'edit-patient': { const p = D().patients.get(S.patientId); const m = modal({ title: 'Dane pacjenta', wide: true, body: patientForm(p), buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: 'Zapisz', cls: 'btn-primary', onClick: (ov) => { const f = readForm(ov); if (!validPatient(f)) return false; Object.assign(p, f); save('patients', p); renderView(); } }] }); wirePesel(m.el); return; }
     case 'patient-visit': case 'other-visit': {
       const last = visitsOf(S.patientId)[0];
       const nv = newVisit(S.patientId, last?.referrerId || '');
@@ -870,6 +1114,8 @@ async function action(act, a) {
     /* settings */
     case 'sig-pick': { const el = $('#sig-input'); el.onchange = async () => { const f = el.files[0]; if (f) { settings().doctor.signature = await signatureData(f); save('settings', settings()); renderView(); } }; return el.click(); }
     case 'sig-clear': settings().doctor.signature = ''; save('settings', settings()); return renderView();
+    case 'logo-pick': { const el = $('#logo-input'), k = a.dataset.k; el.onchange = async () => { const f = el.files[0]; if (f) { settings().doctor[k] = await logoData(f); save('settings', settings()); renderTop(); renderView(); } }; return el.click(); }
+    case 'logo-clear': settings().doctor[a.dataset.k] = ''; save('settings', settings()); renderTop(); return renderView();
     case 'test-key': { a.disabled = true; try { await testKey(settings().ai.key); toast('Klucz API działa.', 'ok'); } catch (er) { toast(er.message, 'err'); } a.disabled = false; return; }
     case 'pk-add': { try { await S.session.addPasskey(); toast('Dodano klucz dostępu.', 'ok'); scheduleBackup(); renderView(); } catch (er) { if (er.name !== 'NotAllowedError') toast(er.message, 'err'); } return; }
     case 'pk-del': if (await confirmBox('Usunąć klucz dostępu?', 'Logowanie tym kluczem przestanie działać. Hasło działa nadal.')) { await S.session.removePasskey(a.dataset.id); scheduleBackup(); renderView(); } return;
@@ -877,33 +1123,41 @@ async function action(act, a) {
     case 'sample': return sampleLetter();
   }
 }
-function rerender(path) { if (path.startsWith('v.')) { renderView(); return; } if (path.startsWith('t.')) refreshVisit({ panel: true }); else if (path.startsWith('s.')) renderView(); }
+function rerender(path) { if (path.startsWith('v.')) { renderView(); return; } if (path.startsWith('t.')) refreshWorkspace({ model: true }); else if (path.startsWith('s.')) renderView(); }
 function setBound(path, value) {
   const [root, ...rest] = path.split('.'); const p = rest.join('.');
   if (root === 's') { setPath(settings(), p, value); save('settings', settings()); return; }
-  if (root === 'L') { const L = D().letters.get(S.letterId); setPath(L.content, p, value); save('letters', L); refreshPreview(); return; }
+  if (root === 'L') { const L = D().letters.get(S.letterId); setPath(L.content, p, value); save('letters', L); return; }
+  if (root === 't') {
+    const t = curTooth(); if (!t) return;
+    setPath(t, p, value); S.ws.dirty = true;
+    if (p.startsWith('roots.') && value) t.anatOk = true;
+    if (p === 'endo.proc' && ENDO[value]?.consult) t.endo.status = 'done';
+    renderDx(); $('#ws-sum').textContent = toothSummary(t);
+    if (p.startsWith('roots.') || p.startsWith('endo.status') || p.startsWith('endo.proc')) update3D();
+    return;
+  }
   const v = curVisit(); if (!v) return;
-  setPath(root === 'v' ? v : curTooth(), p, value);
-  if (root === 't' && p.startsWith('roots.') && value) curTooth().anatOk = true;
-  if (root === 't' && /^(endo\.(status|proc))$/.test(p) && value && p === 'endo.proc') { const pr = ENDO[value]; if (pr?.consult) curTooth().endo.status = 'done'; }
-  save('visits', v);
-  if (S.view === 'visit') { refreshVisit(); renderDx(); const tp = $('.tp-name'); if (tp && curTooth()) tp.textContent = toothSummary(curTooth()); }
-}
-function toggleTooth(fdi) {
-  const v = curVisit();
-  if (!v.teeth.some((t) => t.fdi === fdi)) { v.teeth.push(newToothRec(fdi, v.performer === 'other')); v.teeth.sort((a, b) => a.fdi - b.fdi); save('visits', v); S.ttab = 'anat'; }
-  S.fdi = fdi; refreshVisit({ panel: true });
+  setPath(v, p, value); save('visits', v);
 }
 document.addEventListener('input', (e) => {
   const el = e.target;
   if (el.id === 'search') { S.search = el.value; const pos = el.selectionStart; renderView(); const s = $('#search'); s.focus(); s.setSelectionRange(pos, pos); return; }
-  if (el.dataset.paras !== undefined) { const L = D().letters.get(S.letterId); L.content.sections[+el.dataset.paras].paragraphs = el.value.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean); save('letters', L); return refreshPreview(); }
-  if (el.dataset.recs !== undefined) { const L = D().letters.get(S.letterId); L.content.recommendations = el.value.split('\n').map((x) => x.trim()).filter(Boolean); save('letters', L); return refreshPreview(); }
+  if (el.dataset.noteText) { const L = D().letters.get(S.letterId); const n = L.notes.find((x) => x.id === el.dataset.noteText); if (n) { n.comment = el.value; save('letters', L); } return; }
+  if (el.id === 'gen-text') { const L = D().letters.get(S.letterId); L.instruction = el.value; save('letters', L); const b = $('[data-act=revise]'); if (b) b.disabled = !(el.value.trim() || (L.notes || []).some((x) => x.comment)); return; }
+  const lp = el.closest && el.closest('#paper [data-loc][contenteditable]');
+  if (lp) { const L = D().letters.get(S.letterId); setPath(L.content, lp.dataset.loc, lp.innerText.replace(/\s+\n/g, '\n').trim()); save('letters', L); return; }
   if (el.dataset.b && el.type !== 'checkbox' && el.tagName !== 'SELECT') setBound(el.dataset.b, el.value);
 });
+document.addEventListener('mouseup', (e) => { if (e.target.closest && e.target.closest('#paper')) setTimeout(onPaperSelect, 10); });
 document.addEventListener('change', (e) => {
   const el = e.target;
-  if (el.dataset.arr) { const arr = [...(val(el.dataset.arr) || [])]; const i = arr.indexOf(el.value); if (el.checked && i < 0) arr.push(el.value); if (!el.checked && i >= 0) arr.splice(i, 1); setBound(el.dataset.arr, arr); if (el.dataset.arr === 't.endo.irrig') refreshVisit({ panel: true }); return; }
+  if (el.id === 'xray') { S.xray = el.checked; if (S.t3d) S.t3d.setXray(el.checked); return; }
+  if (el.id === 'mat-cat') { S.matCat = el.value; return refreshWorkspace(); }
+  if (el.id === 'manual-edit') { S.manualEdit = el.checked; return renderView(); }
+  if (el.id === 'gen-edit') { const L = D().letters.get(S.letterId); L.genEdit = el.checked; save('letters', L); $('#gen-box').hidden = !el.checked; if (el.checked) $('#gen-text').focus(); return; }
+  if (el.dataset.noteDone) { const L = D().letters.get(S.letterId); const n = L.notes.find((x) => x.id === el.dataset.noteDone); if (n) { n.done = el.checked; save('letters', L); rerenderLetter(); } return; }
+  if (el.dataset.arr) { const arr = [...(val(el.dataset.arr) || [])]; const i = arr.indexOf(el.value); if (el.checked && i < 0) arr.push(el.value); if (!el.checked && i >= 0) arr.splice(i, 1); setBound(el.dataset.arr, arr); if (el.dataset.arr.startsWith('t.')) refreshWorkspace(); return; }
   if (el.dataset.b && el.type === 'checkbox') { setBound(el.dataset.b, el.checked); if (el.dataset.re) rerender(el.dataset.b); return; }
   if (el.dataset.b && el.tagName === 'SELECT') { setBound(el.dataset.b, el.value); if (el.dataset.re || el.dataset.b.startsWith('s.')) rerender(el.dataset.b); }
 });
@@ -918,6 +1172,14 @@ async function signatureData(file) {
     // white paper → transparent, so the signature sits cleanly on the letter
     const d = x.getImageData(0, 0, w, h); for (let i = 0; i < d.data.length; i += 4) { const l = (d.data[i] + d.data[i + 1] + d.data[i + 2]) / 3; if (l > 215) d.data[i + 3] = 0; else if (l > 160) d.data[i + 3] = Math.round(((215 - l) / 55) * 255); }
     x.putImageData(d, 0, 0); return cv.toDataURL('image/png');
+  } finally { URL.revokeObjectURL(url); }
+}
+async function logoData(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const k = Math.min(1, 1000 / Math.max(im.width, im.height)); const cv = document.createElement('canvas'); cv.width = Math.round(im.width * k); cv.height = Math.round(im.height * k);
+    cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); return cv.toDataURL('image/png');
   } finally { URL.revokeObjectURL(url); }
 }
 async function reloadData() { const all = await S.session.loadAll(); for (const k of ['patients', 'visits', 'letters', 'referrers', 'settings']) if (all[k]) S.data[k] = all[k]; if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS)); }
@@ -970,4 +1232,4 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 boot().catch((e) => { console.error(e); $('#root').innerHTML = `<div class="auth"><div class="auth-card"><h1>Błąd uruchomienia</h1><p class="lead">${esc(e.message)}</p><p class="hint">Upewnij się, że nie używasz trybu prywatnego / incognito.</p></div></div>`; });
 
 // test hooks (used by the automated tests only)
-window.__endolist = { S, save, settings };
+window.__endolist = { S, save, settings, rerender: () => (S.view === 'letter' ? rerenderLetter() : renderView()) };

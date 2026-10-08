@@ -1,9 +1,9 @@
 // EndoList — service worker: aplikacja działa offline (AI wymaga internetu).
-const VERSION = 'endolist-v1';
+const VERSION = 'endolist-v2';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
-  'js/app.js', 'js/ai.js', 'js/data.js', 'js/dx.js', 'js/files.js', 'js/letter.js', 'js/odontogram.js', 'js/pdf.js', 'js/vault.js',
-  'vendor/jspdf.umd.min.js', 'vendor/anthropic-sdk.mjs',
+  'js/app.js', 'js/ai.js', 'js/data.js', 'js/dx.js', 'js/files.js', 'js/letter.js', 'js/odontogram.js', 'js/pdf.js', 'js/vault.js', 'js/tooth3d.js', 'js/speech.js', 'js/letterview.js',
+  'vendor/jspdf.umd.min.js', 'vendor/anthropic-sdk.mjs', 'vendor/three.mjs',
   'fonts/Inter-Regular.woff2', 'fonts/Inter-Medium.woff2', 'fonts/Inter-SemiBold.woff2',
   'fonts/pdf/Inter-Regular.ttf', 'fonts/pdf/Inter-Medium.ttf', 'fonts/pdf/Inter-SemiBold.ttf', 'fonts/pdf/Inter-Italic.ttf', 'fonts/pdf/Inter-Light.ttf',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',

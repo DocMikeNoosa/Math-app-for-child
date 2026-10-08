@@ -222,3 +222,56 @@ export const PROG = { '': '—', good: 'dobre', fair: 'niepewne', poor: 'złe' }
 
 /* ------------------------------------------------------------- adresaci */
 export const DOC_TITLES = ['lek. dent.', 'dr n. med.', 'dr n. med. i n. o zdr.', 'dr hab. n. med.', 'prof. dr hab. n. med.', 'lek.', 'lek. stom.'];
+
+/* ------------------------------------------------------------- materiały i sprzęt (podpowiedzi; lekarz może dopisać własne) */
+export const PRODUCT_CATS = {
+  files: 'Narzędzia (system)', glide: 'Ścieżka szybowania', apex: 'Endometr', motor: 'Endomotor', activation: 'Aktywacja płukania',
+  sealer: 'Uszczelniacz', obtsys: 'System obturacji', repair: 'Materiał bioceramiczny / MTA', medic: 'Opatrunek leczniczy', temp: 'Opatrunek tymczasowy',
+  composite: 'Kompozyt', adhesive: 'System łączący', post: 'Wkład / materiał na rdzeń', cement: 'Cement', anesth: 'Środek znieczulający',
+  isolation: 'Izolacja', micro: 'Mikroskop', imaging: 'Diagnostyka obrazowa', other: 'Inne',
+};
+export const PRODUCTS = {
+  files: ['ProTaper Gold', 'ProTaper Next', 'ProTaper Ultimate', 'WaveOne Gold', 'Reciproc Blue', 'HyFlex EDM', 'HyFlex CM', 'TruNatomy', 'Mtwo', 'K3XF', 'EdgeFile', 'XP-endo Shaper', 'Vortex Blue', 'One Curve', '2Shape', 'F360', 'pilniki ręczne K-file', 'pilniki ręczne H-file'],
+  glide: ['ProGlider', 'WaveOne Gold Glider', 'R-Pilot', 'PathFile', 'HyFlex EDM Glide Path', 'C+ File', 'K-file #10/#15'],
+  apex: ['Raypex 6', 'Propex Pixi', 'Propex IQ', 'Root ZX mini', 'Root ZX II', 'Woodpex III', 'Apex ID'],
+  motor: ['X-Smart Pro+', 'X-Smart IQ', 'VDW.Connect Drive', 'VDW.Gold Reciproc', 'Tri Auto ZX2', 'Endo Radar Pro'],
+  activation: ['EndoActivator', 'EDDY', 'Ultra X', 'XP-endo Finisher', 'IRRI S (końcówka ultradźwiękowa)', 'PIPS (laser Er:YAG)'],
+  sealer: ['AH Plus', 'AH Plus Bioceramic Sealer', 'BioRoot RCS', 'TotalFill BC Sealer', 'CeraSeal', 'Well-Root ST', 'GuttaFlow 2', 'GuttaFlow bioseal', 'Apexit Plus', 'Sealapex', 'Endomethasone N'],
+  obtsys: ['Calamus Dual', 'BeeFill 2in1', 'Elements Free', 'E&Q Master', 'Fast-Pack / Fast-Fill', 'Gutta Smart', 'SuperEndo α2 / β2', 'System B', 'Thermafil', 'GuttaCore'],
+  repair: ['ProRoot MTA', 'MTA Angelus', 'Biodentine', 'TotalFill BC RRM Putty', 'NeoMTA 2', 'MTA Repair HP', 'Bio-C Repair', 'Well-Root PT', 'TheraCal LC', 'TheraCal PT'],
+  medic: ['Calcicur', 'UltraCal XS', 'Calxyl', 'Metapex', 'Ledermix', 'Apexcal'],
+  temp: ['Cavit G', 'Cavit W', 'Coltosol F', 'Ketac Molar', 'Fuji IX GP', 'Fermit N', 'Clip F', 'IRM'],
+  composite: ['Filtek Universal Restorative', 'Filtek Z550', 'Filtek One Bulk Fill', 'Filtek Supreme XTE', 'Estelite Asteria', 'Estelite Sigma Quick', 'G-ænial A’CHORD', 'Tetric EvoCeram', 'Tetric PowerFill', 'Tetric Prime', 'Essentia', 'Charisma Diamond', 'Harmonize', 'Venus Diamond', 'Omnichroma', 'SDR flow+', 'everX Posterior', 'everX Flow', 'Beautifil II'],
+  adhesive: ['Clearfil SE Bond 2', 'Clearfil Universal Bond Quick', 'Scotchbond Universal Plus', 'OptiBond FL', 'OptiBond Universal', 'G-Premio Bond', 'Adhese Universal', 'Prime&Bond active', 'iBond Universal'],
+  post: ['RelyX Fiber Post', 'DT Light-Post', 'Rebilda Post', 'GC Fiber Post', 'FRC Postec Plus', 'Rebilda DC', 'LuxaCore Z', 'Clearfil DC Core Plus', 'MultiCore Flow'],
+  cement: ['RelyX Universal', 'RelyX Unicem 2', 'Variolink Esthetic', 'Panavia V5', 'Panavia SA Cement Universal', 'SpeedCEM Plus', 'Fuji PLUS', 'Ketac Cem'],
+  anesth: ['Ubistesin (artykaina 4% z adrenaliną)', 'Ubistesin forte (artykaina 4% z adrenaliną)', 'Septanest (artykaina 4% z adrenaliną)', 'Citocartin (artykaina 4% z adrenaliną)', 'Mepivastesin (mepiwakaina 3%)', 'Scandonest 3% (mepiwakaina)'],
+  isolation: ['koferdam', 'OptraDam Plus', 'koferdam bezlateksowy', 'uszczelniacz koferdamu (OpalDam)'],
+  micro: ['Zeiss Extaro 300', 'Zeiss OPMI pico', 'Leica M320', 'Global G6', 'lupy powiększające'],
+  imaging: ['RTG wewnątrzustne (RVG)', 'CBCT', 'zdjęcie pantomograficzne'],
+  other: [],
+};
+
+/* Szybkie, najczęstsze czynności endodontyczne (zaznaczenia) → pola rekordu */
+export const QUICK = [
+  ['dam', 'Koferdam'], ['micro', 'Mikroskop'], ['apexloc', 'Endometr'], ['wlxray', 'RTG pomiarowe'],
+  ['irrig:naocl', 'NaOCl'], ['irrig:edta', 'EDTA 17%'], ['irrig:us', 'Aktywacja ultradźwiękowa'], ['irrig:chx', 'CHX 2%'],
+  ['medic:caoh', 'Ca(OH)₂'], ['obtur:cwt', 'Obturacja CWT'], ['obtur:wvc', 'Kondensacja pionowa'], ['sealer:uszczelniacz bioceramiczny', 'Uszczelniacz bioceramiczny'],
+  ['temp:cavit', 'Cavit'], ['temp:comp', 'Odbudowa kompozytowa'], ['postxray', 'RTG kontrolne'],
+];
+
+/* ------------------------------------------------------------- PESEL */
+export function parsePesel(p) {
+  p = String(p || '').replace(/\D/g, '');
+  if (p.length !== 11) return null;
+  const d = p.split('').map(Number), w = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3];
+  const sum = w.reduce((a, x, i) => a + x * d[i], 0);
+  if ((10 - (sum % 10)) % 10 !== d[10]) return null;
+  let y = d[0] * 10 + d[1], m = d[2] * 10 + d[3]; const day = d[4] * 10 + d[5];
+  let c = 1900;
+  if (m > 80) { c = 1800; m -= 80; } else if (m > 60) { c = 2200; m -= 60; } else if (m > 40) { c = 2100; m -= 40; } else if (m > 20) { c = 2000; m -= 20; }
+  y += c;
+  const dt = new Date(Date.UTC(y, m - 1, day));
+  if (dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== day) return null;
+  return { dob: `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`, sex: d[9] % 2 ? 'm' : 'f' };
+}

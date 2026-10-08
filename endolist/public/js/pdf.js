@@ -38,18 +38,31 @@ export async function buildLetterPDF(o) {
   doc.setProperties({ title: `List — ${[p.last, p.first].join(' ')} — ${o.letterDate}`, subject: 'Informacja o leczeniu dla lekarza kierującego', author: docName, creator: 'EndoList' });
   doc.setLineHeightFactor(1.42);
 
-  // ---------- nagłówek: nadawca (lewo), miejscowość i data (prawo)
+  // ---------- nagłówek: logo gabinetu / grupy, nadawca (lewo), miejscowość i data (prawo)
   let y = 22;
+  const logos = [d.logo, d.groupLogo].filter(Boolean);
+  if (logos.length) {
+    let lx = M; const lh = 13;
+    for (const src of logos) {
+      try {
+        const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+        const lw = Math.min(48, (im.width / im.height) * lh), hh = lw / (im.width / im.height);
+        doc.addImage(src, src.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG', lx, 14 + (lh - hh) / 2, lw, hh, 'logo' + lx, 'FAST');
+        lx += lw + 6;
+      } catch { /* skip unreadable logo */ }
+    }
+    set('Inter', 9.2, INK); doc.text(`${d.city ? d.city + ', ' : ''}${fmtDateLong(o.letterDate)}`, W - M, 19, { align: 'right' });
+    y = 36;
+  }
   set('InterSemi', 12.5); doc.text(docName || 'Gabinet', M, y);
-  const sub = [d.specialty, d.practice].filter(Boolean);
+  const sub = [d.specialty, [d.practice, d.group].filter(Boolean).join(' · ')].filter(Boolean);
   set('Inter', 8.4, GRAY);
   let yy = y + 5;
   for (const l of sub) { doc.text(l, M, yy); yy += 3.9; }
   const contact = [d.address, [d.phone, d.email].filter(Boolean).join('  ·  '), d.npwz ? `NPWZ ${d.npwz}` : ''].filter(Boolean);
   set('Inter', 7.8, LIGHT);
   for (const l of contact) { doc.text(l, M, yy); yy += 3.6; }
-  set('Inter', 9.2, INK);
-  doc.text(`${d.city ? d.city + ', ' : ''}${fmtDateLong(o.letterDate)}`, W - M, y, { align: 'right' });
+  if (!logos.length) { set('Inter', 9.2, INK); doc.text(`${d.city ? d.city + ', ' : ''}${fmtDateLong(o.letterDate)}`, W - M, y, { align: 'right' }); }
   y = Math.max(yy, y + 8) + 3;
   doc.setDrawColor(...RULE); doc.setLineWidth(0.2); doc.line(M, y, W - M, y);
   y += 9;
@@ -92,7 +105,7 @@ export async function buildLetterPDF(o) {
   set('Inter', 8.8, GRAY);
   for (const l of [r.kind === 'clinic' ? '' : r.clinic, ...(r.address || '').split('\n')].map((s) => s && s.trim()).filter(Boolean)) { doc.text(doc.splitTextToSize(l, LW), M, ly); ly += 4.1; }
   ly += 5;
-  const rows = [['PACJENT', [p.first, p.last].filter(Boolean).join(' ') + (p.dob ? `, ur. ${fmtDate(p.dob)}` : '')], [o.dates.length > 1 ? 'DATY LECZENIA' : 'DATA LECZENIA', o.dates.map(fmtDate).join(', ')], [o.glance.length > 1 ? 'ZĘBY' : 'ZĄB', o.glance.map((g) => g.fdi).join(', ')]];
+  const rows = [['PACJENT', [p.first, p.last].filter(Boolean).join(' ')], [p.pesel ? 'PESEL' : 'DATA UR.', p.pesel || (p.dob ? fmtDate(p.dob) : '—')], [o.dates.length > 1 ? 'DATY LECZENIA' : 'DATA LECZENIA', o.dates.map(fmtDate).join(', ')], [o.glance.length > 1 ? 'ZĘBY' : 'ZĄB', o.glance.map((g) => g.fdi).join(', ')]];
   for (const [k, v] of rows) {
     set('InterSemi', 6.4, GRAY); doc.text(k, M, ly, { charSpace: 0.35 });
     set('InterMedium', 9.4, INK); const ls = doc.splitTextToSize(v || '—', LW - 30); doc.text(ls, M + 29, ly); ly += ls.length * 4.4 + 1.2;

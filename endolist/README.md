@@ -1,67 +1,61 @@
 # EndoList
 
-EndoList is an app for a Polish endodontist. You record work per tooth on a dentition chart, and it writes a professional referral letter in Polish (with AI, or with the built-in generator). The letter is a PDF with a small black-and-white dentition schematic and shorthand notes in the top-right corner.
+An app for an endodontist at **Centrum Stomatologiczne (Niewiński Group)**. She records treatment tooth by tooth, and the app writes a professional Polish letter to the referring doctor or clinic, with AI or with the built-in generator. All patient data is encrypted on the computer.
 
-## What it does
+## Workflow
 
-- **Visit screen:** a curved FDI dentition chart. Click a tooth to see its most common anatomy (roots and canals). You can change the number of roots, add canals (e.g. MB2, MM, radix) or lateral canals, then fill in:
-  - **Badanie i rozpoznanie:** tests, X-ray findings, and a suggested AAE diagnosis in Polish with an ICD-10 code.
-  - **Endodoncja:** procedure, status, anaesthesia, rubber dam, microscope, working lengths, irrigation, obturation, sealer, temporary restoration and intra-operative findings.
-  - **Inne prace:** fillings with Black's class (I–VI) and surfaces, build-ups, posts, crown preparation, crowns, onlays, extraction, implant preparation, implant placement, perio.
-  - **Zalecenia:** restoration and its deadline, follow-up, prognosis.
-- **Combining visits:** a letter can combine several visits for the same patient, including treatment done earlier by another dentist (the "Inny lekarz" visit option).
-- **Letter:**
-  - The opening and closing courtesies change from letter to letter. The app remembers recent wording per recipient so the same doctor or clinic doesn't get the same text twice.
-  - Everything is editable before saving, and the PDF preview is live.
-  - Before generating, the app asks who the letter is for (a doctor as Pani/Pan Doktor, or a clinic) and remembers the answer.
-- **Saving and sending:**
-  - PDFs are filed into `Listy/<Nazwisko Imię (data ur.)>/<RRRR-MM-DD> … .pdf` in a folder you choose.
-  - Email: share sheet, `.eml` draft with the PDF attached, or the default mail program.
-  - ProDentis export (see below).
-- **Security:**
-  - Login and password, optional passkey (Touch ID / Face ID / Windows Hello / iPhone via QR code).
-  - All data is encrypted on the device (AES-256-GCM).
-  - Auto-lock after inactivity.
-- **Backup:** an encrypted copy is written to the chosen folder after every change (latest copy plus 60 daily copies). If the browser's data is wiped, "Przywróć z kopii" on the login screen restores everything.
+1. **Patient and referrer:** enter first name, last name and **PESEL** (it fills in the date of birth and sex, with checksum validation) or the date of birth. Then choose the referring doctor or clinic; the app remembers them.
+2. **Dentition chart:** click a tooth and an **enlarged tooth card** opens:
+   - **3D model** of that tooth (drag to rotate, X-ray view) with its most common anatomy: number of roots and canals, MB2, MM, radix, C-shaped. Pink means pulp or canal, teal means filled canal, violet means a lateral canal.
+   - **Anatomia:** configuration, number of roots, canals (add or remove), lateral canals.
+   - **Badanie i rozpoznanie:** tests and X-ray findings; a suggested AAE diagnosis in Polish with an ICD-10 code.
+   - **Endodoncja:** one-click ticks for the most common steps (rubber dam, microscope, apex locator, measurement X-ray, NaOCl, EDTA, ultrasonic activation, Ca(OH)₂, CWT, bioceramic sealer, Cavit, control X-ray), plus anaesthesia, working lengths, irrigation, obturation, sealer and intra-operative findings.
+   - **Inne prace:** fillings (Black's class I–VI, surfaces, material and product), build-ups, posts, crown preparation, crowns, onlays, extraction, implant preparation, implant placement, perio, "other".
+   - **Materiały i sprzęt:** a catalog of brands available in Poland (instruments, apex locators, sealers, obturation systems, MTA and bioceramics, composites, adhesives, posts, cements, anaesthetics, microscopes). Anything typed by hand is remembered for next time.
+   - **Opis własny:** a free-text description of anything not covered by the form, typed or **dictated**. AI puts it into proper dental language and checks it against the rest of the data.
+   - **Zalecenia:** restoration and its deadline, follow-up, prognosis.
+   - **Zapisz ząb:** saves the tooth. Then choose the next one.
+3. **Generuj list:** you can combine several visits, including treatment done earlier by other dentists. The opening and closing courtesies change from letter to letter for each recipient.
+4. **Review:**
+   - **Select a passage** that is wrong or reads badly. A small window appears: describe what is wrong and how it should read, then tick **Gotowe**. Repeat for further passages, one at a time.
+   - Optionally tick **Edytuj cały list** and describe the changes in your own words (or dictate them).
+   - **Popraw list z AI** applies all comments at once. The changes made are listed in the side panel, and **Sugestie AI** point out possible inconsistencies.
+   - **Edycja ręczna** lets you edit the text directly. **Wygeneruj od nowa** writes the letter again from scratch.
+5. **PDF / e-mail / ProDentis / print:**
+   - The PDF is filed as `Listy/<Nazwisko Imię (data ur.)>/<RRRR-MM-DD> … .pdf`.
+   - E-mail: a draft with the attachment (.eml), the share menu, or the mail program.
 
-## Running it
+**Dictation** (microphone button next to text fields) works in Chrome and Edge, as in RadVox. After dictation, AI fixes speech-recognition errors in dental terms, product names, numbers and tooth numbers. This can be switched off in Settings.
 
-**Online link (to share with other doctors).** After this branch is merged to `main` and GitHub Pages is switched on (repo Settings → Pages → Source: **GitHub Actions**), the app is at:
+## Logos
 
-`https://docmikenoosa.github.io/Math-app-for-child/endolist/`
+I couldn't download the clinic's and the group's logos: the build environment blocks centrumstomatologiczne.siedlce.pl and klinikaniewinski.pl. Add them in **Settings → Logo kliniki i grupy** (or in step 2 of onboarding). They then appear in the app, on the login screen and in the letter header. PNG with a white or transparent background works best.
 
-In Chrome or Edge, use menu ⋮ → **Install EndoList** to get a desktop app that works offline. Each doctor's data stays encrypted in their own browser; nothing is stored on a server.
+## Installation
 
-**Installed locally (no hosting needed).** Install Node.js (LTS) once, then double-click:
+**Desktop icon (local).** Install Node.js (LTS), unzip EndoList, then:
 
-- Windows: `Uruchom EndoList (Windows).bat`
-- Mac: `Uruchom EndoList (Mac).command`
+- **Windows:** double-click `Zainstaluj EndoList (Windows).bat`. This creates an **EndoList** icon (a tooth on a navy background) on the desktop and in the Start menu. Clicking it starts the app in its own window, with no console.
+- **Mac:** double-click `Zainstaluj EndoList (Mac).command`. This creates **EndoList.app** with the icon in `~/Applications`; drag it to the Dock.
 
-It opens at `http://localhost:4173` in an app window, and can be installed from there as well.
-
-Use **Chrome or Edge**. Safari and Firefox work, but can't save automatically into a folder; letters download instead, and backups have to be downloaded by hand in Settings.
+**Link for other doctors (GitHub Pages).** The `.github/workflows/pages.yml` workflow publishes the `public/` folder. Enable it under Settings → Pages → Source: *GitHub Actions*. From the link, the app can also be installed via Chrome or Edge (menu ⋮ → *Install EndoList*). Each doctor has separate, encrypted data on their own computer.
 
 ## AI and privacy
 
-- **Model:** letters are written by Claude (`claude-opus-5-5`) using the doctor's own API key from console.anthropic.com, entered in Settings. The key is stored inside the encrypted vault.
-- **What is sent:** only clinical facts — tooth numbers, test results, the treatment description, and grammatical gender (needed for correct Polish). Patient names, dates of birth and addresses are not sent; the app adds them to the letter locally.
-- **Free-text fields:** text you type yourself (e.g. the chief complaint or notes) is sent as written, so don't put patient names there.
-- **Without an API key:** the built-in Polish generator writes the letter instead.
+- **Model:** Claude (`claude-opus-5-5`), using the doctor's own API key from console.anthropic.com, which is stored encrypted.
+- **What is sent:** only clinical data (tooth numbers, tests, treatment, materials, free-text descriptions) and grammatical gender.
+- **What is not sent:** names, surnames, PESEL, dates of birth and addresses; the app adds them to the letter locally. Don't type patient names into the free-text descriptions, since that text is sent as written.
+- **Without a key:** the built-in Polish generator writes the letter, and edits are made by hand.
 
 ## ProDentis
 
-I couldn't find a public API or import format for ProDentis (Infotel Software). The export therefore:
+There is no public API or import format for ProDentis (Infotel Software). The export saves the PDF (to attach to the patient's documents) and a text summary to paste into the visit description. A direct integration needs Infotel's cooperation.
 
-1. saves the PDF letter, which you attach to the patient's documents in ProDentis, and
-2. produces a plain-text summary to paste into the visit description (copy button, or a `.txt` saved next to the PDF).
-
-If Infotel provides an import interface, a direct integration could be added.
-
-## Development
+## Development and tests
 
 ```
-node server.mjs                # http://localhost:4173
-LC_ALL=C.UTF-8 node test/e2e.cjs  # end-to-end test (Playwright + Chromium)
+node server.mjs                      # http://localhost:4173 (+ /api/status)
+LC_ALL=C.UTF-8 node test/e2e.cjs     # end-to-end test (Playwright + Chromium)
 ```
 
-The test uses an in-browser folder in place of the real folder picker and a virtual passkey authenticator. It runs onboarding (with signature and passkey), a full visit, combining with another dentist's visit, letter generation, PDF filing, email draft, ProDentis export, the AI request (mocked, checked for absence of personal data), lock and unlock (password and passkey), a browser restart, and a restore after wiping browser data.
+The test uses stand-ins for the folder (OPFS), the passkey (virtual authenticator with PRF), speech recognition (a fake SpeechRecognition) and the Claude API (test responses, not real AI output). It runs onboarding with logos, signature and passkey; a patient with PESEL; the tooth card with the 3D model, ticks, materials and dictation; filling the card; generating the letter; highlight → comment → AI revision; manual edits; PDF; backup; the lock screen with logos; and a browser restart.

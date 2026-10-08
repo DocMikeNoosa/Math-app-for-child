@@ -1,10 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13213d"/><stop offset="1" stop-color="#060c18"/></linearGradient>
-    <linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8ff5e8"/><stop offset=".55" stop-color="#5ab8ff"/><stop offset="1" stop-color="#7f8cff"/></linearGradient>
-    <radialGradient id="g" cx=".3" cy=".2" r=".9"><stop offset="0" stop-color="#5ee6d6" stop-opacity=".28"/><stop offset="1" stop-color="#5ee6d6" stop-opacity="0"/></radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1b2f57"/><stop offset=".55" stop-color="#0c1730"/><stop offset="1" stop-color="#050a14"/></linearGradient>
+    <radialGradient id="halo" cx=".5" cy=".42" r=".55"><stop offset="0" stop-color="#62a9ff" stop-opacity=".42"/><stop offset=".6" stop-color="#62a9ff" stop-opacity=".08"/><stop offset="1" stop-color="#62a9ff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="floor" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#5ee6d6" stop-opacity=".55"/><stop offset="1" stop-color="#5ee6d6" stop-opacity="0"/></radialGradient>
+    <linearGradient id="enamel" x1=".2" y1="0" x2=".8" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".45" stop-color="#f1f5fb"/><stop offset="1" stop-color="#bccbe0"/></linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7f93b5" stop-opacity=".55"/><stop offset=".18" stop-color="#7f93b5" stop-opacity="0"/><stop offset=".82" stop-color="#7f93b5" stop-opacity="0"/><stop offset="1" stop-color="#7f93b5" stop-opacity=".6"/></linearGradient>
+    <linearGradient id="canal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9ffcf0"/><stop offset="1" stop-color="#33d6c4"/></linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity=".55"/></filter>
+    <clipPath id="tooth"><path id="tp" d="M178 104c-42 0-68 34-66 86 2 50 22 82 32 136 10 54 16 104 44 104 26 0 28-42 36-82 6-28 18-44 32-44s26 16 32 44c8 40 10 82 36 82 28 0 34-50 44-104 10-54 30-86 32-136 2-52-24-86-66-86-38 0-52 22-78 22s-40-22-78-22z"/></clipPath>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <rect width="512" height="512" rx="112" fill="url(#g)"/>
-  <path transform="translate(96 92) scale(13.4)" d="M7 3c2.2 0 3.3 1 5 1s2.8-1 5-1c3 0 4 3 3.2 7-.6 3.2-1.6 5-2.3 9-.5 2.6-2.4 3.1-3.1.4l-1.3-4.8c-.5-1.6-2.5-1.6-3 0L9.2 19.4c-.7 2.7-2.6 2.2-3.1-.4-.7-4-1.7-5.8-2.3-9C3 6 4 3 7 3z" fill="url(#t)"/>
+  <rect width="512" height="512" rx="114" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="114" fill="url(#halo)"/>
+  <ellipse cx="256" cy="452" rx="150" ry="26" fill="url(#floor)"/>
+  <g filter="url(#shadow)">
+    <path d="M178 104c-42 0-68 34-66 86 2 50 22 82 32 136 10 54 16 104 44 104 26 0 28-42 36-82 6-28 18-44 32-44s26 16 32 44c8 40 10 82 36 82 28 0 34-50 44-104 10-54 30-86 32-136 2-52-24-86-66-86-38 0-52 22-78 22s-40-22-78-22z" fill="url(#enamel)"/>
+  </g>
+  <g clip-path="url(#tooth)">
+    <rect x="100" y="90" width="312" height="400" fill="url(#edge)"/>
+    <!-- pulp chamber + obturated canals -->
+    <g filter="url(#glow)" fill="none" stroke="url(#canal)" stroke-linecap="round">
+      <path d="M216 236 C214 300 200 360 188 410" stroke-width="11"/>
+      <path d="M296 236 C298 300 312 360 324 410" stroke-width="11"/>
+      <path d="M210 228 C230 206 282 206 302 228 C300 246 212 246 210 228 Z" fill="#5ee6d6" stroke-width="6"/>
+    </g>
+    <!-- specular highlights -->
+    <path d="M150 168c4-34 26-50 52-48-26 12-38 36-38 66-8 0-14-8-14-18z" fill="#fff" opacity=".9"/>
+    <ellipse cx="330" cy="140" rx="26" ry="10" fill="#fff" opacity=".55" transform="rotate(14 330 140)"/>
+  </g>
+  <path d="M178 104c-42 0-68 34-66 86 2 50 22 82 32 136 10 54 16 104 44 104 26 0 28-42 36-82 6-28 18-44 32-44s26 16 32 44c8 40 10 82 36 82 28 0 34-50 44-104 10-54 30-86 32-136 2-52-24-86-66-86-38 0-52 22-78 22s-40-22-78-22z" fill="none" stroke="#ffffff" stroke-opacity=".7" stroke-width="2"/>
+  <rect x="3" y="3" width="506" height="506" rx="111" fill="none" stroke="#9cc8ff" stroke-opacity=".14" stroke-width="3"/>
 </svg>
