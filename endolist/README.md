@@ -39,7 +39,10 @@ The Centrum Stomatologiczne logo (from the clinic's website, as provided) is bui
   - the letter fits the screen width
   - dialogs slide up from the bottom
 - **Highlights on iPhone:** press and hold on the letter text to select a passage. A **Dodaj uwagę** button then appears for adding a comment.
-- **Sync** (Settings → Synchronizacja) keeps the same data on iPhone, the practice computer and the browser.
+- **Sync** keeps the same data on iPhone, the practice computer and the browser.
+  - Once the server address is configured (one time, see below), every device just uses the normal login screen. The same login and password open the account and download all its data.
+  - New accounts are created on the server too. Existing accounts start syncing at their next password login, including all earlier data.
+  - A password changed on one device works on the others straight away.
   - Each change is encrypted on the device before it is sent. The server stores only ciphertext and does not know the login, the password or any names.
   - New device: **"Mam konto na innym urządzeniu"** → server address, login and password.
 - **Server:** the sync server is set up once, on a free Cloudflare account. See [`sync-server/README.md`](sync-server/README.md).

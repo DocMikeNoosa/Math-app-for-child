@@ -27,12 +27,20 @@ async function syncRequest(req, res, sub) {
   send(r.status, r.body);
 }
 
+// sync server address for this installation: env ENDOLIST_SYNC_URL or the file sync-url.txt next to server.mjs
+const SYNC_URL = (process.env.ENDOLIST_SYNC_URL || (await readFile(path.join(path.dirname(ROOT), 'sync-url.txt'), 'utf8').catch(() => ''))).trim();
+
 const VERSION = JSON.parse(await readFile(path.join(path.dirname(ROOT), 'package.json'), 'utf8')).version;
 const server = http.createServer(async (req, res) => {
   try {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (p === '/api/status') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ app: 'EndoList', version: VERSION, dir: path.dirname(ROOT), sync: !!syncStore })); }
     if (syncStore && p.startsWith('/sync/')) return await syncRequest(req, res, p.slice(5));
+    // installation config: ENDOLIST_SYNC_URL (e.g. the Cloudflare Worker) or this server's own /sync endpoint
+    if (p === '/config.json' && (SYNC_URL || syncStore)) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify({ syncUrl: SYNC_URL || `http://${req.headers.host}/sync` }));
+    }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.normalize(path.join(ROOT, p));
     if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }

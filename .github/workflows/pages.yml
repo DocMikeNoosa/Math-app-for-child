@@ -25,6 +25,8 @@ jobs:
           mkdir -p _site/endolist
           cp index.html README.md _site/ 2>/dev/null || true
           cp -r endolist/public/. _site/endolist/
+          # sync server address for every device (Settings → Secrets and variables → Actions → Variables: ENDOLIST_SYNC_URL)
+          if [ -n "${{ vars.ENDOLIST_SYNC_URL }}" ]; then printf '{\n  "syncUrl": "%s"\n}\n' "${{ vars.ENDOLIST_SYNC_URL }}" > _site/endolist/config.json; fi
           touch _site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

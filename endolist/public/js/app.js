@@ -14,7 +14,7 @@ import { Tooth3D, webglOk } from './tooth3d.js';
 import { Dictation, speechSupported } from './speech.js';
 import { letterPaperHTML } from './letterview.js';
 import { buildLetterPDF } from './pdf.js';
-import { SyncClient, loadConfig, enableSync, signInFromServer, checkServer, normUrl } from './sync.js';
+import { SyncClient, loadConfig, enableSync, signInFromServer, normUrl, defaultSyncUrl } from './sync.js';
 import { Folder, fsSupported, names, download, emlDraft, canShareFile, mailto, prodentisText } from './files.js';
 
 /* ================================================================ utils */
@@ -122,7 +122,9 @@ async function boot() {
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.installEvt = e; if (S.session) renderTop(); });
   if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
   const profiles = await V.listProfiles();
-  if (!profiles.length) renderOnboarding(); else renderLock(profiles);
+  S.syncUrl = await defaultSyncUrl();
+  // with a sync server, a new device starts at the login screen: the same login and password open the account everywhere
+  if (!profiles.length && !S.syncUrl) renderOnboarding(); else renderLock(profiles);
 }
 
 /** Clinic branding (not sensitive) is mirrored to localStorage so it can be shown before login. */
@@ -139,9 +141,9 @@ function renderLock(profiles, err = '') {
   const last = localStorage.getItem('endolist:lastUser') || profiles[0]?.username || '';
   authShell(`
     ${brandHTML()}<div class="auth-logo">${I('tooth')}</div>
-    <h1>EndoList</h1><p class="lead">Zaloguj się, aby odblokować zaszyfrowane dane.</p>
+    <h1>EndoList</h1><p class="lead">${profiles.length ? 'Zaloguj się, aby odblokować zaszyfrowane dane.' : 'Zaloguj się kontem EndoList — dane z innych urządzeń zostaną pobrane i odszyfrowane.'}</p>
     <form id="login" class="grid" autocomplete="on">
-      <label class="f"><span>Login</span><input type="text" name="username" autocomplete="username" value="${esc(last)}" required></label>
+      <label class="f"><span>Login</span><input type="text" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" value="${esc(last)}" required></label>
       <label class="f"><span>Hasło</span><input type="password" name="password" autocomplete="current-password" required autofocus></label>
       <button class="btn btn-primary btn-lg" type="submit">${I('lock')} Odblokuj</button>
       <div class="err" id="err">${esc(err)}</div>
@@ -157,7 +159,7 @@ function renderLock(profiles, err = '') {
     e.preventDefault();
     const f = new FormData(e.target), btn = e.target.querySelector('button');
     btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Odszyfrowywanie…';
-    try { await enter(await V.unlockPassword(f.get('username'), f.get('password'))); }
+    try { await passwordLogin(f.get('username'), f.get('password'), btn); }
     catch (er) { btn.disabled = false; btn.innerHTML = `${I('lock')} Odblokuj`; $('#err').textContent = er.message; }
   };
 }
@@ -195,11 +197,12 @@ function renderOnboarding(step = 0) {
      <div class="row" style="justify-content:center"><button class="btn btn-soft" data-act="ob-sig">${I('plus')} ${d.signature ? 'Zmień' : 'Wybierz'} plik podpisu</button>${d.signature ? `<button class="btn btn-ghost" data-act="ob-sig-clear">Usuń</button>` : ''}</div>
      <div style="margin-top:16px"><label class="switch"><input type="checkbox" data-ob-check="useSignature" ${d.useSignature ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Umieszczaj podpis na listach</label></div></div>
      <input type="file" id="ob-sig-input" accept="image/*" hidden>`,
-    `<h1>Zabezpieczenie</h1><p class="lead">Login i hasło chronią dane pacjentów. Dane są szyfrowane na tym komputerze.</p>
+    `<h1>Zabezpieczenie</h1><p class="lead">Login i hasło chronią dane pacjentów. Dane są szyfrowane na urządzeniu.</p>
      <form id="ob-acc" class="grid">
       <label class="f"><span>Login</span><input type="text" name="username" autocomplete="username" value="${esc(OB.username || (d.first + (d.last ? '.' + d.last : '')).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l').replace(/\s+/g, ''))}" required></label>
       <label class="f"><span>Hasło (min. 8 znaków)</span><input type="password" name="pw" autocomplete="new-password" minlength="8" required></label>
       <label class="f"><span>Powtórz hasło</span><input type="password" name="pw2" autocomplete="new-password" minlength="8" required></label>
+      ${S.syncUrl ? '<div class="hint" style="color:var(--accent)">Tym samym loginem i hasłem zalogujesz się na iPhonie i na innych komputerach — dane synchronizują się automatycznie (szyfrowane na urządzeniu).</div>' : ''}
       <div class="hint">Hasła nie da się odzyskać — bez niego nie ma dostępu do danych. Zapisz je w bezpiecznym miejscu. Po utworzeniu konta możesz dodać klucz dostępu (passkey), np. z iPhone'a.</div>
       <div class="err" id="err"></div>
      </form>`,
@@ -222,7 +225,43 @@ function renderOnboarding(step = 0) {
 }
 function readOB() { $$('[data-ob]').forEach((el) => { OB.doctor[el.dataset.ob] = el.value.trim(); }); $$('[data-ob-check]').forEach((el) => { OB.doctor[el.dataset.obCheck] = el.checked; }); }
 
-async function enter(session) {
+/**
+ * Login with login + password on any device:
+ *  - account on this device → unlock locally (if the password was changed on another device, the server copy is used);
+ *  - account not on this device → downloaded from the sync server and decrypted here.
+ */
+async function passwordLogin(username, password, btn) {
+  const prof = await V.findProfile(username);
+  if (prof) {
+    try { return await enter(await V.unlockPassword(username, password), { password }); }
+    catch (e) {
+      const cfg = await loadConfig(prof.id);
+      if (!cfg?.enabled || e.message !== 'Nieprawidłowe hasło.') throw e;
+      try { const { session } = await signInFromServer({ url: cfg.url, login: cfg.login, password }); return await enter(session, { password }); }
+      catch (e2) { throw e2.offline ? new Error('Nieprawidłowe hasło. (Jeśli zmieniono je na innym urządzeniu, połącz się z internetem.)') : e; }
+    }
+  }
+  if (!S.syncUrl) throw new Error('Nie znaleziono takiego użytkownika na tym urządzeniu.');
+  if (btn) btn.innerHTML = '<span class="spin"></span> Pobieranie danych z serwera…';
+  const { session, cfg } = await signInFromServer({ url: S.syncUrl, login: username, password });
+  const first = new SyncClient(session, cfg, {}); await first.now(); first.stop();
+  if (first.status.state !== 'ok') throw new Error(first.status.msg || 'Nie udało się pobrać danych.');
+  await enter(session, { password });
+  toast('Dane pobrane z serwera i odszyfrowane na tym urządzeniu.', 'ok');
+}
+
+/** Existing accounts (e.g. created before the sync server existed) join sync at their next password login. */
+async function autoEnableSync(password) {
+  if (!S.syncUrl || !password || S.sync) return;
+  if (await loadConfig(S.session.pid)) return; // enabled already, or switched off on purpose
+  try {
+    await enableSync(S.session, { url: S.syncUrl, login: S.session.profile.username, password });
+    await startSync(); renderBanner();
+    toast('Synchronizacja włączona — dane są teraz dostępne na innych urządzeniach z tym samym loginem.', 'ok');
+  } catch (e) { S.syncProblem = e.status === 409 ? 'Login „' + S.session.profile.username + '" jest już zajęty na serwerze synchronizacji przez inne konto.' : e.message; renderBanner(); }
+}
+
+async function enter(session, { password } = {}) {
   S.session = session;
   localStorage.setItem('endolist:lastUser', session.profile.username);
   const all = await session.loadAll();
@@ -237,6 +276,7 @@ async function enter(session) {
   renderApp();
   if (S.folder.ok()) backupNow();
   await startSync();
+  await autoEnableSync(password);
 }
 
 /* ================================================================ synchronizacja (iPhone ↔ komputer ↔ przeglądarka) */
@@ -270,9 +310,9 @@ document.addEventListener('focusout', () => setTimeout(() => { if (remoteRender 
 const syncTime = (t) => (t ? new Date(t).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '—');
 
 function syncSetupModal() {
-  const def = localStorage.getItem('endolist:syncUrl') || '';
+  const def = S.syncUrl || '';
   modal({ title: 'Włącz synchronizację', body: `<p class="muted" style="margin-top:0">Dane są szyfrowane na tym urządzeniu, zanim trafią na serwer — serwer nie zna hasła ani klucza danych. Na iPhonie i innych urządzeniach zalogujesz się tym samym loginem i hasłem.</p>
-    <div class="grid"><label class="f"><span>Adres serwera synchronizacji</span><input type="url" id="sy-url" value="${esc(def)}" placeholder="https://endolist-sync.twoja-nazwa.workers.dev" autocomplete="url" inputmode="url"></label>
+    <div class="grid"><label class="f" ${def ? 'hidden' : ''}><span>Adres serwera synchronizacji</span><input type="url" id="sy-url" value="${esc(def)}" placeholder="https://endolist-sync.twoja-nazwa.workers.dev" autocomplete="url" inputmode="url"></label>
     <label class="f"><span>Login synchronizacji</span><input type="text" id="sy-login" value="${esc(S.session.profile.username)}" autocomplete="username" autocapitalize="none"></label>
     <label class="f"><span>Hasło konta (potwierdzenie)</span><input type="password" id="sy-pw" autocomplete="current-password"></label></div>
     <div class="hint" style="margin-top:8px">Jeżeli login jest zajęty na serwerze (inny lekarz), wybierz inny — np. z nazwiskiem.</div><div class="err" id="sy-err"></div>`,
@@ -284,15 +324,15 @@ function syncSetupModal() {
       try {
         await V.unlockPassword(S.session.profile.username, pw); // confirms the password before it is used for the login token
         await enableSync(S.session, { url, login, password: pw });
-        localStorage.setItem('endolist:syncUrl', normUrl(url));
+        S.syncUrl = normUrl(url); S.syncProblem = '';
         await startSync(); toast('Synchronizacja włączona.', 'ok'); renderView();
       } catch (er) { err.textContent = er.message; if (btn) { btn.disabled = false; btn.innerHTML = `${I('sync')} Włącz`; } return false; }
     } }] });
 }
 function syncSignInModal() {
-  const def = localStorage.getItem('endolist:syncUrl') || '';
+  const def = S.syncUrl || '';
   modal({ title: 'Zaloguj się kontem z innego urządzenia', body: `<p class="muted" style="margin-top:0">Pobierze zaszyfrowane dane z serwera synchronizacji (np. z komputera w gabinecie) i odszyfruje je na tym urządzeniu Twoim hasłem.</p>
-    <div class="grid"><label class="f"><span>Adres serwera synchronizacji</span><input type="url" id="si-url" value="${esc(def)}" placeholder="https://endolist-sync.twoja-nazwa.workers.dev" autocomplete="url" inputmode="url"></label>
+    <div class="grid"><label class="f" ${def ? 'hidden' : ''}><span>Adres serwera synchronizacji</span><input type="url" id="si-url" value="${esc(def)}" placeholder="https://endolist-sync.twoja-nazwa.workers.dev" autocomplete="url" inputmode="url"></label>
     <label class="f"><span>Login</span><input type="text" id="si-login" autocomplete="username" autocapitalize="none"></label>
     <label class="f"><span>Hasło</span><input type="password" id="si-pw" autocomplete="current-password"></label></div><div class="err" id="si-err"></div>`,
     buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: `${I('sync')} Zaloguj`, cls: 'btn-primary', onClick: async (ov, btn) => {
@@ -301,12 +341,12 @@ function syncSignInModal() {
       if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Pobieranie danych…'; }
       try {
         const { session, cfg } = await signInFromServer({ url, login, password: pw });
-        localStorage.setItem('endolist:syncUrl', cfg.url);
+        localStorage.setItem('endolist:syncUrl', cfg.url); S.syncUrl = cfg.url;
         // first full download before showing the app
         const first = new SyncClient(session, cfg, {}); await first.now(); first.stop();
         if (first.status.state === 'error' || first.status.state === 'offline') throw new Error(first.status.msg);
         document.querySelector('.overlay')?.remove();
-        await enter(session); toast('Dane pobrane i odszyfrowane.', 'ok');
+        await enter(session, { password: pw }); toast('Dane pobrane i odszyfrowane.', 'ok');
       } catch (er) { err.textContent = er.message; if (btn) { btn.disabled = false; btn.innerHTML = `${I('sync')} Zaloguj`; } return false; }
     } }] });
 }
@@ -346,7 +386,8 @@ function renderStatus() {
 function renderBanner() {
   const b = $('#banner'); if (!b) return;
   let h = '';
-  if ((!fsSupported() || matchMedia('(pointer: coarse)').matches) && S.sync) h = ''; // phone: the computer keeps the folder backups
+  if (S.syncUrl && !S.sync) h = `<div class="banner warn"><span class="grow"><b>Dane są tylko na tym urządzeniu.</b> ${S.syncProblem ? esc(S.syncProblem) + ' ' : ''}Włącz synchronizację, aby mieć do nich dostęp na iPhonie i innych komputerach.</span><button class="btn btn-primary btn-sm" data-act="sync-setup">${I('sync')} Włącz</button></div>`;
+  else if ((!fsSupported() || matchMedia('(pointer: coarse)').matches) && S.sync) h = ''; // phone: the computer keeps the folder backups
   else if (!fsSupported()) h = `<div class="banner warn"><span class="grow">Ta przeglądarka nie zapisuje automatycznie do folderu. Dla automatycznych kopii i archiwum listów użyj <b>Chrome</b> lub <b>Edge</b>. Kopię możesz pobrać w Ustawieniach albo włączyć <b>synchronizację</b> z komputerem.</span><button class="btn btn-sm" data-nav="settings">Ustawienia</button></div>`;
   else if (!S.folder.root) h = `<div class="banner info"><span class="grow"><b>Wybierz folder na komputerze</b> (np. Dokumenty › EndoList) — listy będą tam porządkowane według pacjentów, a zaszyfrowana kopia danych aktualizowana automatycznie.</span><button class="btn btn-primary btn-sm" data-act="folder-pick">${I('folder')} Wybierz folder</button></div>`;
   else if (!S.folder.ok()) h = `<div class="banner warn"><span class="grow"><b>Połącz ponownie folder „${esc(S.folder.root.name)}".</b> Po ponownym uruchomieniu przeglądarka prosi o zgodę. Dane w aplikacji są bezpieczne.</span><button class="btn btn-primary btn-sm" data-act="folder-reconnect">Połącz</button></div>`;
@@ -1126,11 +1167,20 @@ async function action(act, a) {
       a.disabled = true; a.innerHTML = '<span class="spin"></span> Tworzenie…';
       try {
         const s = await V.createProfile({ username: f.get('username'), displayName: [OB.doctor.title, OB.doctor.first, OB.doctor.last].filter(Boolean).join(' '), password: f.get('pw') });
+        if (S.syncUrl) {
+          // the account lives on the sync server from the start → the same login and password work on every device
+          a.innerHTML = '<span class="spin"></span> Rejestracja na serwerze synchronizacji…';
+          try { await enableSync(s, { url: S.syncUrl, login: f.get('username'), password: f.get('pw') }); }
+          catch (er) {
+            if (er.status === 409) { await V.deleteProfile(s.pid); throw new Error('Ten login jest już zajęty na serwerze synchronizacji — wybierz inny (np. z nazwiskiem).'); }
+            await V.deleteProfile(s.pid); throw er;
+          }
+        }
         OB.session = s; OB.username = f.get('username');
         const st = clone(DEFAULT_SETTINGS); st.doctor = { ...st.doctor, ...OB.doctor };
         await s.put('settings', st);
         renderOnboarding(4);
-      } catch (er) { a.disabled = false; a.innerHTML = 'Utwórz konto'; $('#err').textContent = er.message; }
+      } catch (er) { a.disabled = false; a.innerHTML = `${I('shield')} Utwórz konto`; $('#err').textContent = er.message; }
       return;
     }
     case 'ob-passkey': { try { await OB.session.addPasskey(navigator.platform.includes('Mac') ? 'Mac / iPhone' : 'Klucz dostępu'); $('#pk-state').innerHTML = `<span style="color:var(--ok)">✓ Klucz dostępu dodany.</span>`; } catch (er) { if (er.name !== 'NotAllowedError') $('#pk-state').innerHTML = `<span style="color:#ff9aa4">${esc(er.message)}</span>`; } return; }

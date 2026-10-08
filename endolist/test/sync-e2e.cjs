@@ -25,12 +25,15 @@ const syncNow = (p) => p.evaluate(() => window.__endolist.S.sync.now());
 const data = (p, store) => p.evaluate((store) => [...window.__endolist.S.data[store].values()], store);
 
 (async () => {
-  const srv = spawn(process.execPath, ['server.mjs'], { cwd: path.join(__dirname, '..'), env: { ...process.env, ENDOLIST_PORT: String(PORT), ENDOLIST_SYNC_DIR: DATA }, stdio: 'pipe' });
+  const srv = spawn(process.execPath, ['server.mjs'], { cwd: path.join(__dirname, '..'), env: { ...process.env, ENDOLIST_PORT: String(PORT), ENDOLIST_SYNC_DIR: DATA, ...(process.env.SYNC_URL ? { ENDOLIST_SYNC_URL: SYNC } : {}) }, stdio: 'pipe' });
   await new Promise((res) => { srv.stdout.on('data', (d) => { if (String(d).includes('EndoList')) res(); }); setTimeout(res, 3000); });
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   try {
     // ---------- desktop: new account, enable sync
     const [, d] = await device(browser, { viewport: { width: 1440, height: 900 } }, 'desktop');
+    await d.reload(); await d.waitForSelector('[data-act=new-account]');
+    ok(await d.locator('#login').count() === 1, 'fresh device with a sync server starts at the login screen');
+    await d.click('[data-act=new-account]');
     await d.fill('[data-ob=first]', 'Katarzyna'); await d.fill('[data-ob=last]', 'Zielińska');
     for (let i = 0; i < 3; i++) await d.click('[data-act=ob-next]');
     await d.fill('[name=username]', 'kasia'); await d.fill('[name=pw]', PW); await d.fill('[name=pw2]', PW);
@@ -39,12 +42,9 @@ const data = (p, store) => p.evaluate((store) => [...window.__endolist.S.data[st
     await d.click('[data-act=pick-patient]');
     await d.fill('.modal [data-f=first]', 'Anna'); await d.fill('.modal [data-f=last]', 'Kowalska'); await d.fill('.modal [data-f=dob]', '1980-03-12');
     await d.click('.modal footer .btn-primary'); await d.waitForTimeout(500);
-    await d.click('[data-nav=settings]'); await d.click('[data-act=sync-setup]');
-    await d.fill('#sy-url', SYNC); await d.fill('#sy-pw', PW);
-    await shot(d, 's01-desktop-enable');
-    await d.click('.modal footer .btn-primary'); await d.waitForSelector('[data-act=sync-now]', { timeout: 30000 });
-    await d.waitForTimeout(1500);
-    ok((await d.textContent('#status')).includes('Zsynchronizowano'), 'desktop: sync enabled, status shows "Zsynchronizowano"');
+    await syncNow(d); await d.waitForTimeout(500);
+    ok((await d.textContent('#status')).includes('Zsynchronizowano'), 'desktop: new account is synced automatically (no setup step)');
+    await d.click('[data-nav=settings]'); await d.waitForSelector('[data-act=sync-now]');
     await shot(d, 's02-desktop-settings');
     if (!process.env.SYNC_URL) {
       const files = fs.readdirSync(DATA); const raw = fs.readFileSync(path.join(DATA, files[0]), 'utf8');
@@ -54,12 +54,12 @@ const data = (p, store) => p.evaluate((store) => [...window.__endolist.S.data[st
     // ---------- iPhone: sign in with the same account from the server
     const [, m] = await device(browser, IPHONE, 'iphone');
     await shot(m, 's03-iphone-welcome');
-    await m.click('[data-act=sync-signin]');
-    await m.fill('#si-url', SYNC); await m.fill('#si-login', 'kasia'); await m.fill('#si-pw', 'zle-haslo-000');
-    await m.click('.modal footer .btn-primary'); await m.waitForFunction(() => document.querySelector('#si-err')?.textContent, null, { timeout: 30000 });
-    ok((await m.textContent('#si-err')).includes('Nieprawidłowy'), 'iPhone: wrong password rejected');
-    await m.fill('#si-pw', PW); await shot(m, 's04-iphone-signin');
-    await m.click('.modal footer .btn-primary'); await m.waitForSelector('#arch', { timeout: 30000 }); await m.waitForTimeout(800);
+    // the ordinary login form: login + password are enough on a new device
+    await m.fill('[name=username]', 'kasia'); await m.fill('[name=password]', 'zle-haslo-000'); await m.click('#login button');
+    await m.waitForFunction(() => document.querySelector('#err')?.textContent, null, { timeout: 30000 });
+    ok((await m.textContent('#err')).includes('Nieprawidłowy'), 'iPhone: wrong password rejected');
+    await m.fill('[name=password]', PW); await shot(m, 's04-iphone-signin');
+    await m.click('#login button'); await m.waitForSelector('#arch', { timeout: 30000 }); await m.waitForTimeout(800);
     const mp = await data(m, 'patients');
     ok(mp.length === 1 && mp[0].last === 'Kowalska', 'iPhone: patient from desktop downloaded and decrypted');
     ok((await m.evaluate(() => window.__endolist.settings().doctor.last)) === 'Zielińska', 'iPhone: doctor settings synced');
@@ -105,13 +105,11 @@ const data = (p, store) => p.evaluate((store) => [...window.__endolist.S.data[st
     await d.click('[data-nav=settings]'); await d.click('[data-act=change-pw]');
     await d.fill('#pw0', PW); await d.fill('#pw1', PW2); await d.fill('#pw2', PW2);
     await d.click('.modal footer .btn-primary'); await d.waitForTimeout(4000);
-    await syncNow(d); await syncNow(m);
-    await m.evaluate(() => window.__endolist.S.sync.now()); // header adopted
-    await m.reload(); await m.waitForSelector('[name=password]');
+    await syncNow(d);
+    await m.reload(); await m.waitForSelector('[name=password]'); // the phone has not synced since the change
     await m.fill('[name=password]', PW2); await m.click('#login button'); await m.waitForSelector('#arch', { timeout: 30000 }).then(() => ok(true, 'iPhone: unlocks with the new password set on desktop'), () => ok(false, 'iPhone: new password'));
     const [, n] = await device(browser, IPHONE, 'ipad');
-    await n.click('[data-act=sync-signin]'); await n.fill('#si-url', SYNC); await n.fill('#si-login', 'kasia'); await n.fill('#si-pw', PW2);
-    await n.click('.modal footer .btn-primary'); await n.waitForSelector('#arch', { timeout: 30000 }).then(() => ok(true, 'third device: signs in with the new password'), () => ok(false, 'third device sign-in'));
+    await n.fill('[name=username]', 'kasia'); await n.fill('[name=password]', PW2); await n.click('#login button'); await n.waitForSelector('#arch', { timeout: 30000 }).then(() => ok(true, 'third device: signs in with the new password'), () => ok(false, 'third device sign-in'));
     ok((await data(n, 'visits')).some((v) => v.id === vid), 'third device: full history downloaded');
 
     // ---------- iPhone: letter view, touch selection → comment
@@ -140,7 +138,26 @@ const data = (p, store) => p.evaluate((store) => [...window.__endolist.S.data[st
     await m.context().setOffline(false); await syncNow(m); await syncNow(d);
     ok((await d.evaluate(() => window.__endolist.settings().doctor.npwz)) === '1234567', 'after reconnecting: offline change delivered to desktop');
 
-    for (const p of [d, m, n]) ok(p.errs.length === 0, 'no page errors ' + JSON.stringify(p.errs));
+    const [, o] = await device(browser, { viewport: { width: 1280, height: 860 }, serviceWorkers: 'block' }, 'old-pc'); // so the test can stand in a config without a sync server
+    await o.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: '{"syncUrl": ""}' }));
+    await o.evaluate(() => localStorage.clear()); await o.reload(); await o.waitForSelector('[data-ob=first]');
+    await o.fill('[data-ob=first]', 'Jan'); await o.fill('[data-ob=last]', 'Wiśniewski');
+    for (let i = 0; i < 3; i++) await o.click('[data-act=ob-next]');
+    await o.fill('[name=username]', 'jan'); await o.fill('[name=pw]', PW); await o.fill('[name=pw2]', PW);
+    await o.click('[data-act=ob-create]'); await o.waitForSelector('[data-act=ob-finish]', { timeout: 20000 }); await o.click('[data-act=ob-finish]'); await o.waitForSelector('#arch');
+    await o.evaluate(() => { window.__endolist.save('patients', { id: 'old-1', first: 'Ewa', last: 'Starsza', dob: '1960-01-01', createdAt: Date.now() }); });
+    await o.waitForTimeout(800);
+    ok(!(await o.evaluate(() => !!window.__endolist.S.sync)), 'old account: no sync before a server was configured');
+    await o.unroute('**/config.json'); if (process.env.SYNC_URL) await o.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ syncUrl: SYNC }) }));
+    await o.reload(); await o.fill('[name=password]', PW); await o.click('#login button'); await o.waitForSelector('#arch');
+    await o.waitForFunction(() => window.__endolist.S.syncStatus?.state === 'ok', null, { timeout: 30000 }).catch(() => {});
+    ok(await o.evaluate(() => !!window.__endolist.S.sync), 'old account: sync switched on automatically at the next login');
+    const [, q] = await device(browser, IPHONE, 'iphone-jan');
+    await q.fill('[name=username]', 'jan'); await q.fill('[name=password]', PW); await q.click('#login button'); await q.waitForSelector('#arch', { timeout: 30000 });
+    ok((await data(q, 'patients')).some((x) => x.last === 'Starsza'), 'old account: its earlier data is available on the iPhone');
+    ok((await data(q, 'patients')).every((x) => x.last !== 'Kowalska'), 'accounts stay separate (no data from another login)');
+
+    for (const p of [d, m, n, o, q]) ok(p.errs.length === 0, 'no page errors ' + JSON.stringify(p.errs));
   } catch (e) { console.error(e); failures++; }
   await browser.close(); srv.kill();
   console.log(failures ? `\n${failures} FAILED` : '\nALL PASSED');

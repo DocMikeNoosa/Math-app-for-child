@@ -200,6 +200,14 @@ export async function unlockPasskey() {
   return new Session(p, raw, await importDek(raw));
 }
 
+export async function findProfile(username) { return (await listProfiles()).find((x) => norm(x.username) === norm(username)) || null; }
+/** Removes an account and all its records from this device (used when sign-up has to be undone). */
+export async function deleteProfile(pid) {
+  await tx('records', 'readwrite', (s) => s.delete(IDBKeyRange.bound(`${pid}|`, `${pid}|\uffff`)));
+  await tx('profiles', 'readwrite', (s) => s.delete(pid));
+  await kv.del(`sync:${pid}`);
+}
+
 /* ------------------------------------------------------------ synchronizacja: konto na nowym urządzeniu */
 export const normLogin = (u) => norm(u);
 /** Server account id: SHA-256 of the normalised sync login (the login itself is not stored on the server). */

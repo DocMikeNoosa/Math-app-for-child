@@ -42,20 +42,43 @@ const cfgKey = (pid) => `sync:${pid}`;
 export const loadConfig = (pid) => kv.get(cfgKey(pid));
 const saveConfig = (pid, cfg) => kv.set(cfgKey(pid), cfg);
 
-/** Enables sync for an unlocked account on this device (first device registers the account on the server). */
+/** Server address configured for this installation (config.json, written at deployment) or remembered from earlier use. */
+let CONFIG = null;
+export async function appConfig() {
+  if (CONFIG) return CONFIG;
+  try { const r = await fetch('config.json', { cache: 'no-store' }); CONFIG = r.ok ? await r.json() : {}; } catch { CONFIG = {}; }
+  return CONFIG;
+}
+export async function defaultSyncUrl() {
+  const c = await appConfig();
+  let u = c.syncUrl || ''; try { u ||= localStorage.getItem('endolist:syncUrl') || ''; } catch {}
+  return u;
+}
+
+/**
+ * Enables sync for an unlocked account on this device (the first device registers the account on the server).
+ * Offline: the registration is queued and completed by the next sync round. A login taken by another account → error 409.
+ */
 export async function enableSync(session, { url, login, password }) {
-  const base = await checkServer(url);
+  const base = normUrl(url);
   const acct = await acctId(login);
   const [lt, st] = await Promise.all([loginToken(login, password), session.syncToken()]);
-  await api(base, 'POST', '/v1/register', { body: { acct, login: lt, sync: st, header: session.header() } });
   const cfg = { url: base, login: login.trim(), acct, cursor: 0, headerAt: 0, last: 0, enabled: true };
+  try {
+    await checkServer(base);
+    await api(base, 'POST', '/v1/register', { body: { acct, login: lt, sync: st, header: session.header() } });
+  } catch (e) {
+    if (!e.offline) throw e;
+    cfg.pendingRegister = true; cfg.pendingLogin = lt; // a derived token, never the password
+  }
   await saveConfig(session.pid, cfg);
+  try { localStorage.setItem('endolist:syncUrl', base); } catch {}
   return cfg;
 }
 
 /** Signs in on a new device (e.g. iPhone): fetches the encrypted account header, opens it with the password. */
 export async function signInFromServer({ url, login, password }) {
-  const base = await checkServer(url);
+  const base = normUrl(url);
   const acct = await acctId(login);
   const r = await api(base, 'POST', '/v1/login', { body: { acct, login: await loginToken(login, password) } });
   const session = await openRemoteProfile(r.header, password, login);
@@ -100,6 +123,11 @@ export class SyncClient {
     try {
       const token = this.token ||= await this.s.syncToken();
       const { url, acct } = this.cfg;
+      if (this.cfg.pendingRegister) {
+        try { await api(url, 'POST', '/v1/register', { body: { acct, login: this.cfg.pendingLogin, sync: token, header: this.s.header() } }); }
+        catch (e) { if (e.status === 409) { const er = new Error('Ten login jest już zajęty na serwerze synchronizacji przez inne konto — dane są tylko na tym urządzeniu. Zmień login synchronizacji w Ustawieniach.'); er.taken = true; throw er; } throw e; }
+        this.cfg.pendingRegister = false; delete this.cfg.pendingLogin; await saveConfig(this.s.pid, this.cfg);
+      }
       // ---- push local changes
       const pending = (await this.s.rawRecords()).filter((r) => !r.syn);
       const tooBig = pending.filter((r) => r.ct.length > MAX_BYTES);
