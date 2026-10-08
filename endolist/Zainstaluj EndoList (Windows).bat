@@ -9,14 +9,6 @@ if not exist "server.mjs" (
   pause
   exit /b 1
 )
-where node >nul 2>nul
-if errorlevel 1 (
-  echo.
-  echo Node.js nie jest zainstalowany. Zainstaluj go ze strony https://nodejs.org ^(wersja LTS^) i uruchom ten plik ponownie.
-  echo.
-  pause
-  exit /b 1
-)
 echo.
 echo Tworzenie ikony EndoList na pulpicie i w menu Start...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0launcher\install-shortcuts.ps1"

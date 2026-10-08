@@ -50,10 +50,10 @@ The Centrum Stomatologiczne logo (from the clinic's website, as provided) is bui
 
 ## Installation
 
-**Desktop icon (local).** Install Node.js (LTS), unzip EndoList, then:
+**Desktop icon (local).** Unzip EndoList, then:
 
-- **Windows:** double-click `Zainstaluj EndoList (Windows).bat`. This creates an **EndoList** icon (a tooth on a navy background) on the desktop and in the Start menu. Clicking it starts the app in its own window, with no console.
-- **Mac:** double-click `Zainstaluj EndoList (Mac).command`. This creates **EndoList.app** with the icon in `~/Applications`; drag it to the Dock.
+- **Windows** (no extra programs needed; Windows PowerShell serves the app on this computer only, and Node.js is used if it's installed): double-click `Zainstaluj EndoList (Windows).bat`. This creates an **EndoList** icon (a tooth on a navy background) on the desktop and in the Start menu. Clicking it starts the app in its own window, with no console.
+- **Mac** (needs Node.js LTS from nodejs.org): double-click `Zainstaluj EndoList (Mac).command`. This creates **EndoList.app** with the icon in `~/Applications`; drag it to the Dock.
 
 **Link for other doctors (GitHub Pages).** The `.github/workflows/pages.yml` workflow publishes the `public/` folder. Enable it under Settings → Pages → Source: *GitHub Actions*. From the link, the app can also be installed via Chrome or Edge (menu ⋮ → *Install EndoList*). Each doctor has separate, encrypted data on their own computer.
 

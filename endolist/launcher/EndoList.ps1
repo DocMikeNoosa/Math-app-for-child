@@ -8,8 +8,12 @@ function Test-EndoList { try { $r = Invoke-RestMethod -Uri "$Url/api/status" -Ti
 
 if (-not (Test-EndoList)) {
   $node = (Get-Command node -ErrorAction SilentlyContinue).Source
-  if (-not $node) { Show-Message "Node.js nie jest zainstalowany.`nZainstaluj go ze strony nodejs.org (wersja LTS) i spróbuj ponownie."; exit 1 }
-  Start-Process -FilePath $node -ArgumentList 'server.mjs' -WorkingDirectory $App -WindowStyle Hidden
+  if ($node) { Start-Process -FilePath $node -ArgumentList 'server.mjs' -WorkingDirectory $App -WindowStyle Hidden }
+  else {
+    # no Node.js needed: the built-in Windows PowerShell serves the app on this computer only
+    $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    Start-Process -FilePath $ps -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'server.ps1')`"" -WorkingDirectory $App -WindowStyle Hidden
+  }
   $ready = $false
   for ($i = 0; $i -lt 60; $i++) { Start-Sleep -Milliseconds 250; if (Test-EndoList) { $ready = $true; break } }
   if (-not $ready) { Show-Message 'Nie udało się uruchomić EndoList. Uruchom ponownie komputer i spróbuj jeszcze raz.'; exit 1 }
