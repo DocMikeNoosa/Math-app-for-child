@@ -519,3 +519,19 @@ body { overflow-x: hidden; }
 .stage.flat svg { width: auto; height: 88%; max-width: 92%; max-height: none; }
 .ws-left:has(.stage.flat) .stage-bar .hint { display: none; }
 .paper .gl.mat-hint { color: #8a8a8a; font-style: italic; border: 1px dashed #cfcfcf; border-radius: 6px; padding: 6px 8px; }
+
+/* ================================================================ big primary actions + AI tip */
+.btn-xl { height: 54px; padding: 0 26px; font-size: 16.5px; font-weight: 700; border-radius: 16px; gap: 10px; }
+.btn-xl svg { width: 20px; height: 20px; }
+.actionbar .btn-xl { height: 50px; padding: 0 24px; }
+.letter-tools { display: flex; gap: 4px; flex-wrap: wrap; }
+.letter-main { display: flex; gap: 10px; }
+.ai-tip { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.45; color: var(--text);
+  background: linear-gradient(135deg, rgba(94, 230, 214, 0.1), rgba(164, 147, 255, 0.1)); border: 1px solid rgba(94, 230, 214, 0.3); max-width: 760px; }
+.ai-tip > svg { width: 20px; height: 20px; flex: none; color: var(--accent); }
+.ai-tip b { color: var(--strong); }
+@media (max-width: 720px) {
+  .letter-main { width: 100%; flex-direction: column; }
+  .letter-main .btn-xl { width: 100%; }
+  .actionbar .btn-xl { height: 44px; padding: 0 16px; font-size: 14.5px; }
+}

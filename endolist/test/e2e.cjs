@@ -163,7 +163,7 @@ async function mockAI(p, reviseOut) {
   await shot(p, '11-review', { fullPage: true });
   // highlight a passage → popover → comment → tick "done"
   const sel = await p.evaluate(() => {
-    const el = document.querySelector('#paper [data-loc="sections.0.paragraphs.0"]'); const txt = el.firstChild; const s = txt.textContent; const i = s.indexOf('W badaniu'); const r = document.createRange(); r.setStart(txt, i); r.setEnd(txt, s.indexOf('.', i) + 1);
+    const el = document.querySelector('#paper [data-loc="sections.0.paragraphs.0"]'); el.scrollIntoView({ block: 'center' }); const txt = el.firstChild; const s = txt.textContent; const i = s.indexOf('W badaniu'); const r = document.createRange(); r.setStart(txt, i); r.setEnd(txt, s.indexOf('.', i) + 1);
     const sl = getSelection(); sl.removeAllRanges(); sl.addRange(r); const b = r.getBoundingClientRect(); return { x: b.left + 5, y: b.top + 5, q: r.toString() };
   });
   await p.mouse.move(sel.x, sel.y); await p.mouse.up(); await p.waitForSelector('.note-pop', { timeout: 3000 });

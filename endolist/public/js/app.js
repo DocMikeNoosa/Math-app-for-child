@@ -546,7 +546,7 @@ function afterVisit() {
   const v = curVisit(), n = v.teeth.length;
   $('#actionbar').innerHTML = `<div class="actionbar"><span class="sum">${n ? `<b>${n}</b> ${n === 1 ? 'ząb' : n < 5 ? 'zęby' : 'zębów'}: ${v.teeth.map((t) => t.fdi).join(', ')}` : 'Kliknij ząb na schemacie'}</span>
     <button class="btn" data-act="save-visit">${I('check')} Zapisz wizytę</button>
-    <button class="btn btn-primary" data-act="gen-letter" ${n ? '' : 'disabled'}>${I('spark')} Generuj list</button></div>`;
+    <button class="btn btn-primary btn-xl" data-act="gen-letter" ${n ? '' : 'disabled'}>${I('spark')} Generuj list</button></div>`;
 }
 function refreshVisit() {
   const v = curVisit(); if (!v || S.view !== 'visit') return;
@@ -981,15 +981,19 @@ function viewLetter() {
   return `<div class="pagehead"><button class="btn btn-ghost" data-act="letter-back">${I('back')} Wróć</button>
     <div><h2>List — ${esc(patientName(p))}</h2><div class="small muted">do: ${esc(refName(r))} · ${fmtDate(L.date)} · <span class="ai-badge ${L.source === 'ai' ? '' : 'off'}" title="${esc(L.aiError || '')}">${L.source === 'ai' ? `${I('spark')} napisane przez AI` : 'generator wbudowany (bez AI)'}</span></div></div>
     <span class="grow"></span>
-    <button class="btn" data-act="regen">${I('refresh')} Wygeneruj od nowa</button>
-    <button class="btn" data-act="pdf-preview">${I('doc')} Podgląd PDF</button>
-    <button class="btn" data-act="prodentis">${I('copy')} ProDentis</button>
-    <button class="btn" data-act="print">${I('print')} Drukuj</button>
-    <button class="btn btn-soft" data-act="email">${I('mail')} E-mail</button>
-    <button class="btn btn-primary" data-act="save-pdf">${I('save')} Zapisz PDF</button></div>
+    <div class="letter-tools">
+      <button class="btn btn-ghost btn-sm" data-act="regen">${I('refresh')} Wygeneruj od nowa</button>
+      <button class="btn btn-ghost btn-sm" data-act="pdf-preview">${I('doc')} Podgląd PDF</button>
+      <button class="btn btn-ghost btn-sm" data-act="print">${I('print')} Drukuj</button>
+      <button class="btn btn-ghost btn-sm" data-act="prodentis">${I('copy')} ProDentis</button>
+    </div>
+    <div class="letter-main">
+      <button class="btn btn-soft btn-xl" data-act="email">${I('mail')} Wyślij e-mailem</button>
+      <button class="btn btn-primary btn-xl" data-act="save-pdf">${I('save')} Zapisz PDF</button>
+    </div></div>
   <div class="review">
     <div class="paper-wrap">
-      <div class="paper-tools"><span class="hint">${S.manualEdit ? 'Edycja ręczna: kliknij w tekst i popraw go bezpośrednio.' : (COARSE ? 'Przytrzymaj palec na tekście i zaznacz fragment, który jest nie tak — potem „Dodaj uwagę".' : 'Zaznacz myszką fragment, który jest nie tak — pojawi się okienko na uwagę.')}</span><span class="grow"></span>
+      <div class="paper-tools">${S.manualEdit ? '<span class="hint">Edycja ręczna: kliknij w tekst i popraw go bezpośrednio.</span>' : `<div class="ai-tip">${I('spark')}<span><b>Chcesz coś zmienić?</b> ${COARSE ? 'Przytrzymaj palec na tekście i zaznacz fragment, który Ci nie odpowiada' : 'Zaznacz myszką fragment, który Ci nie odpowiada'} — opisz, jak ma brzmieć, a ${aiKey() ? 'AI poprawi list (przycisk „Popraw list z AI” z prawej)' : 'popraw go ręcznie lub dodaj klucz AI w Ustawieniach'}.</span></div>`}<span class="grow"></span>
         <label class="switch"><input type="checkbox" id="manual-edit" ${S.manualEdit ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Edycja ręczna</label></div>
       <div id="paper">${paperHTML(L)}</div>
     </div>
@@ -1179,7 +1183,7 @@ function viewPatient() {
   const p = D().patients.get(S.patientId); if (!p) return '<div class="empty">Nie znaleziono pacjenta.</div>';
   const vs = visitsOf(p.id), ls = lettersOf(p.id);
   return `<div class="pagehead"><button class="btn btn-ghost" data-nav="patients">${I('back')} Pacjenci</button><div><h2>${esc(patientName(p))}</h2><div class="small muted">${p.pesel ? 'PESEL ' + esc(p.pesel) + ' · ' : ''}${p.dob ? 'ur. ' + fmtDate(p.dob) : ''}${p.phone ? ' · ' + esc(p.phone) : ''}</div></div><span class="grow"></span>
-    <button class="btn btn-ghost" data-act="patient-export" title="Prawo dostępu i przenoszenia danych (RODO art. 15, 20)">${I('save')} Eksport danych</button><button class="btn btn-ghost btn-danger" data-act="patient-delete" title="Usunięcie wszystkich danych pacjenta">${I('trash')}</button><button class="btn" data-act="edit-patient">Edytuj dane</button><button class="btn" data-act="other-visit">${I('plus')} Leczenie z innego gabinetu</button><button class="btn btn-soft" data-act="patient-visit">${I('plus')} Nowa wizyta</button><button class="btn btn-primary" data-act="patient-letter" ${vs.some((v) => v.teeth.length) ? '' : 'disabled'}>${I('spark')} Nowy list</button></div>
+    <button class="btn btn-ghost" data-act="patient-export" title="Prawo dostępu i przenoszenia danych (RODO art. 15, 20)">${I('save')} Eksport danych</button><button class="btn btn-ghost btn-danger" data-act="patient-delete" title="Usunięcie wszystkich danych pacjenta">${I('trash')}</button><button class="btn" data-act="edit-patient">Edytuj dane</button><button class="btn" data-act="other-visit">${I('plus')} Leczenie z innego gabinetu</button><button class="btn btn-soft" data-act="patient-visit">${I('plus')} Nowa wizyta</button><button class="btn btn-primary btn-lg" data-act="patient-letter" ${vs.some((v) => v.teeth.length) ? '' : 'disabled'}>${I('spark')} Generuj list</button></div>
   <div class="settings">
     <section class="panel"><header><h3>Wizyty</h3><span class="sub">${vs.length}</span></header>${vs.length ? `<table class="list"><tbody>${vs.map((v) => `<tr class="click" data-open-visit="${v.id}"><td style="width:110px">${fmtDate(v.date)}</td><td>${v.performer === 'other' ? `<span class="tag o">${esc(v.otherDentist || 'inny lekarz')}</span>` : '<span class="tag g">moje leczenie</span>'}</td><td>${v.teeth.map((t) => `<span class="tag ${markFor([{ visit: v, rec: t }]) === 'work' ? 'v' : ''}" title="${esc(toothSummary(t))}">${t.fdi}</span>`).join('') || '<span class="faint">—</span>'}</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" data-act="del-visit" data-id="${v.id}">${I('trash')}</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Brak wizyt.</div>'}</section>
     <section class="panel"><header><h3>Listy</h3><span class="sub">${ls.length}</span></header>${ls.length ? `<table class="list"><tbody>${ls.map((l) => `<tr class="click" data-open-letter="${l.id}"><td style="width:110px">${fmtDate(l.date)}</td><td>${esc(refName(D().referrers.get(l.referrerId)))}<div class="tiny faint">${l.glance.map((g) => g.fdi).join(', ')}${l.emailedAt ? ' · wysłano e-mailem' : ''}</div></td><td>${l.source === 'ai' ? '<span class="tag">AI</span>' : ''}${l.files.length ? '<span class="tag v">PDF</span>' : ''}</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" data-act="del-letter" data-id="${l.id}">${I('trash')}</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Brak listów.</div>'}</section>
