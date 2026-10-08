@@ -1,6 +1,7 @@
 // EndoList — generowanie listu przez Claude (Anthropic API). Wysyłane są wyłącznie dane kliniczne bez danych
 // osobowych: bez imion, nazwisk, dat urodzenia ani adresów. Nazwiska wstawia aplikacja lokalnie.
 import { Anthropic } from '../vendor/anthropic-sdk.mjs';
+import { PSEUDO_NOTE } from './privacy.js';
 
 export const MODEL = 'claude-opus-5-5';
 
@@ -78,7 +79,9 @@ export class AIError extends Error { constructor(msg, code) { super(msg); this.c
 
 function client(apiKey) { return new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, timeout: 120000 }); }
 
-async function call(apiKey, system, payload, schema, effort) {
+/** pseudo: Pseudonymizer — identifiers are replaced before sending and put back into the answer locally. */
+async function call(apiKey, system, payload, schema, effort, pseudo = null) {
+  if (pseudo) { payload = pseudo.apply(payload); system = system + '\n\n' + PSEUDO_NOTE; }
   if (!apiKey) throw new AIError('Brak klucza API — dodaj go w Ustawieniach.', 'no_key');
   let resp;
   try {
@@ -105,11 +108,12 @@ async function call(apiKey, system, payload, schema, effort) {
   const text = resp.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
   let out;
   try { out = JSON.parse(text); } catch { throw new AIError('AI zwróciło nieprawidłowy format.', 'parse'); }
+  if (pseudo) out = pseudo.restore(out);
   return { ...out, usage: resp.usage };
 }
-export const generateLetter = (apiKey, payload, { effort = 'medium' } = {}) => call(apiKey, SYSTEM_PROMPT, payload, SCHEMA, effort);
-export const reviseLetter = (apiKey, payload, { effort = 'medium' } = {}) => call(apiKey, REVISE_PROMPT, payload, REVISE_SCHEMA, effort);
-export const cleanDictation = (apiKey, text, context = '') => call(apiKey, DICTATION_PROMPT, { context, dictation: text }, DICTATION_SCHEMA, 'low');
+export const generateLetter = (apiKey, payload, { effort = 'medium', pseudo } = {}) => call(apiKey, SYSTEM_PROMPT, payload, SCHEMA, effort, pseudo);
+export const reviseLetter = (apiKey, payload, { effort = 'medium', pseudo } = {}) => call(apiKey, REVISE_PROMPT, payload, REVISE_SCHEMA, effort, pseudo);
+export const cleanDictation = (apiKey, text, context = '', { pseudo } = {}) => call(apiKey, DICTATION_PROMPT, { context, dictation: text }, DICTATION_SCHEMA, 'low', pseudo);
 
 export async function testKey(apiKey) {
   try {

@@ -492,3 +492,13 @@ body { overflow-x: hidden; }
   #toasts { top: calc(var(--top) + env(safe-area-inset-top) + 8px); left: 14px; right: 14px; align-items: stretch; }
   .toast { max-width: none; }
 }
+
+/* ================================================================ RODO panel */
+.audit { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
+.audit .ae { display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; font-size: 12px; padding: 5px 8px; border-radius: 8px; color: var(--dim); }
+.audit .ae:nth-child(odd) { background: rgba(255, 255, 255, 0.025); }
+.audit .ae .t { color: var(--faint); font-variant-numeric: tabular-nums; }
+.audit .ae .d { color: var(--faint); }
+.dpa { padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 181, 71, 0.35); background: rgba(255, 181, 71, 0.06); }
+.dpa.ok { border-color: rgba(94, 230, 214, 0.3); background: rgba(94, 230, 214, 0.05); }
+@media (max-width: 720px) { .audit .ae { grid-template-columns: 1fr; gap: 0; } }

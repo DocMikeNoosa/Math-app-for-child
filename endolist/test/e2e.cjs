@@ -111,10 +111,19 @@ async function mockAI(p, reviseOut) {
   await shot(p, '07-ws-materials');
   // manual description with dictation (fake recogniser) + AI cleanup (MOCK)
   await mockAI(p, () => ({}));
-  await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.key = 'sk-ant-test'; window.__endolist.save('settings', st); });
+  // RODO: with an API key but without the clinic's confirmation of a processing agreement, nothing is sent to AI
+  await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.key = 'sk-ant-test'; st.ai.dpa = false; window.__endolist.save('settings', st); });
   await p.click('[data-ttab=manual]');
   await p.click('[data-mic="t.manual"]'); await p.waitForTimeout(500); await p.click('[data-mic="t.manual"]'); await p.waitForTimeout(1200);
+  ok(aiCalls.length === 0 && (await p.inputValue('[data-b="t.manual"]')) === 'usunięto stary wkład metalowy', 'RODO: no AI call before the processing agreement is confirmed');
+  await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.dpa = true; window.__endolist.save('settings', st); });
+  await p.fill('[data-b="t.manual"]', '');
+  await p.evaluate((pes) => { window.__speak = `pacjentka Anna Kowalska PESEL ${pes} telefon 501 234 567 kierowała doktor Maria Nowak usunięto stary wkład metalowy`; }, PES);
+  await p.click('[data-mic="t.manual"]'); await p.waitForTimeout(500); await p.click('[data-mic="t.manual"]'); await p.waitForTimeout(1200);
   ok((await p.inputValue('[data-b="t.manual"]')) === 'Usunięto stary wkład metalowy przy użyciu ultradźwięków.', 'dictation → AI-cleaned text in manual description');
+  const dIn = JSON.stringify(aiCalls.at(-1).body);
+  ok(!/Kowalsk|Anna|Nowak|Maria|501 234|\d{11}/.test(dIn) && dIn.includes('[OSOBA-') && dIn.includes('[PESEL]'), 'RODO: names, PESEL and phone replaced by tokens before reaching AI');
+  await p.evaluate(() => { window.__speak = ''; });
   await shot(p, '08-ws-manual');
   await p.click('[data-ttab=rec]');
   await p.selectOption('[data-b="t.rec.restor"]', 'crown'); await p.waitForTimeout(100); await seg('t.rec.time', '30d'); await seg('t.rec.control', '6-12m'); await seg('t.rec.prog', 'good');
@@ -153,7 +162,7 @@ async function mockAI(p, reviseOut) {
   await shot(p, '13-notes', { fullPage: true });
   // AI revision (MOCK response, applies a visible change so the flow can be checked)
   await mockAI(p, (body) => { const inp = JSON.parse(body.messages[0].content); const l = inp.letter; l.sections[0].paragraphs[0] = l.sections[0].paragraphs[0].replace(/W badaniu:[^.]*\./, 'W badaniu: brak reakcji na testy żywotności, bolesne opukiwanie.'); return { ...l, changes: ['Skrócono opis badania zęba 36.', 'Ujednolicono styl na bardziej formalny.'], warnings: [] }; });
-  await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.key = 'sk-ant-test'; window.__endolist.save('settings', st); });
+  await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.key = 'sk-ant-test'; st.ai.dpa = true; window.__endolist.save('settings', st); });
   await p.evaluate(() => window.__endolist.rerender());
   await p.click('[data-act=revise]'); await p.waitForTimeout(1500);
   const rv = aiCalls.at(-1); const rIn = JSON.parse(rv.body.messages[0].content);
@@ -182,6 +191,22 @@ async function mockAI(p, reviseOut) {
   [ctx, p] = await launch();
   await p.fill('[name=password]', 'Tajne-haslo-123'); await p.click('#login button'); await p.waitForSelector('#arch', { timeout: 20000 });
   await p.click('[data-nav=patients]'); ok((await p.textContent('table.list')).includes('Kowalska'), 'data persisted after restart');
+  // ---------- RODO: activity log, right of access/portability, erasure
+  await p.click('[data-nav=settings]'); await p.waitForSelector('#rodo-panel');
+  ok((await p.textContent('#rodo-panel')).includes('logowanie'), 'activity log shown in Settings');
+  await p.locator('#rodo-panel').screenshot({ path: path.join(OUT, '16-rodo-panel.png') });
+  const [csv] = await Promise.all([p.waitForEvent('download'), p.click('[data-act=audit-csv]')]);
+  const log = fs.readFileSync(await csv.path(), 'utf8'); if (process.env.SHOWLOG) console.log(log);
+  ok(['logowanie', 'zapis PDF', 'użycie AI', 'otwarcie karty pacjenta', 'utworzenie listu', 'blokada'].every((x) => log.includes(x)) && log.includes('Anna Kowalska'), 'activity log (CSV) records login, record access, letters, PDF, AI use, lock');
+  await p.click('[data-nav=patients]'); await p.click('[data-open-patient]'); await p.waitForTimeout(300);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('[data-act=patient-export]')]);
+  const ex = JSON.parse(fs.readFileSync(await dl.path(), 'utf8'));
+  ok(ex.pacjent.last === 'Kowalska' && ex.wizyty.length >= 1 && ex.listy.length >= 1, 'patient data export (RODO art. 15/20): patient, visits, letters');
+  await p.click('[data-act=patient-delete]'); await p.fill('#del-confirm', 'zly'); await p.click('.modal footer .btn-danger'); await p.waitForTimeout(300);
+  ok(await p.locator('#del-confirm').count() === 1, 'erasure needs the surname typed to confirm');
+  await p.fill('#del-confirm', 'Kowalska'); await p.click('.modal footer .btn-danger'); await p.waitForTimeout(1200);
+  const left = await p.evaluate(() => { const S = window.__endolist.S; return { p: S.data.patients.size, v: [...S.data.visits.values()].filter((v) => v.teeth.length).length, l: S.data.letters.size }; });
+  ok(left.p === 0 && left.v === 0 && left.l === 0, 'patient erased with all visits and letters ' + JSON.stringify(left));
   console.log('ERRORS-2', p.errs);
   await ctx.close();
   console.log(failures ? `\n${failures} FAILED` : '\nALL PASSED');

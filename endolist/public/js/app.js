@@ -10,6 +10,7 @@ import { suggestDx, finalDx } from './dx.js';
 import { archSVG, toothDetailSVG } from './odontogram.js';
 import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT } from './letter.js';
 import { generateLetter, reviseLetter, cleanDictation, testKey } from './ai.js';
+import { Pseudonymizer } from './privacy.js';
 import { Tooth3D, webglOk } from './tooth3d.js';
 import { Dictation, speechSupported } from './speech.js';
 import { letterPaperHTML } from './letterview.js';
@@ -68,17 +69,34 @@ const DEFAULT_SETTINGS = {
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
 const settings = () => S.data.settings.get('main');
+/* RODO: AI only after the clinic confirms a data processing agreement with Anthropic; identifiers never leave the device */
+const aiKey = () => { const a = settings().ai; return a.key && a.dpa ? a.key : ''; };
+const TITLE_WORDS = /^(lek|dent|dr|hab|n|med|prof|stom|lekarz|dentysta|pani|pan)\.?$/i;
+function pseudoFor(patient, referrer, visits = []) {
+  const d = settings().doctor;
+  const people = [patient, referrer && referrer.kind !== 'clinic' ? referrer : null, { first: d.first, last: d.last }];
+  for (const v of visits) if (v?.otherDentist) { const w = v.otherDentist.split(/\s+/).filter((x) => x.length >= 3 && !TITLE_WORDS.test(x)); if (w.length) people.push({ first: w[0], last: w.slice(1).join(' ') }); }
+  const extra = [patient?.pesel, patient?.dob, patient?.dob && fmtDate(patient.dob), patient?.phone, patient?.email, referrer?.clinic, referrer?.email, referrer?.phone, ...(referrer?.address || '').split('\n'), d.npwz, d.phone, d.email].filter((x) => x && String(x).trim().length >= 4);
+  return new Pseudonymizer({ people: people.filter(Boolean), extra });
+}
+/** Identifiers for an AI call made from the current screen (dictation, manual description). */
+function pseudoHere() {
+  if (S.view === 'letter') { const L = D().letters.get(S.letterId); if (L) return pseudoFor(D().patients.get(L.patientId), D().referrers.get(L.referrerId), L.visitIds.map((id) => D().visits.get(id))); }
+  const v = curVisit(); return pseudoFor(v && D().patients.get(v.patientId), v && D().referrers.get(v.referrerId), v ? [v] : []);
+}
 const doctorName = () => { const d = settings().doctor; return [d.title, d.first, d.last].filter(Boolean).join(' '); };
 
 /* ================================================================ persistence */
 const dirty = new Map();
-const flushSave = debounce(async () => {
+// writes are queued, so awaiting flushSave.flush() (e.g. before locking) also waits for writes already in progress
+let saveQueue = Promise.resolve();
+const flushSave = debounce(() => (saveQueue = saveQueue.then(async () => {
   const items = [...dirty.values()]; dirty.clear();
   if (!items.length) return;
   S.saving++; renderStatus();
   try { for (const [store, obj] of items) await S.session.put(store, obj); } catch (e) { toast('Nie udało się zapisać: ' + e.message, 'err'); }
   S.saving--; renderStatus(); scheduleBackup();
-}, 350);
+})), 350);
 function save(store, obj) { if (store === 'settings') mirrorBrand(); obj.updatedAt = Date.now(); D()[store].set(obj.id, obj); dirty.set(store + obj.id, [store, obj]); flushSave(); }
 async function remove(store, id) { D()[store].delete(id); await S.session.del(store, id); scheduleBackup(); }
 const scheduleBackup = debounce(backupNow, 2500);
@@ -89,6 +107,22 @@ async function backupNow() {
   catch (e) { S.folder.error = e.message || String(e); if (e.name === 'NotAllowedError') S.folder.perm = 'prompt'; return false; }
   finally { S.backingUp = false; renderStatus(); renderBanner(); }
 }
+
+/* ================================================================ rejestr zdarzeń (RODO art. 5 ust. 2, art. 32 — rozliczalność) */
+// One encrypted record per device per day: { id: 'YYYY-MM-DD_device', device, events: [{ at, user, action, detail, patientId }] } — synced like other data.
+const DEVICE_ID = (() => { try { let d = localStorage.getItem('endolist:device'); if (!d) { d = V.uid(); localStorage.setItem('endolist:device', d); } return d; } catch { return 'dev'; } })();
+const deviceName = () => { const u = navigator.userAgent; return /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) ? 'iPad' : /Android/.test(u) ? 'Android' : /Mac/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows' : 'komputer'; };
+const AUDIT_ACT = { login: 'logowanie', lock: 'blokada', view: 'otwarcie karty pacjenta', 'letter-create': 'utworzenie listu', pdf: 'zapis PDF', print: 'drukowanie', email: 'wysłanie e-mailem', prodentis: 'eksport ProDentis', export: 'eksport danych pacjenta', delete: 'usunięcie danych', backup: 'pobranie kopii zapasowej', ai: 'użycie AI', sync: 'synchronizacja', security: 'bezpieczeństwo konta' };
+const viewed = new Map();
+function audit(action, detail = '', patientId = '') {
+  if (!S.session || !S.data?.audit) return;
+  if (action === 'view') { const k = patientId; if (Date.now() - (viewed.get(k) || 0) < 10 * 60000) return; viewed.set(k, Date.now()); }
+  const id = `${today()}_${DEVICE_ID}`;
+  const rec = D().audit.get(id) || { id, day: today(), device: deviceName(), events: [] };
+  rec.events.push({ at: Date.now(), user: S.session.profile.username, action, detail, patientId: patientId || '' });
+  save('audit', rec); flushSave.flush(); // written at once: the log must survive closing the app
+}
+function auditEvents() { return [...D().audit.values()].flatMap((r) => (r.events || []).map((e) => ({ ...e, device: r.device }))).sort((a, b) => b.at - a.at); }
 
 /* ================================================================ model helpers */
 function newToothRec(fdi, other = false) {
@@ -200,8 +234,8 @@ function renderOnboarding(step = 0) {
     `<h1>Zabezpieczenie</h1><p class="lead">Login i hasło chronią dane pacjentów. Dane są szyfrowane na urządzeniu.</p>
      <form id="ob-acc" class="grid">
       <label class="f"><span>Login</span><input type="text" name="username" autocomplete="username" value="${esc(OB.username || (d.first + (d.last ? '.' + d.last : '')).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l').replace(/\s+/g, ''))}" required></label>
-      <label class="f"><span>Hasło (min. 8 znaków)</span><input type="password" name="pw" autocomplete="new-password" minlength="8" required></label>
-      <label class="f"><span>Powtórz hasło</span><input type="password" name="pw2" autocomplete="new-password" minlength="8" required></label>
+      <label class="f"><span>Hasło (min. 12 znaków)</span><input type="password" name="pw" autocomplete="new-password" minlength="12" required></label>
+      <label class="f"><span>Powtórz hasło</span><input type="password" name="pw2" autocomplete="new-password" minlength="12" required></label>
       ${S.syncUrl ? '<div class="hint" style="color:var(--accent)">Tym samym loginem i hasłem zalogujesz się na iPhonie i na innych komputerach — dane synchronizują się automatycznie (szyfrowane na urządzeniu).</div>' : ''}
       <div class="hint">Hasła nie da się odzyskać — bez niego nie ma dostępu do danych. Zapisz je w bezpiecznym miejscu. Po utworzeniu konta możesz dodać klucz dostępu (passkey), np. z iPhone'a.</div>
       <div class="err" id="err"></div>
@@ -265,7 +299,7 @@ async function enter(session, { password } = {}) {
   S.session = session;
   localStorage.setItem('endolist:lastUser', session.profile.username);
   const all = await session.loadAll();
-  S.data = { patients: all.patients || new Map(), visits: all.visits || new Map(), letters: all.letters || new Map(), referrers: all.referrers || new Map(), settings: all.settings || new Map() };
+  S.data = { patients: all.patients || new Map(), visits: all.visits || new Map(), letters: all.letters || new Map(), referrers: all.referrers || new Map(), settings: all.settings || new Map(), audit: all.audit || new Map() };
   if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS));
   const st = settings(); for (const k of Object.keys(DEFAULT_SETTINGS)) if (typeof DEFAULT_SETTINGS[k] === 'object' && !Array.isArray(DEFAULT_SETTINGS[k])) st[k] = { ...DEFAULT_SETTINGS[k], ...(st[k] || {}) };
   if ((st.doctor.logoDefault || (!st.doctor.logo && isCentrum(st.doctor))) && !st.doctor.logoCleared) { const l = await brandLogoData(); if (l) { st.doctor.logo = l; st.doctor.logoDefault = true; save('settings', st); } }
@@ -273,6 +307,7 @@ async function enter(session, { password } = {}) {
   S.folder = new Folder(session.pid);
   if (fsSupported()) await S.folder.init();
   S.view = 'visit'; S.visitId = null;
+  audit('login', deviceName());
   renderApp();
   if (S.folder.ok()) backupNow();
   await startSync();
@@ -323,7 +358,7 @@ function syncSetupModal() {
       if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Łączenie…'; }
       try {
         await V.unlockPassword(S.session.profile.username, pw); // confirms the password before it is used for the login token
-        await enableSync(S.session, { url, login, password: pw });
+        await enableSync(S.session, { url, login, password: pw }); audit('sync', 'włączono');
         S.syncUrl = normUrl(url); S.syncProblem = '';
         await startSync(); toast('Synchronizacja włączona.', 'ok'); renderView();
       } catch (er) { err.textContent = er.message; if (btn) { btn.disabled = false; btn.innerHTML = `${I('sync')} Włącz`; } return false; }
@@ -397,12 +432,12 @@ function renderBanner() {
 }
 function renderView() {
   const v = $('#view'); $('#actionbar').innerHTML = '';
-  if (S.view === 'visit') { v.innerHTML = viewVisit(); afterVisit(); }
+  if (S.view === 'visit') { v.innerHTML = viewVisit(); afterVisit(); const pv = curVisit()?.patientId; if (pv) audit('view', 'wizyta', pv); }
   else if (S.view === 'patients') v.innerHTML = viewPatients();
-  else if (S.view === 'patient') v.innerHTML = viewPatient();
+  else if (S.view === 'patient') { v.innerHTML = viewPatient(); audit('view', '', S.patientId); }
   else if (S.view === 'referrers') v.innerHTML = viewReferrers();
   else if (S.view === 'settings') v.innerHTML = viewSettings();
-  else if (S.view === 'letter') { v.innerHTML = viewLetter(); afterLetter(); }
+  else if (S.view === 'letter') { v.innerHTML = viewLetter(); afterLetter(); const pl = D().letters.get(S.letterId)?.patientId; if (pl) audit('view', 'list', pl); }
   $$('#top .nav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === S.view || (['letter', 'patient'].includes(S.view) && b.dataset.nav === 'patients')));
 }
 function go(view, opts = {}) { Object.assign(S, opts, { view }); renderView(); window.scrollTo(0, 0); renderBanner(); }
@@ -706,10 +741,10 @@ async function stopMic() {
   await x.d.stop(); x.btn.classList.remove('rec');
   const dictated = x.finals.join(' ').trim();
   const st = settings();
-  if (!dictated || !st.ai.key || st.ai.cleanDictation === false) return;
+  if (!dictated || !aiKey() || st.ai.cleanDictation === false) return;
   x.btn.classList.add('busy');
   try {
-    const r = await cleanDictation(st.ai.key, dictated, 'Pole: ' + x.target);
+    const r = await cleanDictation(aiKey(), dictated, 'Pole: ' + x.target, { pseudo: pseudoHere() }); audit('ai', 'poprawa dyktowania (dane zanonimizowane)', curVisit()?.patientId || D().letters.get(S.letterId)?.patientId);
     x.el.value = [x.base, r.text].filter(Boolean).join(' '); x.el.dispatchEvent(new Event('input', { bubbles: true }));
     if ((r.warnings || []).length) toast('Dyktowanie: ' + r.warnings.join(' '), 'err');
   } catch (e) { toast('Nie udało się poprawić dyktowania: ' + e.message, 'err'); }
@@ -831,16 +866,18 @@ async function startLetter(fromVisitId) {
 }
 function usedFor(refId) { const st = settings(); st.used[refId] ??= { openings: [], closings: [] }; return st.used[refId]; }
 async function createLetter({ patientId, referrerId, visitIds, existing }) {
+  audit('letter-create', existing ? 'ponowne wygenerowanie' : '', patientId);
   const patient = D().patients.get(patientId), referrer = D().referrers.get(referrerId);
   const visits = visitIds.map((id) => D().visits.get(id)).filter(Boolean);
   const st = settings(), doctor = st.doctor, used = usedFor(referrerId);
   const repeat = [...D().letters.values()].some((l) => l.referrerId === referrerId && l.id !== existing?.id);
   const draft = buildOffline({ visits, patient, doctor, referrer, used, repeat, icd: st.letter.icd });
   let content = draft, source = 'auto', warnings = [];
-  const busy = modal({ title: st.ai.enabled && st.ai.key ? 'Asystent AI pisze list…' : 'Tworzenie listu…', body: `<div class="row" style="gap:14px;padding:8px 0 4px"><span class="spin" style="width:22px;height:22px;border-radius:50%;border:2.5px solid var(--accent);border-right-color:transparent;animation:spin .8s linear infinite"></span><span class="muted">${st.ai.enabled && st.ai.key ? 'Do AI trafiają tylko dane kliniczne, bez danych osobowych pacjenta.' : 'Generator wbudowany (bez AI).'}</span></div>` });
-  if (st.ai.enabled && st.ai.key) {
+  const busy = modal({ title: st.ai.enabled && aiKey() ? 'Asystent AI pisze list…' : 'Tworzenie listu…', body: `<div class="row" style="gap:14px;padding:8px 0 4px"><span class="spin" style="width:22px;height:22px;border-radius:50%;border:2.5px solid var(--accent);border-right-color:transparent;animation:spin .8s linear infinite"></span><span class="muted">${st.ai.enabled && st.ai.key ? 'Do AI trafiają tylko dane kliniczne, bez danych osobowych pacjenta.' : 'Generator wbudowany (bez AI).'}</span></div>` });
+  if (st.ai.enabled && aiKey()) {
     try {
-      const out = await generateLetter(st.ai.key, aiPayload({ visits, patient, doctor, referrer, used, repeat, icd: st.letter.icd, draft }), { effort: st.ai.effort });
+      const out = await generateLetter(aiKey(), aiPayload({ visits, patient, doctor, referrer, used, repeat, icd: st.letter.icd, draft }), { effort: st.ai.effort, pseudo: pseudoFor(patient, referrer, visits) });
+      audit('ai', 'list wygenerowany przez AI (dane zanonimizowane)', patient?.id);
       content = { opening: out.opening, sections: out.sections, recommendations: out.recommendations, closing: out.closing };
       warnings = out.warnings || []; source = 'ai';
     } catch (e) { toast(`${e.message} Użyto generatora wbudowanego.`, 'err'); }
@@ -883,7 +920,7 @@ function viewLetter() {
 }
 function paperHTML(L) { return letterPaperHTML(letterCtxFull(L), S.manualEdit ? [] : L.notes || [], { editable: S.manualEdit }); }
 function reviewSide(L) {
-  const notes = L.notes || [], hasKey = !!settings().ai.key, n = notes.filter((x) => x.comment).length;
+  const notes = L.notes || [], hasKey = !!aiKey(), n = notes.filter((x) => x.comment).length;
   const inst = L.instruction || '';
   return `<div class="body">
     <div class="rs-h">${I('edit')} Uwagi do poprawy <span class="badge">${notes.length || ''}</span></div>
@@ -966,7 +1003,7 @@ async function reviseWithAI(L) {
   const st = settings();
   const inst = ($('#gen-text')?.value || L.instruction || '').trim();
   const notes = (L.notes || []).filter((x) => x.comment);
-  if (!st.ai.key) return toast('Poprawki AI wymagają klucza API — dodaj go w Ustawieniach lub użyj edycji ręcznej.', 'err');
+  if (!aiKey()) return toast(st.ai.key ? 'AI jest wyłączone do czasu potwierdzenia umowy powierzenia z Anthropic (Ustawienia → Asystent AI). Użyj edycji ręcznej.' : 'Poprawki AI wymagają klucza API — dodaj go w Ustawieniach lub użyj edycji ręcznej.', 'err');
   if (!notes.length && !inst) return toast('Dodaj uwagę lub polecenie.', 'err');
   const p = D().patients.get(L.patientId) || {}, r = D().referrers.get(L.referrerId);
   const visits = L.visitIds.map((id) => D().visits.get(id)).filter(Boolean);
@@ -975,7 +1012,8 @@ async function reviseWithAI(L) {
   const { opening, sections, recommendations, closing } = L.content;
   const busy = modal({ title: 'AI poprawia list…', body: `<div class="row" style="gap:14px;padding:8px 0 4px"><span class="spin big"></span><span class="muted">Wprowadzam ${notes.length} ${notes.length === 1 ? 'uwagę' : 'uwag(i)'}${inst ? ' i polecenie ogólne' : ''}.</span></div>` });
   try {
-    const out = await reviseLetter(st.ai.key, { letter: { opening, sections, recommendations, closing }, annotations: notes.map((x) => ({ location: x.loc, quote: x.quote, comment: x.comment })), instruction: inst, facts: facts.teeth, visit_notes: facts.visit_notes, doctor: facts.doctor, patient: facts.patient, addressee: facts.addressee, include_icd10: facts.include_icd10 }, { effort: st.ai.effort });
+    audit('ai', 'poprawa listu przez AI (dane zanonimizowane)', L.patientId);
+    const out = await reviseLetter(aiKey(), { letter: { opening, sections, recommendations, closing }, annotations: notes.map((x) => ({ location: x.loc, quote: x.quote, comment: x.comment })), instruction: inst, facts: facts.teeth, visit_notes: facts.visit_notes, doctor: facts.doctor, patient: facts.patient, addressee: facts.addressee, include_icd10: facts.include_icd10 }, { effort: st.ai.effort, pseudo: pseudoFor(p, r, visits) });
     L.history = [...(L.history || []), { at: Date.now(), content: clone(L.content), notes, instruction: inst }].slice(-15);
     Object.assign(L.content, { opening: out.opening, sections: out.sections, recommendations: out.recommendations, closing: out.closing });
     L.notes = []; L.instruction = ''; L.genEdit = false; L.lastChanges = out.changes || []; L.warnings = out.warnings || []; L.source = 'ai';
@@ -1057,7 +1095,7 @@ function viewPatient() {
   const p = D().patients.get(S.patientId); if (!p) return '<div class="empty">Nie znaleziono pacjenta.</div>';
   const vs = visitsOf(p.id), ls = lettersOf(p.id);
   return `<div class="pagehead"><button class="btn btn-ghost" data-nav="patients">${I('back')} Pacjenci</button><div><h2>${esc(patientName(p))}</h2><div class="small muted">${p.pesel ? 'PESEL ' + esc(p.pesel) + ' · ' : ''}${p.dob ? 'ur. ' + fmtDate(p.dob) : ''}${p.phone ? ' · ' + esc(p.phone) : ''}</div></div><span class="grow"></span>
-    <button class="btn" data-act="edit-patient">Edytuj dane</button><button class="btn" data-act="other-visit">${I('plus')} Leczenie z innego gabinetu</button><button class="btn btn-soft" data-act="patient-visit">${I('plus')} Nowa wizyta</button><button class="btn btn-primary" data-act="patient-letter" ${vs.some((v) => v.teeth.length) ? '' : 'disabled'}>${I('spark')} Nowy list</button></div>
+    <button class="btn btn-ghost" data-act="patient-export" title="Prawo dostępu i przenoszenia danych (RODO art. 15, 20)">${I('save')} Eksport danych</button><button class="btn btn-ghost btn-danger" data-act="patient-delete" title="Usunięcie wszystkich danych pacjenta">${I('trash')}</button><button class="btn" data-act="edit-patient">Edytuj dane</button><button class="btn" data-act="other-visit">${I('plus')} Leczenie z innego gabinetu</button><button class="btn btn-soft" data-act="patient-visit">${I('plus')} Nowa wizyta</button><button class="btn btn-primary" data-act="patient-letter" ${vs.some((v) => v.teeth.length) ? '' : 'disabled'}>${I('spark')} Nowy list</button></div>
   <div class="settings">
     <section class="panel"><header><h3>Wizyty</h3><span class="sub">${vs.length}</span></header>${vs.length ? `<table class="list"><tbody>${vs.map((v) => `<tr class="click" data-open-visit="${v.id}"><td style="width:110px">${fmtDate(v.date)}</td><td>${v.performer === 'other' ? `<span class="tag o">${esc(v.otherDentist || 'inny lekarz')}</span>` : '<span class="tag g">moje leczenie</span>'}</td><td>${v.teeth.map((t) => `<span class="tag ${markFor([{ visit: v, rec: t }]) === 'work' ? 'v' : ''}" title="${esc(toothSummary(t))}">${t.fdi}</span>`).join('') || '<span class="faint">—</span>'}</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" data-act="del-visit" data-id="${v.id}">${I('trash')}</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Brak wizyt.</div>'}</section>
     <section class="panel"><header><h3>Listy</h3><span class="sub">${ls.length}</span></header>${ls.length ? `<table class="list"><tbody>${ls.map((l) => `<tr class="click" data-open-letter="${l.id}"><td style="width:110px">${fmtDate(l.date)}</td><td>${esc(refName(D().referrers.get(l.referrerId)))}<div class="tiny faint">${l.glance.map((g) => g.fdi).join(', ')}${l.emailedAt ? ' · wysłano e-mailem' : ''}</div></td><td>${l.source === 'ai' ? '<span class="tag">AI</span>' : ''}${l.files.length ? '<span class="tag v">PDF</span>' : ''}</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" data-act="del-letter" data-id="${l.id}">${I('trash')}</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Brak listów.</div>'}</section>
@@ -1093,6 +1131,8 @@ function viewSettings() {
   </div><div>
     <section class="panel"><header><h3>${I('spark')} Asystent AI</h3><span class="sub">Claude (Anthropic)</span></header><div class="body">
       <div class="row" style="gap:18px">${sw('s.ai.enabled', 'Pisz listy z pomocą AI')}${sw('s.ai.cleanDictation', 'Poprawiaj dyktowanie (AI)')}</div>
+      <div class="dpa ${st.ai.dpa ? 'ok' : ''}" style="margin-top:12px">${sw('s.ai.dpa', 'Klinika ma z Anthropic umowę powierzenia (DPA) — akceptacja Commercial Terms konta API', { re: true })}
+      <div class="hint" style="margin-top:6px">${st.ai.dpa ? 'AI włączone. Przed każdym wysłaniem imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami; aplikacja przywraca je lokalnie.' : '<b>AI pozostaje wyłączone</b>, dopóki administrator danych (klinika) nie potwierdzi umowy powierzenia z Anthropic. Do tego czasu listy tworzy generator wbudowany — bez wysyłania danych.'}</div></div>
       <div class="grid g2" style="margin-top:12px"><label class="f all"><span>Klucz API</span><input type="password" data-b="s.ai.key" value="${esc(st.ai.key)}" placeholder="sk-ant-…" autocomplete="off"></label>
       <div class="f"><span>Staranność</span>${seg('s.ai.effort', { low: 'szybko', medium: 'standard', high: 'dokładnie' })}</div><div class="f"><span>&nbsp;</span><button class="btn btn-sm" data-act="test-key">Sprawdź klucz</button></div></div>
       <p class="hint" style="margin-top:12px">Do AI wysyłane są wyłącznie dane kliniczne (numery zębów, wyniki badań, opis leczenia) oraz rodzaj gramatyczny — bez imion, nazwisk, dat urodzenia i adresów, które aplikacja wstawia lokalnie. Klucz jest przechowywany w zaszyfrowanym sejfie. Bez klucza listy tworzy generator wbudowany.</p>
@@ -1105,6 +1145,7 @@ function viewSettings() {
       <div class="hint" style="margin-top:6px">${V.passkeySupported() ? 'Touch ID, Face ID, Windows Hello lub iPhone (kod QR na komputerze). Wymaga obsługi rozszerzenia PRF.' : 'Klucze dostępu działają, gdy aplikacja jest otwarta przez https:// lub localhost.'}</div>
       <div class="grid g2" style="margin-top:14px"><div class="f"><span>Automatyczna blokada</span>${seg('s.security.autolock', { 5: '5 min', 15: '15 min', 30: '30 min', 60: '60 min' })}</div><div class="f"><span>&nbsp;</span><button class="btn btn-sm" data-act="change-pw">Zmień hasło</button></div></div>
     </div></section>
+    <section class="panel" id="rodo-panel"><header><h3>${I('shield')} Ochrona danych (RODO)</h3></header><div class="body">${rodoPanel()}</div></section>
     <section class="panel" id="sync-panel"><header><h3>${I('sync')} Synchronizacja</h3><span class="sub">iPhone ↔ komputer ↔ przeglądarka</span></header><div class="body">${syncPanel()}</div></section>
     <section class="panel"><header><h3>${I('folder')} Folder i kopie zapasowe</h3></header><div class="body">
       <div class="kv"><div>Folder</div><div>${fsSupported() ? (S.folder.root ? `<b>${esc(S.folder.root.name)}</b> ${S.folder.ok() ? '<span class="tag">połączony</span>' : '<span class="tag o">wymaga połączenia</span>'}` : '<span class="tag o">nie wybrano</span>') : '<span class="tag o">niedostępne w tej przeglądarce</span>'}</div><div>Ostatnia kopia</div><div>${S.folder.lastBackup ? new Date(S.folder.lastBackup).toLocaleString('pl-PL') : '—'}</div></div>
@@ -1128,6 +1169,66 @@ function syncPanel() {
   return `<div class="kv"><div>Stan</div><div>${state}${st.msg ? ` <span class="small muted">${esc(st.msg)}</span>` : ''}</div><div>Serwer</div><div><code class="path">${esc(c.url)}</code></div><div>Login</div><div><b>${esc(c.login)}</b></div><div>Ostatnio</div><div>${c.last ? new Date(c.last).toLocaleString('pl-PL') : '—'}</div></div>
     <div class="row" style="margin-top:12px"><button class="btn btn-sm btn-soft" data-act="sync-now">${I('refresh')} Synchronizuj teraz</button><button class="btn btn-sm btn-ghost" data-act="sync-off">Wyłącz na tym urządzeniu</button><button class="btn btn-sm btn-ghost" data-act="sync-wipe">${I('trash')} Usuń dane z serwera</button></div>
     <div class="hint" style="margin-top:10px">${I('phone')} iPhone: otwórz EndoList w Safari → „Konto z innego urządzenia" → adres serwera, login <b>${esc(c.login)}</b> i hasło. Potem „Udostępnij → Do ekranu początkowego", aby mieć ikonę aplikacji. Zmiany pojawiają się na innych urządzeniach w ciągu kilkunastu sekund.</div>`;
+}
+
+function rodoPanel() {
+  const ev = auditEvents(), old = retentionCandidates();
+  const pName = (id) => { const p = D().patients.get(id); return p ? patientName(p) : ''; };
+  return `<div class="kv"><div>Szyfrowanie</div><div>AES-256-GCM na urządzeniu; serwer synchronizacji widzi tylko szyfrogram</div>
+      <div>AI</div><div>${aiKey() ? '<span class="tag">włączone · dane zanonimizowane</span>' : settings().ai.key ? '<span class="tag o">wyłączone — brak potwierdzenia DPA</span>' : '<span class="tag">wyłączone (brak klucza)</span>'}</div>
+      <div>Blokada</div><div>po ${esc(String(settings().security.autolock))} min bezczynności</div>
+      <div>Przechowywanie</div><div>${old.length ? `<span class="tag o">${old.length} pacjent(ów) po okresie przechowywania</span> <button class="btn btn-sm" data-act="retention-review">Przejrzyj</button>` : 'brak danych po okresie 20 lat'}</div></div>
+    <div class="label">Rejestr zdarzeń <span class="faint">(${ev.length})</span></div>
+    <div class="audit">${ev.slice(0, 40).map((e) => `<div class="ae"><span class="t">${new Date(e.at).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' })}</span><span>${esc(AUDIT_ACT[e.action] || e.action)}${e.detail && !/^[a-z0-9-]{12,}$/i.test(e.detail) ? ' · ' + esc(e.detail) : ''}${e.patientId && pName(e.patientId) ? ' · ' + esc(pName(e.patientId)) : ''}</span><span class="d">${esc(e.device || '')}</span></div>`).join('') || '<div class="faint small">Brak zdarzeń.</div>'}</div>
+    <div class="row" style="margin-top:10px"><button class="btn btn-sm" data-act="audit-csv">${I('save')} Eksport rejestru (CSV)</button></div>
+    <div class="hint" style="margin-top:10px">Prawa pacjenta: eksport danych i usunięcie — na karcie pacjenta. Dokumentacja dla administratora i IOD: <code class="path">docs/RODO.md</code>.</div>`;
+}
+/** Patients whose last entry is older than the 20-year retention period (art. 29 ustawy o prawach pacjenta). */
+function retentionCandidates() {
+  const limit = new Date(); limit.setFullYear(limit.getFullYear() - 21); // end of the calendar year of the last entry + 20 years
+  const cut = `${limit.getFullYear()}-12-31`;
+  return [...D().patients.values()].filter((p) => {
+    const last = [...visitsOf(p.id).map((v) => v.date || ''), ...lettersOf(p.id).map((l) => l.date || ''), new Date(p.createdAt || 0).toISOString().slice(0, 10)].sort().at(-1) || '';
+    return last && last <= cut;
+  });
+}
+function retentionModal() {
+  const list = retentionCandidates();
+  modal({ title: 'Dane po okresie przechowywania', wide: true, body: `<p class="muted" style="margin-top:0">Dokumentację medyczną przechowuje się co do zasady 20 lat od końca roku ostatniego wpisu (art. 29 ustawy o prawach pacjenta i Rzeczniku Praw Pacjenta; są wyjątki, np. zgon pacjenta — 30 lat, dzieci do 2. r.ż. — 22 lata). Sprawdź wyjątki przed usunięciem.</p>
+    ${list.map((p) => `<div class="row" style="margin-bottom:6px"><span class="grow">${esc(patientName(p))} <span class="faint small">${p.dob ? 'ur. ' + fmtDate(p.dob) : ''}</span></span><button class="btn btn-sm btn-danger" data-act="patient-delete-from-list" data-id="${p.id}">${I('trash')} Usuń</button></div>`).join('') || '<div class="faint">Brak.</div>'}`,
+    buttons: [{ label: 'Zamknij', cls: 'btn-ghost' }] });
+}
+function exportPatient(pid) {
+  const p = D().patients.get(pid); if (!p) return;
+  const visits = visitsOf(pid), letters = lettersOf(pid);
+  const refs = [...new Set([...visits.map((v) => v.referrerId), ...letters.map((l) => l.referrerId)].filter(Boolean))].map((id) => D().referrers.get(id)).filter(Boolean);
+  const data = { informacja: 'Dane pacjenta przetwarzane w aplikacji EndoList (RODO art. 15 i 20). Plik NIE jest zaszyfrowany — przekaż go bezpiecznie.', wyeksportowano: new Date().toISOString(), administrator: [settings().doctor.practice, settings().doctor.group].filter(Boolean).join(' · '), pacjent: p, wizyty: visits, listy: letters.map((l) => ({ id: l.id, data: l.date, adresat: refName(D().referrers.get(l.referrerId)), tresc: l.content, wyslano: l.emailedAt ? new Date(l.emailedAt).toISOString() : null })), lekarze_kierujacy: refs };
+  download(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), `Dane pacjenta – ${[p.last, p.first].filter(Boolean).join(' ')} – ${today()}.json`);
+  audit('export', 'pełny eksport (JSON)', pid);
+  toast('Pobrano dane pacjenta (plik niezaszyfrowany — przekaż go bezpiecznie). Listy w PDF możesz zapisać z widoku listu.', 'ok');
+}
+function deletePatient(pid) {
+  const p = D().patients.get(pid); if (!p) return;
+  const vs = visitsOf(pid), ls = lettersOf(pid);
+  modal({ title: 'Usunąć wszystkie dane pacjenta?', body: `<p class="muted" style="margin-top:0">Zostaną trwale usunięte: karta pacjenta, ${vs.length} wizyt(y) i ${ls.length} list(y) — na wszystkich zsynchronizowanych urządzeniach. Pliki PDF zapisane w folderze nie są usuwane.</p>
+    <p class="small" style="color:var(--warn)">Prawo do usunięcia danych (RODO art. 17) nie obejmuje dokumentacji medycznej, którą trzeba przechowywać przez okres wymagany prawem (art. 17 ust. 3 lit. b i c RODO). Upewnij się, że oryginał dokumentacji jest w systemie gabinetu (np. ProDentis).</p>
+    <label class="f"><span>Aby potwierdzić, wpisz nazwisko: ${esc(p.last || p.first)}</span><input type="text" id="del-confirm" autocomplete="off"></label>`,
+    buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: `${I('trash')} Usuń trwale`, cls: 'btn-danger', onClick: async (ov) => {
+      if ($('#del-confirm', ov).value.trim().toLowerCase() !== String(p.last || p.first).trim().toLowerCase()) { toast('Nazwisko się nie zgadza.', 'err'); return false; }
+      audit('delete', 'pacjent i wszystkie jego dane', pid);
+      for (const l of ls) await remove('letters', l.id);
+      for (const v of vs) await remove('visits', v.id);
+      await remove('patients', pid);
+      if (S.visitId && !D().visits.get(S.visitId)) S.visitId = null;
+      document.querySelectorAll('.overlay').forEach((o) => o.remove());
+      go('patients'); toast('Dane pacjenta usunięte.', 'ok');
+    } }] });
+}
+function exportAuditCsv() {
+  const pName = (id) => { const p = D().patients.get(id); return p ? patientName(p) : (id ? '(usunięty)' : ''); };
+  const q = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
+  const rows = [['czas', 'urządzenie', 'użytkownik', 'zdarzenie', 'szczegóły', 'pacjent'], ...auditEvents().map((e) => [new Date(e.at).toISOString(), e.device, e.user, AUDIT_ACT[e.action] || e.action, e.detail, pName(e.patientId)])];
+  download(new Blob(['\ufeff' + rows.map((r) => r.map(q).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' }), `endolist-rejestr-zdarzen-${today()}.csv`);
 }
 
 /* ================================================================ events */
@@ -1192,11 +1293,16 @@ async function action(act, a) {
     }
     case 'passkey-login': { try { await enter(await V.unlockPasskey()); } catch (er) { if (er.name !== 'NotAllowedError') { const el = $('#err'); if (el) el.textContent = er.message; } } return; }
     case 'restore-start': return restoreFlow();
+    case 'patient-export': return exportPatient(S.patientId);
+    case 'patient-delete': return deletePatient(S.patientId);
+    case 'audit-csv': return exportAuditCsv();
+    case 'retention-review': return retentionModal();
+    case 'patient-delete-from-list': document.querySelectorAll('.overlay').forEach((o) => o.remove()); return deletePatient(a.dataset.id);
     case 'sync-signin': return syncSignInModal();
     case 'sync-setup': return syncSetupModal();
     case 'sync-now': if (S.sync) { await S.sync.now(); if (S.syncStatus?.state === 'ok') toast('Zsynchronizowano.', 'ok'); else toast(S.syncStatus?.msg || 'Synchronizacja nie powiodła się.', 'err'); renderView(); } return;
-    case 'sync-off': if (await confirmBox('Wyłączyć synchronizację na tym urządzeniu?', 'Dane zostają na tym urządzeniu i na serwerze. Inne urządzenia nadal się synchronizują.', 'Wyłącz')) { await S.sync?.disable(); S.sync = null; S.syncStatus = null; renderStatus(); renderBanner(); renderView(); } return;
-    case 'sync-wipe': if (await confirmBox('Usunąć dane z serwera?', 'Zaszyfrowane dane tego konta zostaną usunięte z serwera synchronizacji, a synchronizacja wyłączona na wszystkich urządzeniach. Dane na urządzeniach pozostają.', 'Usuń z serwera')) { try { await S.sync?.disable({ wipe: true }); S.sync = null; S.syncStatus = null; toast('Usunięto dane z serwera.', 'ok'); } catch (er) { toast(er.message, 'err'); } renderStatus(); renderView(); } return;
+    case 'sync-off': if (await confirmBox('Wyłączyć synchronizację na tym urządzeniu?', 'Dane zostają na tym urządzeniu i na serwerze. Inne urządzenia nadal się synchronizują.', 'Wyłącz')) { audit('sync', 'wyłączono na urządzeniu'); await S.sync?.disable(); S.sync = null; S.syncStatus = null; renderStatus(); renderBanner(); renderView(); } return;
+    case 'sync-wipe': if (await confirmBox('Usunąć dane z serwera?', 'Zaszyfrowane dane tego konta zostaną usunięte z serwera synchronizacji, a synchronizacja wyłączona na wszystkich urządzeniach. Dane na urządzeniach pozostają.', 'Usuń z serwera')) { try { audit('sync', 'usunięto dane z serwera'); await S.sync?.disable({ wipe: true }); S.sync = null; S.syncStatus = null; toast('Usunięto dane z serwera.', 'ok'); } catch (er) { toast(er.message, 'err'); } renderStatus(); renderView(); } return;
     case 'lock': return lockNow();
     case 'install': if (S.installEvt) { S.installEvt.prompt(); S.installEvt = null; renderTop(); } return;
     /* folder */
@@ -1209,7 +1315,7 @@ async function action(act, a) {
     }
     case 'folder-reconnect': if (await S.folder.reconnect()) { toast('Folder połączony.', 'ok'); await backupNow(); } else toast('Nie udzielono zgody.', 'err'); renderBanner(); renderView(); return;
     case 'backup-now': S.folder.error = ''; if (await backupNow()) toast('Kopia zapasowa utworzona.', 'ok'); renderBanner(); return renderView();
-    case 'download-backup': download(new Blob([JSON.stringify(await S.session.exportBackup())], { type: 'application/json' }), `endolist-kopia-${today()}.json`); return toast('Pobrano zaszyfrowaną kopię. Do odtworzenia potrzebne jest hasło.', 'ok');
+    case 'download-backup': audit('backup', 'zaszyfrowana kopia .json'); download(new Blob([JSON.stringify(await S.session.exportBackup())], { type: 'application/json' }), `endolist-kopia-${today()}.json`); return toast('Pobrano zaszyfrowaną kopię. Do odtworzenia potrzebne jest hasło.', 'ok');
     /* visit */
     case 'new-visit': { const nv = newVisit(v?.patientId || '', v?.referrerId || ''); D().visits.set(nv.id, nv); return go('visit', { visitId: nv.id }); }
     case 'pick-patient': { const p = await pickPatient(); if (p) { v.patientId = p.id; save('visits', v); renderView(); } return; }
@@ -1237,15 +1343,15 @@ async function action(act, a) {
     case 'clean-manual': {
       if (!rec.manual?.trim()) return toast('Najpierw wpisz lub podyktuj opis.', 'err');
       a.disabled = true; a.innerHTML = '<span class="spin"></span> Poprawianie…';
-      try { const r = await cleanDictation(settings().ai.key, rec.manual, 'Opis wykonanej pracy przy zębie ' + rec.fdi); rec.manual = r.text; S.ws.dirty = true; refreshWorkspace(); if (r.warnings?.length) toast(r.warnings.join(' '), 'err'); else toast('Tekst poprawiony.', 'ok'); } catch (er) { toast(er.message, 'err'); a.disabled = false; }
+      try { const r = await cleanDictation(aiKey(), rec.manual, 'Opis wykonanej pracy przy zębie ' + rec.fdi, { pseudo: pseudoHere() }); audit('ai', 'poprawa opisu zęba (dane zanonimizowane)', curVisit()?.patientId); rec.manual = r.text; S.ws.dirty = true; refreshWorkspace(); if (r.warnings?.length) toast(r.warnings.join(' '), 'err'); else toast('Tekst poprawiony.', 'ok'); } catch (er) { toast(er.message, 'err'); a.disabled = false; }
       return;
     }
     /* letter */
     case 'letter-back': { const L = D().letters.get(S.letterId); return go('patient', { patientId: L.patientId }); }
-    case 'save-pdf': return saveLetterPdf(D().letters.get(S.letterId));
-    case 'email': return emailLetter(D().letters.get(S.letterId));
-    case 'prodentis': return prodentisModal(D().letters.get(S.letterId));
-    case 'print': { const b = await letterBlob(D().letters.get(S.letterId)); const w = window.open(URL.createObjectURL(b)); if (!w) toast('Zezwól na wyskakujące okna, aby drukować.', 'err'); else setTimeout(() => { try { w.print(); } catch {} }, 800); return; }
+    case 'save-pdf': { const L = D().letters.get(S.letterId); audit('pdf', L.id, L.patientId); return saveLetterPdf(L); }
+    case 'email': { const L = D().letters.get(S.letterId); audit('email', L.id, L.patientId); return emailLetter(L); }
+    case 'prodentis': { const L = D().letters.get(S.letterId); audit('prodentis', L.id, L.patientId); return prodentisModal(L); }
+    case 'print': { audit('print', S.letterId, D().letters.get(S.letterId)?.patientId); const b = await letterBlob(D().letters.get(S.letterId)); const w = window.open(URL.createObjectURL(b)); if (!w) toast('Zezwól na wyskakujące okna, aby drukować.', 'err'); else setTimeout(() => { try { w.print(); } catch {} }, 800); return; }
     case 'regen': { const L = D().letters.get(S.letterId); if (!(await confirmBox('Wygenerować list od nowa?', 'Obecna treść i uwagi zostaną zastąpione nową wersją listu.', 'Wygeneruj'))) return; return createLetter({ patientId: L.patientId, referrerId: L.referrerId, visitIds: L.visitIds, existing: L }); }
     case 'pdf-preview': return pdfPreview(D().letters.get(S.letterId));
     case 'revise': { const L = D().letters.get(S.letterId); L.instruction = $('#gen-text')?.value || ''; return reviseWithAI(L); }
@@ -1268,8 +1374,8 @@ async function action(act, a) {
       if (!refId) { const r = await pickReferrer(); if (!r) return; refId = r.id; }
       return createLetter({ patientId: S.patientId, referrerId: refId, visitIds: ids });
     }
-    case 'del-visit': if (await confirmBox('Usunąć wizytę?', 'Wizyta zostanie trwale usunięta. Zapisane pliki PDF nie są usuwane.')) { await remove('visits', a.dataset.id); renderView(); } return;
-    case 'del-letter': if (await confirmBox('Usunąć list?', 'List zostanie usunięty z aplikacji. Zapisane pliki PDF pozostaną w folderze.')) { await remove('letters', a.dataset.id); renderView(); } return;
+    case 'del-visit': if (await confirmBox('Usunąć wizytę?', 'Wizyta zostanie trwale usunięta. Zapisane pliki PDF nie są usuwane.')) { audit('delete', 'wizyta', D().visits.get(a.dataset.id)?.patientId); await remove('visits', a.dataset.id); renderView(); } return;
+    case 'del-letter': if (await confirmBox('Usunąć list?', 'List zostanie usunięty z aplikacji. Zapisane pliki PDF pozostaną w folderze.')) { audit('delete', 'list', D().letters.get(a.dataset.id)?.patientId); await remove('letters', a.dataset.id); renderView(); } return;
     /* referrers */
     case 'add-referrer': await editReferrer(null); return renderView();
     case 'del-ref': if (await confirmBox('Usunąć adresata?', 'Adresat zostanie usunięty z listy. Istniejące listy pozostaną.')) { await remove('referrers', a.dataset.id); renderView(); } return;
@@ -1279,8 +1385,8 @@ async function action(act, a) {
     case 'logo-pick': { const el = $('#logo-input'), k = a.dataset.k; el.onchange = async () => { const f = el.files[0]; if (f) { settings().doctor[k] = await logoData(f); if (k === 'logo') settings().doctor.logoDefault = false; save('settings', settings()); renderTop(); renderView(); } }; return el.click(); }
     case 'logo-clear': settings().doctor[a.dataset.k] = ''; if (a.dataset.k === 'logo') { settings().doctor.logoDefault = false; settings().doctor.logoCleared = true; } save('settings', settings()); renderTop(); return renderView();
     case 'test-key': { a.disabled = true; try { await testKey(settings().ai.key); toast('Klucz API działa.', 'ok'); } catch (er) { toast(er.message, 'err'); } a.disabled = false; return; }
-    case 'pk-add': { try { await S.session.addPasskey(/iPhone|iPad/.test(navigator.userAgent) ? 'iPhone / iPad' : 'Klucz dostępu'); toast('Dodano klucz dostępu.', 'ok'); scheduleBackup(); S.sync?.headerChanged().catch(() => {}); renderView(); } catch (er) { if (er.name !== 'NotAllowedError') toast(er.message, 'err'); } return; }
-    case 'pk-del': if (await confirmBox('Usunąć klucz dostępu?', 'Logowanie tym kluczem przestanie działać. Hasło działa nadal.')) { await S.session.removePasskey(a.dataset.id); scheduleBackup(); S.sync?.headerChanged().catch(() => {}); renderView(); } return;
+    case 'pk-add': { try { await S.session.addPasskey(/iPhone|iPad/.test(navigator.userAgent) ? 'iPhone / iPad' : 'Klucz dostępu'); audit('security', 'dodano klucz dostępu'); toast('Dodano klucz dostępu.', 'ok'); scheduleBackup(); S.sync?.headerChanged().catch(() => {}); renderView(); } catch (er) { if (er.name !== 'NotAllowedError') toast(er.message, 'err'); } return; }
+    case 'pk-del': if (await confirmBox('Usunąć klucz dostępu?', 'Logowanie tym kluczem przestanie działać. Hasło działa nadal.')) { audit('security', 'usunięto klucz dostępu'); await S.session.removePasskey(a.dataset.id); scheduleBackup(); S.sync?.headerChanged().catch(() => {}); renderView(); } return;
     case 'change-pw': return changePassword();
     case 'sample': return sampleLetter();
   }
@@ -1320,6 +1426,7 @@ document.addEventListener('change', (e) => {
   if (el.id === 'gen-edit') { const L = D().letters.get(S.letterId); L.genEdit = el.checked; save('letters', L); $('#gen-box').hidden = !el.checked; if (el.checked) $('#gen-text').focus(); return; }
   if (el.dataset.noteDone) { const L = D().letters.get(S.letterId); const n = L.notes.find((x) => x.id === el.dataset.noteDone); if (n) { n.done = el.checked; save('letters', L); rerenderLetter(); } return; }
   if (el.dataset.arr) { const arr = [...(val(el.dataset.arr) || [])]; const i = arr.indexOf(el.value); if (el.checked && i < 0) arr.push(el.value); if (!el.checked && i >= 0) arr.splice(i, 1); setBound(el.dataset.arr, arr); if (el.dataset.arr.startsWith('t.')) refreshWorkspace(); return; }
+  if (el.dataset.b === 's.ai.dpa') audit('security', el.checked ? 'potwierdzono umowę powierzenia z Anthropic (AI włączone)' : 'cofnięto potwierdzenie umowy z Anthropic (AI wyłączone)');
   if (el.dataset.b && el.type === 'checkbox') { setBound(el.dataset.b, el.checked); if (el.dataset.re) rerender(el.dataset.b); return; }
   if (el.dataset.b && el.tagName === 'SELECT') { setBound(el.dataset.b, el.value); if (el.dataset.re || el.dataset.b.startsWith('s.')) rerender(el.dataset.b); }
 });
@@ -1350,18 +1457,19 @@ async function logoData(file) {
     cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); return cv.toDataURL('image/png');
   } finally { URL.revokeObjectURL(url); }
 }
-async function reloadData() { const all = await S.session.loadAll(); for (const k of ['patients', 'visits', 'letters', 'referrers', 'settings']) if (all[k]) S.data[k] = all[k]; if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS)); }
+async function reloadData() { const all = await S.session.loadAll(); for (const k of ['patients', 'visits', 'letters', 'referrers', 'settings', 'audit']) if (all[k]) S.data[k] = all[k]; if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS)); }
 async function lockNow() {
+  audit('lock');
   await Promise.race([(async () => { await flushSave.flush(); await S.sync?.now(); })(), new Promise((r) => setTimeout(r, 4000))]).catch(() => {});
   location.reload();
 }
 function changePassword() {
-  modal({ title: 'Zmień hasło', body: `<div class="grid"><label class="f"><span>Obecne hasło</span><input type="password" id="pw0" autofocus></label><label class="f"><span>Nowe hasło (min. 8 znaków)</span><input type="password" id="pw1"></label><label class="f"><span>Powtórz nowe hasło</span><input type="password" id="pw2"></label></div>`,
+  modal({ title: 'Zmień hasło', body: `<div class="grid"><label class="f"><span>Obecne hasło</span><input type="password" id="pw0" autofocus></label><label class="f"><span>Nowe hasło (min. 12 znaków)</span><input type="password" id="pw1"></label><label class="f"><span>Powtórz nowe hasło</span><input type="password" id="pw2"></label></div>`,
     buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: 'Zmień hasło', cls: 'btn-primary', onClick: async (ov) => {
       const [a, b, c] = ['#pw0', '#pw1', '#pw2'].map((s) => $(s, ov).value);
-      if (b.length < 8) { toast('Nowe hasło musi mieć co najmniej 8 znaków.', 'err'); return false; }
+      if (b.length < 12) { toast('Nowe hasło musi mieć co najmniej 12 znaków.', 'err'); return false; }
       if (b !== c) { toast('Hasła różnią się.', 'err'); return false; }
-      try { await S.session.changePassword(a, b); toast('Hasło zmienione.', 'ok'); scheduleBackup(); S.sync?.headerChanged(b).catch(() => {}); } catch { toast('Obecne hasło jest nieprawidłowe.', 'err'); return false; }
+      try { await S.session.changePassword(a, b); audit('security', 'zmiana hasła'); toast('Hasło zmienione.', 'ok'); scheduleBackup(); S.sync?.headerChanged(b).catch(() => {}); } catch { toast('Obecne hasło jest nieprawidłowe.', 'err'); return false; }
     } }] });
 }
 function restoreFlow() {

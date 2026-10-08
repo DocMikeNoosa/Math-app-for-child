@@ -10,7 +10,7 @@ Pozwala pracować na tych samych danych na **iPhonie**, komputerze w gabinecie i
 - Serwer widzi metadane: liczbę i rodzaj rekordów (np. „visits"), ich rozmiar i czas zmian.
 - Konflikty: jeśli ten sam rekord zmieniono na dwóch urządzeniach, zostaje wersja zapisana później.
 
-**RODO:** dane są zaszyfrowane end-to-end, ale nadal są to dane o zdrowiu powierzone podmiotowi przetwarzającemu (Cloudflare). Przed użyciem z prawdziwymi pacjentami skonsultuj to z inspektorem ochrony danych kliniki (umowa powierzenia — Cloudflare udostępnia DPA).
+**RODO:** baza tworzona z `--jurisdiction eu` przechowuje i przetwarza dane wyłącznie w UE (ustawienia nie da się zmienić później — tworząc bazę bez niego, trzeba by utworzyć nową). Dane są zaszyfrowane end-to-end, ale formalnie Cloudflare jest podmiotem przetwarzającym — zob. [`docs/RODO.md`](../docs/RODO.md).
 
 ## Wdrożenie na Cloudflare (jednorazowo, ok. 10 minut)
 
@@ -19,7 +19,7 @@ Potrzebne: bezpłatne konto Cloudflare i Node.js.
 ```
 cd sync-server
 npx wrangler login                                   # logowanie do Cloudflare w przeglądarce
-npx wrangler d1 create endolist-sync                 # wypisze database_id
+npx wrangler d1 create endolist-sync --jurisdiction eu   # baza wyłącznie w UE (RODO); wypisze database_id
 #   → wklej database_id do wrangler.toml
 npx wrangler d1 execute endolist-sync --remote --file schema.sql
 npx wrangler deploy                                  # wypisze adres, np. https://endolist-sync.<nazwa>.workers.dev

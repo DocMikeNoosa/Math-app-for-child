@@ -57,12 +57,18 @@ The Centrum Stomatologiczne logo (from the clinic's website, as provided) is bui
 
 **Link for other doctors (GitHub Pages).** The `.github/workflows/pages.yml` workflow publishes the `public/` folder. Enable it under Settings → Pages → Source: *GitHub Actions*. From the link, the app can also be installed via Chrome or Edge (menu ⋮ → *Install EndoList*). Each doctor has separate, encrypted data on their own computer.
 
-## AI and privacy
+## AI and privacy (RODO)
 
-- **Model:** Claude (`claude-opus-5-5`), using the doctor's own API key from console.anthropic.com, which is stored encrypted.
-- **What is sent:** only clinical data (tooth numbers, tests, treatment, materials, free-text descriptions) and grammatical gender.
-- **What is not sent:** names, surnames, PESEL, dates of birth and addresses; the app adds them to the letter locally. Don't type patient names into the free-text descriptions, since that text is sent as written.
-- **Without a key:** the built-in Polish generator writes the letter, and edits are made by hand.
+- **Model:** Claude (`claude-opus-5-5`), using the clinic's own API key from console.anthropic.com, which is stored encrypted.
+- **AI is off until confirmed:** it stays off until the clinic confirms in Settings that it has a data processing agreement (DPA) with Anthropic. Until then the built-in generator writes letters and nothing is sent.
+- **Pseudonymisation:** before anything is sent to AI, the app replaces names (including inflected forms), PESEL, dates of birth, phone numbers, e-mail addresses and the referrer's details with tokens. It puts them back locally in the reply. This covers dictated and hand-typed text too.
+- **Settings → Ochrona danych (RODO):**
+  - a log of activity (logins, opened records, letters, PDFs, e-mails, AI use, deletions), exportable to CSV;
+  - a review of data past the retention period.
+- **Patient page:**
+  - **Eksport danych** (RODO Art. 15 and 20);
+  - deletion of all the patient's data, with confirmation by surname.
+- **Documentation for the clinic and its data protection officer (IOD):** [`docs/RODO.md`](docs/RODO.md) covers roles, legal bases, a checklist, and a template entry for the record of processing activities.
 
 ## ProDentis
 
