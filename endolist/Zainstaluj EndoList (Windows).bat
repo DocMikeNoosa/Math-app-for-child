@@ -19,5 +19,9 @@ if errorlevel 1 (
 )
 echo.
 echo Gotowe! Od teraz wystarczy kliknac ikone EndoList na pulpicie.
+echo.
+echo Otwieranie EndoList... (do 20 sekund)
+echo Jesli okno EndoList sie nie pojawi, kliknij dwukrotnie plik
+echo "EndoList - pomoc przy uruchamianiu" w tym folderze i wyslij zrzut ekranu.
 powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0launcher\EndoList.ps1"
-timeout /t 3 >nul
+timeout /t 8 >nul

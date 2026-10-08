@@ -63,19 +63,28 @@ function Handle($client) {
   Send $stream 200 'OK' $type ([System.IO.File]::ReadAllBytes($file)) $head
 }
 
-$listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $Port)
-try { $listener.Start() } catch { Write-Output "EndoList już działa: http://localhost:$Port"; exit 0 }
-Write-Output "EndoList: http://localhost:$Port"
+$LogDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'EndoList'
+if (-not ([Environment]::GetFolderPath('LocalApplicationData'))) { $LogDir = Join-Path ([System.IO.Path]::GetTempPath()) 'EndoList' }
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$Log = Join-Path $LogDir 'endolist-server.log'
+function Log([string]$m) { $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $m"; Write-Output $line; try { Add-Content -Path $Log -Value $line -Encoding UTF8 } catch {} }
+
+# listen on 127.0.0.1 and, when available, ::1 (browsers may try either for "localhost")
+$listeners = @()
+try { $l4 = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $Port); $l4.Start(); $listeners += $l4 }
+catch { Log "Port $Port zajęty — EndoList prawdopodobnie już działa ($($_.Exception.Message))"; exit 0 }
+try { $l6 = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::IPv6Loopback, $Port); $l6.Start(); $listeners += $l6 } catch {}
+Log "EndoList: http://localhost:$Port  (folder: $Root)"
 # one thread, many connections: serve whichever socket has a request; drop idle ones (browsers open spare connections)
 $clients = New-Object System.Collections.ArrayList
 while ($true) {
-  while ($listener.Pending()) { [void]$clients.Add(@{ c = $listener.AcceptTcpClient(); t = [DateTime]::UtcNow }) }
+  foreach ($listener in $listeners) { while ($listener.Pending()) { [void]$clients.Add(@{ c = $listener.AcceptTcpClient(); t = [DateTime]::UtcNow }) } }
   foreach ($e in @($clients)) {
     $c = $e.c
     try {
       if ($c.Available -gt 0) { Handle $c; $c.Close(); $clients.Remove($e) }
       elseif (([DateTime]::UtcNow - $e.t).TotalSeconds -gt 20) { $c.Close(); $clients.Remove($e) }
-    } catch { try { $c.Close() } catch {}; $clients.Remove($e) }
+    } catch { Log "Błąd żądania: $($_.Exception.Message)"; try { $c.Close() } catch {}; $clients.Remove($e) }
   }
-  if ($clients.Count -eq 0 -and -not $listener.Pending()) { Start-Sleep -Milliseconds 15 } else { Start-Sleep -Milliseconds 1 }
+  if ($clients.Count -eq 0) { Start-Sleep -Milliseconds 15 } else { Start-Sleep -Milliseconds 1 }
 }
