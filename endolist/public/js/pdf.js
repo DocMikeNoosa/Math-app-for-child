@@ -1,5 +1,5 @@
 // EndoList — list w PDF (A4). Minimalistyczny, czytelny także w druku czarno-białym.
-import { letterChartSVG, svgToPng } from './odontogram.js';
+import { letterArchSVG, svgToPng } from './odontogram.js';
 import { fmtDate, fmtDateLong } from './letter.js';
 
 const FONTS = [['Inter-Regular.ttf', 'Inter', 'normal'], ['Inter-Medium.ttf', 'InterMedium', 'normal'], ['Inter-SemiBold.ttf', 'InterSemi', 'normal'], ['Inter-Italic.ttf', 'Inter', 'italic'], ['Inter-Light.ttf', 'InterLight', 'normal']];
@@ -68,8 +68,8 @@ export async function buildLetterPDF(o) {
   y += 9;
 
   // ---------- prawy górny róg: schemat + skróty
-  const boxW = 66, boxX = W - M - boxW, imgH = boxW * 200 / 600;
-  const png = await svgToPng(letterChartSVG(Object.fromEntries(o.glance.map((g) => [g.fdi, g.mark]))), 1800, 600);
+  const boxW = 62, boxX = W - M - boxW, imgH = boxW * 500 / 760;
+  const png = await svgToPng(letterArchSVG(Object.fromEntries(o.glance.map((g) => [g.fdi, g.mark])), Object.fromEntries(o.glance.filter((g) => g.canals).map((g) => [g.fdi, g.canals]))), 1520, 1000);
   let ry = y;
   set('InterSemi', 6.4, GRAY); doc.text('SCHEMAT LECZENIA', boxX, ry, { charSpace: 0.35 }); ry += 1.8;
   doc.addImage(png, 'PNG', boxX, ry, boxW, imgH, 'chart', 'FAST');
@@ -79,11 +79,14 @@ export async function buildLetterPDF(o) {
   const legend = [['endo', 'leczenie kanałowe'], ['stage', 'w trakcie'], ['work', 'inne prace'], ['plan', 'zaplanowane / konsultacja']].filter(([k]) => used.has(k));
   let lx = boxX; set('Inter', 6, GRAY);
   for (const [k, lab] of legend) {
-    if (k === 'endo') { doc.setFillColor(17, 17, 17); doc.setDrawColor(17, 17, 17); }
-    else if (k === 'stage') { doc.setFillColor(138, 138, 138); doc.setDrawColor(17, 17, 17); }
-    else if (k === 'work') { doc.setFillColor(196, 196, 196); doc.setDrawColor(34, 34, 34); }
-    else { doc.setFillColor(255, 255, 255); doc.setDrawColor(17, 17, 17); }
-    doc.setLineWidth(0.2); doc.rect(lx, ry - 1.9, 2.2, 2.2, 'FD');
+    const sx = lx, sy = ry - 1.95, sw = 2.3;
+    doc.setLineWidth(0.22); doc.setLineDashPattern([], 0);
+    if (k === 'endo') { doc.setFillColor(29, 53, 87); doc.setDrawColor(15, 31, 54); doc.roundedRect(sx, sy, sw, sw, 0.5, 0.5, 'FD'); }
+    else if (k === 'stage') {
+      doc.setFillColor(255, 255, 255); doc.setDrawColor(29, 53, 87); doc.roundedRect(sx, sy, sw, sw, 0.5, 0.5, 'FD');
+      doc.setLineWidth(0.3); for (const t of [0.6, 1.2, 1.8]) doc.line(sx + t - 0.45, sy + sw - 0.15, sx + t + 0.45, sy + 0.15);
+    } else if (k === 'work') { doc.setFillColor(182, 193, 206); doc.setDrawColor(93, 107, 124); doc.roundedRect(sx, sy, sw, sw, 0.5, 0.5, 'FD'); }
+    else { doc.setFillColor(255, 255, 255); doc.setDrawColor(29, 53, 87); doc.setLineDashPattern([0.45, 0.3], 0); doc.roundedRect(sx, sy, sw, sw, 0.5, 0.5, 'FD'); doc.setLineDashPattern([], 0); }
     doc.text(lab, lx + 3, ry); lx += 3 + doc.getTextWidth(lab) + 3;
     if (lx > boxX + boxW - 10) { lx = boxX; ry += 3.2; }
   }

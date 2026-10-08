@@ -29,7 +29,21 @@ An app for an endodontist at **Centrum Stomatologiczne (Niewiński Group)**. She
 
 ## Logos
 
-I couldn't download the clinic's and the group's logos: the build environment blocks centrumstomatologiczne.siedlce.pl and klinikaniewinski.pl. Add them in **Settings → Logo kliniki i grupy** (or in step 2 of onboarding). They then appear in the app, on the login screen and in the letter header. PNG with a white or transparent background works best.
+The Centrum Stomatologiczne logo (from the clinic's website, as provided) is built in: it appears in the app, on the login screen and in the letter header. You can replace it or add the group logo under **Settings → Logo kliniki i grupy**.
+
+## iPhone and sync
+
+- **iPhone:** the layout adapts to the phone:
+  - tab bar at the bottom of the screen
+  - the tooth card opens full screen
+  - the letter fits the screen width
+  - dialogs slide up from the bottom
+- **Highlights on iPhone:** press and hold on the letter text to select a passage. A **Dodaj uwagę** button then appears for adding a comment.
+- **Sync** (Settings → Synchronizacja) keeps the same data on iPhone, the practice computer and the browser.
+  - Each change is encrypted on the device before it is sent. The server stores only ciphertext and does not know the login, the password or any names.
+  - New device: **"Mam konto na innym urządzeniu"** → server address, login and password.
+- **Server:** the sync server is set up once, on a free Cloudflare account. See [`sync-server/README.md`](sync-server/README.md).
+- **Folder backups:** the iPhone cannot save to a computer folder. With sync on, the data reaches the computer, which keeps making folder backups.
 
 ## Installation
 
@@ -56,6 +70,8 @@ There is no public API or import format for ProDentis (Infotel Software). The ex
 ```
 node server.mjs                      # http://localhost:4173 (+ /api/status)
 LC_ALL=C.UTF-8 node test/e2e.cjs     # end-to-end test (Playwright + Chromium)
+LC_ALL=C.UTF-8 node test/sync-e2e.cjs  # sync: computer ↔ iPhone (emulated) ↔ third device
+node test/sync-api.mjs <address>      # sync protocol (local server or Cloudflare Worker)
 ```
 
 The test uses stand-ins for the folder (OPFS), the passkey (virtual authenticator with PRF), speech recognition (a fake SpeechRecognition) and the Claude API (test responses, not real AI output). It runs onboarding with logos, signature and passkey; a patient with PESEL; the tooth card with the 3D model, ticks, materials and dictation; filling the card; generating the letter; highlight → comment → AI revision; manual edits; PDF; backup; the lock screen with logos; and a browser restart.

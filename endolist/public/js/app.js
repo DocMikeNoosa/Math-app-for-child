@@ -14,6 +14,7 @@ import { Tooth3D, webglOk } from './tooth3d.js';
 import { Dictation, speechSupported } from './speech.js';
 import { letterPaperHTML } from './letterview.js';
 import { buildLetterPDF } from './pdf.js';
+import { SyncClient, loadConfig, enableSync, signInFromServer, checkServer, normUrl } from './sync.js';
 import { Folder, fsSupported, names, download, emlDraft, canShareFile, mailto, prodentisText } from './files.js';
 
 /* ================================================================ utils */
@@ -49,6 +50,8 @@ const ICONS = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
+  sync: '<path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5"/><path d="M20 3.5v5h-5"/><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15.5"/><path d="M4 20.5v-5h5"/>',
+  phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.6"/><path d="M11 18.5h2"/>',
   install: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 7v6M9.5 10.5 12 13l2.5-2.5M8 20h8"/>',
 };
 
@@ -62,7 +65,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null };
+const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
 const settings = () => S.data.settings.get('main');
 const doctorName = () => { const d = settings().doctor; return [d.title, d.first, d.last].filter(Boolean).join(' '); };
@@ -147,6 +150,7 @@ function renderLock(profiles, err = '') {
     <div class="row" style="justify-content:center;margin-top:20px">
       <button class="btn btn-ghost btn-sm" data-act="new-account">${I('plus')} Nowe konto</button>
       <button class="btn btn-ghost btn-sm" data-act="restore-start">${I('folder')} Przywróć z kopii</button>
+      <button class="btn btn-ghost btn-sm" data-act="sync-signin">${I('sync')} Konto z innego urządzenia</button>
     </div>`);
   const pw = $('[name=password]'); if (last) pw.focus(); else $('[name=username]').focus();
   $('#login').onsubmit = async (e) => {
@@ -208,7 +212,7 @@ function renderOnboarding(step = 0) {
       <input type="password" id="ob-key" placeholder="sk-ant-…" value="${esc(OB.aiKey)}" autocomplete="off"></div>
      </div>`,
   ][step];
-  const nav = step < 3 ? `<div class="row" style="margin-top:22px">${step ? `<button class="btn btn-ghost" data-act="ob-prev">${I('back')} Wstecz</button>` : `<button class="btn btn-ghost btn-sm" data-act="restore-start">${I('folder')} Mam kopię zapasową</button>`}<span class="grow"></span><button class="btn btn-primary" data-act="ob-next">Dalej</button></div>`
+  const nav = step < 3 ? `<div class="row" style="margin-top:22px">${step ? `<button class="btn btn-ghost" data-act="ob-prev">${I('back')} Wstecz</button>` : `<span class="row" style="gap:6px"><button class="btn btn-ghost btn-sm" data-act="sync-signin">${I('sync')} Mam konto na innym urządzeniu</button><button class="btn btn-ghost btn-sm" data-act="restore-start">${I('folder')} Mam kopię</button></span>`}<span class="grow"></span><button class="btn btn-primary" data-act="ob-next">Dalej</button></div>`
     : step === 3 ? `<div class="row" style="margin-top:22px"><button class="btn btn-ghost" data-act="ob-prev">${I('back')} Wstecz</button><span class="grow"></span><button class="btn btn-primary" data-act="ob-create">${I('shield')} Utwórz konto</button></div>`
       : `<div class="row" style="margin-top:22px"><span class="grow"></span><button class="btn btn-primary btn-lg" data-act="ob-finish">Zaczynamy</button></div>`;
   authShell(`<div class="auth-logo">${I('tooth')}</div>${steps}${body}${nav}`, true);
@@ -225,13 +229,86 @@ async function enter(session) {
   S.data = { patients: all.patients || new Map(), visits: all.visits || new Map(), letters: all.letters || new Map(), referrers: all.referrers || new Map(), settings: all.settings || new Map() };
   if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS));
   const st = settings(); for (const k of Object.keys(DEFAULT_SETTINGS)) if (typeof DEFAULT_SETTINGS[k] === 'object' && !Array.isArray(DEFAULT_SETTINGS[k])) st[k] = { ...DEFAULT_SETTINGS[k], ...(st[k] || {}) };
-  if (!st.doctor.logo && isCentrum(st.doctor) && !st.doctor.logoCleared) { const l = await brandLogoData(); if (l) { st.doctor.logo = l; st.doctor.logoDefault = true; save('settings', st); } }
+  if ((st.doctor.logoDefault || (!st.doctor.logo && isCentrum(st.doctor))) && !st.doctor.logoCleared) { const l = await brandLogoData(); if (l) { st.doctor.logo = l; st.doctor.logoDefault = true; save('settings', st); } }
   mirrorBrand();
   S.folder = new Folder(session.pid);
   if (fsSupported()) await S.folder.init();
   S.view = 'visit'; S.visitId = null;
   renderApp();
   if (S.folder.ok()) backupNow();
+  await startSync();
+}
+
+/* ================================================================ synchronizacja (iPhone ↔ komputer ↔ przeglądarka) */
+async function startSync() {
+  const cfg = await loadConfig(S.session.pid);
+  if (!cfg?.enabled) { S.sync = null; renderStatus(); return; }
+  S.sync = new SyncClient(S.session, cfg, {
+    onStatus: (st) => { S.syncStatus = { ...st }; renderStatus(); },
+    onRecords: applyRemote,
+    onHeader: () => { if (S.view === 'settings' && !editing()) renderView(); },
+  });
+  return S.sync.start();
+}
+const editing = () => { const a = document.activeElement; return !!(a && a.closest('#view, #ws, .overlay') && (a.matches('input, textarea, select') || a.isContentEditable)); };
+let remoteRender = false;
+function applyRemote(changes) {
+  let n = 0, top = false;
+  for (const { store, id, obj } of changes) {
+    if (!D()[store] || dirty.has(store + id)) continue; // a local edit is waiting to be saved — it is newer
+    if (obj._deleted) D()[store].delete(id); else D()[store].set(id, obj);
+    if (store === 'settings') { const st = settings(); for (const k of Object.keys(DEFAULT_SETTINGS)) if (typeof DEFAULT_SETTINGS[k] === 'object' && !Array.isArray(DEFAULT_SETTINGS[k])) st[k] = { ...DEFAULT_SETTINGS[k], ...(st[k] || {}) }; mirrorBrand(); top = true; }
+    n++;
+  }
+  if (!n) return;
+  scheduleBackup();
+  if (top) renderTop();
+  if (S.ws || editing() || document.querySelector('.overlay')) { remoteRender = true; return; } // never pull the rug out from under an open form
+  renderView();
+}
+document.addEventListener('focusout', () => setTimeout(() => { if (remoteRender && S.session && !S.ws && !editing() && !document.querySelector('.overlay')) { remoteRender = false; renderView(); } }, 50));
+const syncTime = (t) => (t ? new Date(t).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '—');
+
+function syncSetupModal() {
+  const def = localStorage.getItem('endolist:syncUrl') || '';
+  modal({ title: 'Włącz synchronizację', body: `<p class="muted" style="margin-top:0">Dane są szyfrowane na tym urządzeniu, zanim trafią na serwer — serwer nie zna hasła ani klucza danych. Na iPhonie i innych urządzeniach zalogujesz się tym samym loginem i hasłem.</p>
+    <div class="grid"><label class="f"><span>Adres serwera synchronizacji</span><input type="url" id="sy-url" value="${esc(def)}" placeholder="https://endolist-sync.twoja-nazwa.workers.dev" autocomplete="url" inputmode="url"></label>
+    <label class="f"><span>Login synchronizacji</span><input type="text" id="sy-login" value="${esc(S.session.profile.username)}" autocomplete="username" autocapitalize="none"></label>
+    <label class="f"><span>Hasło konta (potwierdzenie)</span><input type="password" id="sy-pw" autocomplete="current-password"></label></div>
+    <div class="hint" style="margin-top:8px">Jeżeli login jest zajęty na serwerze (inny lekarz), wybierz inny — np. z nazwiskiem.</div><div class="err" id="sy-err"></div>`,
+    buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: `${I('sync')} Włącz`, cls: 'btn-primary', onClick: async (ov, btn) => {
+      const url = $('#sy-url', ov).value, login = $('#sy-login', ov).value.trim(), pw = $('#sy-pw', ov).value;
+      const err = $('#sy-err', ov); err.textContent = '';
+      if (!login) { err.textContent = 'Podaj login.'; return false; }
+      if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Łączenie…'; }
+      try {
+        await V.unlockPassword(S.session.profile.username, pw); // confirms the password before it is used for the login token
+        await enableSync(S.session, { url, login, password: pw });
+        localStorage.setItem('endolist:syncUrl', normUrl(url));
+        await startSync(); toast('Synchronizacja włączona.', 'ok'); renderView();
+      } catch (er) { err.textContent = er.message; if (btn) { btn.disabled = false; btn.innerHTML = `${I('sync')} Włącz`; } return false; }
+    } }] });
+}
+function syncSignInModal() {
+  const def = localStorage.getItem('endolist:syncUrl') || '';
+  modal({ title: 'Zaloguj się kontem z innego urządzenia', body: `<p class="muted" style="margin-top:0">Pobierze zaszyfrowane dane z serwera synchronizacji (np. z komputera w gabinecie) i odszyfruje je na tym urządzeniu Twoim hasłem.</p>
+    <div class="grid"><label class="f"><span>Adres serwera synchronizacji</span><input type="url" id="si-url" value="${esc(def)}" placeholder="https://endolist-sync.twoja-nazwa.workers.dev" autocomplete="url" inputmode="url"></label>
+    <label class="f"><span>Login</span><input type="text" id="si-login" autocomplete="username" autocapitalize="none"></label>
+    <label class="f"><span>Hasło</span><input type="password" id="si-pw" autocomplete="current-password"></label></div><div class="err" id="si-err"></div>`,
+    buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: `${I('sync')} Zaloguj`, cls: 'btn-primary', onClick: async (ov, btn) => {
+      const url = $('#si-url', ov).value, login = $('#si-login', ov).value.trim(), pw = $('#si-pw', ov).value;
+      const err = $('#si-err', ov); err.textContent = '';
+      if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Pobieranie danych…'; }
+      try {
+        const { session, cfg } = await signInFromServer({ url, login, password: pw });
+        localStorage.setItem('endolist:syncUrl', cfg.url);
+        // first full download before showing the app
+        const first = new SyncClient(session, cfg, {}); await first.now(); first.stop();
+        if (first.status.state === 'error' || first.status.state === 'offline') throw new Error(first.status.msg);
+        document.querySelector('.overlay')?.remove();
+        await enter(session); toast('Dane pobrane i odszyfrowane.', 'ok');
+      } catch (er) { err.textContent = er.message; if (btn) { btn.disabled = false; btn.innerHTML = `${I('sync')} Zaloguj`; } return false; }
+    } }] });
 }
 
 /* ================================================================ app shell */
@@ -257,14 +334,20 @@ function renderStatus() {
   const el = $('#status'); if (!el) return;
   let cls = 'pill', txt;
   if (S.saving || S.backingUp) { cls += ' busy'; txt = S.backingUp ? 'Kopia zapasowa…' : 'Zapisywanie…'; }
-  else if (S.folder?.ok() && !S.folder.error) { cls += ' ok'; txt = `Zaszyfrowano · kopia ${S.folder.lastBackup ? new Date(S.folder.lastBackup).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '—'}`; }
+  else if (S.folder?.ok() && !S.folder.error && !S.sync) { cls += ' ok'; txt = `Zaszyfrowano · kopia ${S.folder.lastBackup ? new Date(S.folder.lastBackup).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '—'}`; }
+  else if (S.sync && S.syncStatus?.state === 'ok') { cls += ' ok'; txt = `Zsynchronizowano ${syncTime(S.syncStatus.last)}`; }
+  else if (S.sync && S.syncStatus?.state === 'busy') { cls += ' busy'; txt = 'Synchronizacja…'; }
+  else if (S.sync && S.syncStatus?.state === 'offline') { cls += ' warn'; txt = 'Offline · zsynchronizuje po połączeniu'; }
+  else if (S.sync && S.syncStatus?.state === 'error') { cls += ' warn'; txt = 'Błąd synchronizacji'; }
   else { cls += ' warn'; txt = 'Zaszyfrowano · brak kopii w folderze'; }
-  el.className = cls; el.innerHTML = `<span class="dot"></span><span class="txt">${esc(txt)}</span>`;
+  if (S.sync && S.syncStatus?.state === 'ok' && S.folder?.ok() && S.folder.lastBackup) txt += ` · kopia ${syncTime(S.folder.lastBackup)}`;
+  el.className = cls; el.title = S.syncStatus?.msg || ''; el.innerHTML = `<span class="dot"></span><span class="txt">${esc(txt)}</span>`;
 }
 function renderBanner() {
   const b = $('#banner'); if (!b) return;
   let h = '';
-  if (!fsSupported()) h = `<div class="banner warn"><span class="grow">Ta przeglądarka nie zapisuje automatycznie do folderu. Dla automatycznych kopii i archiwum listów użyj <b>Chrome</b> lub <b>Edge</b>. Kopię możesz pobrać w Ustawieniach.</span></div>`;
+  if ((!fsSupported() || matchMedia('(pointer: coarse)').matches) && S.sync) h = ''; // phone: the computer keeps the folder backups
+  else if (!fsSupported()) h = `<div class="banner warn"><span class="grow">Ta przeglądarka nie zapisuje automatycznie do folderu. Dla automatycznych kopii i archiwum listów użyj <b>Chrome</b> lub <b>Edge</b>. Kopię możesz pobrać w Ustawieniach albo włączyć <b>synchronizację</b> z komputerem.</span><button class="btn btn-sm" data-nav="settings">Ustawienia</button></div>`;
   else if (!S.folder.root) h = `<div class="banner info"><span class="grow"><b>Wybierz folder na komputerze</b> (np. Dokumenty › EndoList) — listy będą tam porządkowane według pacjentów, a zaszyfrowana kopia danych aktualizowana automatycznie.</span><button class="btn btn-primary btn-sm" data-act="folder-pick">${I('folder')} Wybierz folder</button></div>`;
   else if (!S.folder.ok()) h = `<div class="banner warn"><span class="grow"><b>Połącz ponownie folder „${esc(S.folder.root.name)}".</b> Po ponownym uruchomieniu przeglądarka prosi o zgodę. Dane w aplikacji są bezpieczne.</span><button class="btn btn-primary btn-sm" data-act="folder-reconnect">Połącz</button></div>`;
   else if (S.folder.error) h = `<div class="banner warn"><span class="grow"><b>Kopia nie powiodła się:</b> ${esc(S.folder.error)}</span><button class="btn btn-sm" data-act="backup-now">Spróbuj ponownie</button></div>`;
@@ -598,7 +681,7 @@ function modal({ title, body, buttons = [], wide = false, onClose }) {
   ov.innerHTML = `<div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true"><header><h3>${esc(title)}</h3><button class="btn btn-ghost btn-icon btn-sm" data-x>${I('x')}</button></header><div class="mb">${body}</div>${buttons.length ? `<footer>${buttons.map((b, i) => `<button class="btn ${b.cls || ''}" data-i="${i}">${b.label}</button>`).join('')}</footer>` : ''}</div>`;
   const close = () => { ov.remove(); onClose && onClose(); };
   ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(); });
-  ov.addEventListener('click', async (e) => { if (e.target.closest('[data-x]')) return close(); const b = e.target.closest('footer [data-i]'); if (b) { const def = buttons[+b.dataset.i]; const r = def.onClick ? await def.onClick(ov) : undefined; if (r !== false) close(); } });
+  ov.addEventListener('click', async (e) => { if (e.target.closest('[data-x]')) return close(); const b = e.target.closest('footer [data-i]'); if (b) { const def = buttons[+b.dataset.i]; const r = def.onClick ? await def.onClick(ov, b) : undefined; if (r !== false) close(); } });
   ov.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
   $('#modal-root').appendChild(ov);
   const af = ov.querySelector('[autofocus]'); if (af && !ov.contains(document.activeElement)) af.focus();
@@ -750,7 +833,7 @@ function viewLetter() {
     <button class="btn btn-primary" data-act="save-pdf">${I('save')} Zapisz PDF</button></div>
   <div class="review">
     <div class="paper-wrap">
-      <div class="paper-tools"><span class="hint">${S.manualEdit ? 'Edycja ręczna: kliknij w tekst i popraw go bezpośrednio.' : 'Zaznacz myszką fragment, który jest nie tak — pojawi się okienko na uwagę.'}</span><span class="grow"></span>
+      <div class="paper-tools"><span class="hint">${S.manualEdit ? 'Edycja ręczna: kliknij w tekst i popraw go bezpośrednio.' : (COARSE ? 'Przytrzymaj palec na tekście i zaznacz fragment, który jest nie tak — potem „Dodaj uwagę".' : 'Zaznacz myszką fragment, który jest nie tak — pojawi się okienko na uwagę.')}</span><span class="grow"></span>
         <label class="switch"><input type="checkbox" id="manual-edit" ${S.manualEdit ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Edycja ręczna</label></div>
       <div id="paper">${paperHTML(L)}</div>
     </div>
@@ -794,17 +877,28 @@ function letterCtx(L) {
 async function letterBlob(L) { return buildLetterPDF(letterCtxFull(L)); }
 function afterLetter() {}
 /* selection → note popover */
-function onPaperSelect() {
-  if (S.view !== 'letter' || S.manualEdit) return;
-  const sel = window.getSelection(); if (!sel || sel.isCollapsed) return;
-  const quote = sel.toString().replace(/\s+/g, ' ').trim(); if (quote.length < 2) return;
+function paperSelection() {
+  if (S.view !== 'letter' || S.manualEdit) return null;
+  const sel = window.getSelection(); if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+  const quote = sel.toString().replace(/\s+/g, ' ').trim(); if (quote.length < 2) return null;
   const node = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
-  const host = node && node.closest('#paper [data-loc]'); if (!host) return;
+  const host = node && node.closest('#paper [data-loc]'); if (!host) return null;
   const endNode = sel.focusNode && (sel.focusNode.nodeType === 1 ? sel.focusNode : sel.focusNode.parentElement);
   const loc = host.dataset.loc, sameBlock = endNode && endNode.closest('[data-loc]') === host;
-  const rect = sel.getRangeAt(0).getBoundingClientRect();
-  showNotePop({ loc, quote: sameBlock ? quote : host.innerText.trim(), rect });
+  return { loc, quote: sameBlock ? quote : host.innerText.trim(), rect: sel.getRangeAt(0).getBoundingClientRect() };
 }
+function onPaperSelect() { if (COARSE) return; const info = paperSelection(); if (info) showNotePop(info); }
+// Touch (iPhone): selecting text with the system handles shows a button; tapping it opens the comment box.
+const COARSE = matchMedia('(pointer: coarse)').matches;
+let pendingSel = null, selHide = null;
+function selBtn() { let b = $('#selbtn'); if (!b) { b = document.createElement('button'); b.id = 'selbtn'; b.className = 'selbtn'; b.type = 'button'; b.innerHTML = `${I('edit')} Dodaj uwagę do zaznaczenia`; b.addEventListener('pointerdown', (e) => { e.preventDefault(); const info = pendingSel; b.classList.remove('on'); if (info) { window.getSelection()?.removeAllRanges(); showNotePop(info); } }); document.body.appendChild(b); } return b; }
+document.addEventListener('selectionchange', debounce(() => {
+  if (!COARSE) return;
+  const info = paperSelection();
+  clearTimeout(selHide);
+  if (info && !$('.note-pop')) { pendingSel = info; selBtn().classList.add('on'); }
+  else selHide = setTimeout(() => { if (!paperSelection()) { pendingSel = null; $('#selbtn')?.classList.remove('on'); } }, 700);
+}, 200));
 function showNotePop({ loc, quote, rect }) {
   $('.note-pop')?.remove();
   const pop = document.createElement('div'); pop.className = 'note-pop';
@@ -970,6 +1064,7 @@ function viewSettings() {
       <div class="hint" style="margin-top:6px">${V.passkeySupported() ? 'Touch ID, Face ID, Windows Hello lub iPhone (kod QR na komputerze). Wymaga obsługi rozszerzenia PRF.' : 'Klucze dostępu działają, gdy aplikacja jest otwarta przez https:// lub localhost.'}</div>
       <div class="grid g2" style="margin-top:14px"><div class="f"><span>Automatyczna blokada</span>${seg('s.security.autolock', { 5: '5 min', 15: '15 min', 30: '30 min', 60: '60 min' })}</div><div class="f"><span>&nbsp;</span><button class="btn btn-sm" data-act="change-pw">Zmień hasło</button></div></div>
     </div></section>
+    <section class="panel" id="sync-panel"><header><h3>${I('sync')} Synchronizacja</h3><span class="sub">iPhone ↔ komputer ↔ przeglądarka</span></header><div class="body">${syncPanel()}</div></section>
     <section class="panel"><header><h3>${I('folder')} Folder i kopie zapasowe</h3></header><div class="body">
       <div class="kv"><div>Folder</div><div>${fsSupported() ? (S.folder.root ? `<b>${esc(S.folder.root.name)}</b> ${S.folder.ok() ? '<span class="tag">połączony</span>' : '<span class="tag o">wymaga połączenia</span>'}` : '<span class="tag o">nie wybrano</span>') : '<span class="tag o">niedostępne w tej przeglądarce</span>'}</div><div>Ostatnia kopia</div><div>${S.folder.lastBackup ? new Date(S.folder.lastBackup).toLocaleString('pl-PL') : '—'}</div></div>
       <div class="row" style="margin-top:12px">${fsSupported() ? `<button class="btn btn-sm btn-soft" data-act="folder-pick">${S.folder.root ? 'Zmień folder' : 'Wybierz folder'}</button>${S.folder.root && !S.folder.ok() ? '<button class="btn btn-sm" data-act="folder-reconnect">Połącz</button>' : ''}${S.folder.ok() ? '<button class="btn btn-sm" data-act="backup-now">Utwórz kopię teraz</button>' : ''}` : ''}<button class="btn btn-sm" data-act="download-backup">Pobierz kopię (.json)</button></div>
@@ -978,9 +1073,20 @@ function viewSettings() {
     <section class="panel"><header><h3>${I('install')} Aplikacja</h3></header><div class="body small muted" style="line-height:1.6">
       ${S.installEvt ? `<button class="btn btn-sm btn-primary" data-act="install" style="margin-bottom:10px">${I('install')} Zainstaluj na tym komputerze</button><br>` : ''}
       W Chrome / Edge: menu ⋮ → „Zainstaluj EndoList" — aplikacja pojawi się w menu Start / Launchpadzie i działa offline.
-      ${['localhost', '127.0.0.1'].includes(location.hostname) ? 'Ta kopia działa lokalnie na tym komputerze. Innym lekarzom wyślij adres wersji internetowej (GitHub Pages) albo folder z aplikacją.' : `Link do udostępnienia innym lekarzom: <code class="path">${esc(location.origin + location.pathname)}</code>`} Każdy lekarz ma własne, oddzielne i zaszyfrowane dane na swoim komputerze — nic nie jest wysyłane na serwer.
+      ${['localhost', '127.0.0.1'].includes(location.hostname) ? 'Ta kopia działa lokalnie na tym komputerze. Innym lekarzom wyślij adres wersji internetowej (GitHub Pages) albo folder z aplikacją.' : `Link do udostępnienia innym lekarzom: <code class="path">${esc(location.origin + location.pathname)}</code>`} Każdy lekarz ma własne, oddzielne i zaszyfrowane dane na swoim urządzeniu — na serwer trafiają wyłącznie zaszyfrowane dane i tylko przy włączonej synchronizacji.
     </div></section>
   </div></div>`;
+}
+
+function syncPanel() {
+  const c = S.sync?.cfg, st = S.syncStatus || {};
+  if (!S.sync) return `<p class="small muted" style="margin:0 0 12px;line-height:1.6">Pracuj na iPhonie, w gabinecie i w domu na tych samych danych. Każda zmiana jest szyfrowana na urządzeniu (AES-256) i dopiero wtedy wysyłana — serwer nie może odczytać danych pacjentów.</p>
+    <button class="btn btn-sm btn-primary" data-act="sync-setup">${I('sync')} Włącz synchronizację</button>
+    <div class="hint" style="margin-top:10px">Na drugim urządzeniu (np. iPhone): otwórz EndoList → „Konto z innego urządzenia" → ten sam adres serwera, login i hasło. Serwer synchronizacji uruchamia się raz — instrukcja w pliku <code class="path">sync-server/README.md</code>.</div>`;
+  const state = { ok: '<span class="tag">aktywna</span>', busy: '<span class="tag">trwa…</span>', offline: '<span class="tag o">offline</span>', error: '<span class="tag o">błąd</span>', idle: '<span class="tag">aktywna</span>' }[st.state || 'idle'];
+  return `<div class="kv"><div>Stan</div><div>${state}${st.msg ? ` <span class="small muted">${esc(st.msg)}</span>` : ''}</div><div>Serwer</div><div><code class="path">${esc(c.url)}</code></div><div>Login</div><div><b>${esc(c.login)}</b></div><div>Ostatnio</div><div>${c.last ? new Date(c.last).toLocaleString('pl-PL') : '—'}</div></div>
+    <div class="row" style="margin-top:12px"><button class="btn btn-sm btn-soft" data-act="sync-now">${I('refresh')} Synchronizuj teraz</button><button class="btn btn-sm btn-ghost" data-act="sync-off">Wyłącz na tym urządzeniu</button><button class="btn btn-sm btn-ghost" data-act="sync-wipe">${I('trash')} Usuń dane z serwera</button></div>
+    <div class="hint" style="margin-top:10px">${I('phone')} iPhone: otwórz EndoList w Safari → „Konto z innego urządzenia" → adres serwera, login <b>${esc(c.login)}</b> i hasło. Potem „Udostępnij → Do ekranu początkowego", aby mieć ikonę aplikacji. Zmiany pojawiają się na innych urządzeniach w ciągu kilkunastu sekund.</div>`;
 }
 
 /* ================================================================ events */
@@ -1036,6 +1142,11 @@ async function action(act, a) {
     }
     case 'passkey-login': { try { await enter(await V.unlockPasskey()); } catch (er) { if (er.name !== 'NotAllowedError') { const el = $('#err'); if (el) el.textContent = er.message; } } return; }
     case 'restore-start': return restoreFlow();
+    case 'sync-signin': return syncSignInModal();
+    case 'sync-setup': return syncSetupModal();
+    case 'sync-now': if (S.sync) { await S.sync.now(); if (S.syncStatus?.state === 'ok') toast('Zsynchronizowano.', 'ok'); else toast(S.syncStatus?.msg || 'Synchronizacja nie powiodła się.', 'err'); renderView(); } return;
+    case 'sync-off': if (await confirmBox('Wyłączyć synchronizację na tym urządzeniu?', 'Dane zostają na tym urządzeniu i na serwerze. Inne urządzenia nadal się synchronizują.', 'Wyłącz')) { await S.sync?.disable(); S.sync = null; S.syncStatus = null; renderStatus(); renderBanner(); renderView(); } return;
+    case 'sync-wipe': if (await confirmBox('Usunąć dane z serwera?', 'Zaszyfrowane dane tego konta zostaną usunięte z serwera synchronizacji, a synchronizacja wyłączona na wszystkich urządzeniach. Dane na urządzeniach pozostają.', 'Usuń z serwera')) { try { await S.sync?.disable({ wipe: true }); S.sync = null; S.syncStatus = null; toast('Usunięto dane z serwera.', 'ok'); } catch (er) { toast(er.message, 'err'); } renderStatus(); renderView(); } return;
     case 'lock': return lockNow();
     case 'install': if (S.installEvt) { S.installEvt.prompt(); S.installEvt = null; renderTop(); } return;
     /* folder */
@@ -1118,8 +1229,8 @@ async function action(act, a) {
     case 'logo-pick': { const el = $('#logo-input'), k = a.dataset.k; el.onchange = async () => { const f = el.files[0]; if (f) { settings().doctor[k] = await logoData(f); if (k === 'logo') settings().doctor.logoDefault = false; save('settings', settings()); renderTop(); renderView(); } }; return el.click(); }
     case 'logo-clear': settings().doctor[a.dataset.k] = ''; if (a.dataset.k === 'logo') { settings().doctor.logoDefault = false; settings().doctor.logoCleared = true; } save('settings', settings()); renderTop(); return renderView();
     case 'test-key': { a.disabled = true; try { await testKey(settings().ai.key); toast('Klucz API działa.', 'ok'); } catch (er) { toast(er.message, 'err'); } a.disabled = false; return; }
-    case 'pk-add': { try { await S.session.addPasskey(); toast('Dodano klucz dostępu.', 'ok'); scheduleBackup(); renderView(); } catch (er) { if (er.name !== 'NotAllowedError') toast(er.message, 'err'); } return; }
-    case 'pk-del': if (await confirmBox('Usunąć klucz dostępu?', 'Logowanie tym kluczem przestanie działać. Hasło działa nadal.')) { await S.session.removePasskey(a.dataset.id); scheduleBackup(); renderView(); } return;
+    case 'pk-add': { try { await S.session.addPasskey(/iPhone|iPad/.test(navigator.userAgent) ? 'iPhone / iPad' : 'Klucz dostępu'); toast('Dodano klucz dostępu.', 'ok'); scheduleBackup(); S.sync?.headerChanged().catch(() => {}); renderView(); } catch (er) { if (er.name !== 'NotAllowedError') toast(er.message, 'err'); } return; }
+    case 'pk-del': if (await confirmBox('Usunąć klucz dostępu?', 'Logowanie tym kluczem przestanie działać. Hasło działa nadal.')) { await S.session.removePasskey(a.dataset.id); scheduleBackup(); S.sync?.headerChanged().catch(() => {}); renderView(); } return;
     case 'change-pw': return changePassword();
     case 'sample': return sampleLetter();
   }
@@ -1175,8 +1286,8 @@ async function signatureData(file) {
     x.putImageData(d, 0, 0); return cv.toDataURL('image/png');
   } finally { URL.revokeObjectURL(url); }
 }
-/** Built-in Centrum Stomatologiczne logo (vector recreation): navy PNG for letters, light SVG for the dark UI. */
-const BRAND_LOGO = 'brand/centrum-logo.png', BRAND_LOGO_LIGHT = 'brand/centrum-logo-light.svg';
+/** Built-in Centrum Stomatologiczne logo (the clinic's own logo): navy for letters, light for the dark UI. */
+const BRAND_LOGO = 'brand/centrum-logo.png', BRAND_LOGO_LIGHT = 'brand/centrum-logo-light.png';
 async function brandLogoData() {
   try { const b = await (await fetch(BRAND_LOGO)).blob(); return await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); }); } catch { return ''; }
 }
@@ -1190,14 +1301,17 @@ async function logoData(file) {
   } finally { URL.revokeObjectURL(url); }
 }
 async function reloadData() { const all = await S.session.loadAll(); for (const k of ['patients', 'visits', 'letters', 'referrers', 'settings']) if (all[k]) S.data[k] = all[k]; if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS)); }
-function lockNow() { flushSave.flush(); setTimeout(() => location.reload(), 150); }
+async function lockNow() {
+  await Promise.race([(async () => { await flushSave.flush(); await S.sync?.now(); })(), new Promise((r) => setTimeout(r, 4000))]).catch(() => {});
+  location.reload();
+}
 function changePassword() {
   modal({ title: 'Zmień hasło', body: `<div class="grid"><label class="f"><span>Obecne hasło</span><input type="password" id="pw0" autofocus></label><label class="f"><span>Nowe hasło (min. 8 znaków)</span><input type="password" id="pw1"></label><label class="f"><span>Powtórz nowe hasło</span><input type="password" id="pw2"></label></div>`,
     buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: 'Zmień hasło', cls: 'btn-primary', onClick: async (ov) => {
       const [a, b, c] = ['#pw0', '#pw1', '#pw2'].map((s) => $(s, ov).value);
       if (b.length < 8) { toast('Nowe hasło musi mieć co najmniej 8 znaków.', 'err'); return false; }
       if (b !== c) { toast('Hasła różnią się.', 'err'); return false; }
-      try { await S.session.changePassword(a, b); toast('Hasło zmienione.', 'ok'); scheduleBackup(); } catch { toast('Obecne hasło jest nieprawidłowe.', 'err'); return false; }
+      try { await S.session.changePassword(a, b); toast('Hasło zmienione.', 'ok'); scheduleBackup(); S.sync?.headerChanged(b).catch(() => {}); } catch { toast('Obecne hasło jest nieprawidłowe.', 'err'); return false; }
     } }] });
 }
 function restoreFlow() {

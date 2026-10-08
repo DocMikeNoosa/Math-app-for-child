@@ -64,7 +64,12 @@ export class Session {
   async put(store, obj) {
     const k = this.key(store, obj.id); const iv = rnd(12);
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: enc.encode(k) }, this.dek, enc.encode(JSON.stringify(obj)));
-    await tx('records', 'readwrite', (s) => s.put({ k, iv: b64.from(iv), ct: b64.from(ct), at: Date.now() }));
+    // `at` always moves past the version being replaced (even if this device's clock is behind another's) — last writer wins
+    const prev = await this.getRaw(k);
+    const rec = { k, iv: b64.from(iv), ct: b64.from(ct), at: Math.max(Date.now(), (prev?.at || 0) + 1, (this.lastAt || 0) + 1) };
+    this.lastAt = rec.at;
+    await tx('records', 'readwrite', (s) => s.put(rec));
+    this.onPut?.(rec);
   }
   // deletions are kept as encrypted tombstones so a restore from an older backup cannot resurrect them
   async del(store, id) { await this.put(store, { id, _deleted: true, updatedAt: Date.now() }); }
@@ -82,6 +87,40 @@ export class Session {
     }
     return out;
   }
+  /* ---- synchronizacja: surowe (zaszyfrowane) rekordy i nagłówek konta */
+  getRaw(k) { return tx('records', 'readonly', (s) => s.get(k)); }
+  putRaw(r) { return tx('records', 'readwrite', (s) => s.put(r)); }
+  /** Marks pushed records as synced unless they changed meanwhile. */
+  async markSynced(recs) {
+    const d = await db();
+    await new Promise((res, rej) => {
+      const t = d.transaction('records', 'readwrite'), st = t.objectStore('records');
+      for (const r of recs) { const g = st.get(r.k); g.onsuccess = () => { const cur = g.result; if (cur && cur.at === r.at && !cur.syn) st.put({ ...cur, syn: 1 }); }; }
+      t.oncomplete = res; t.onerror = () => rej(t.error);
+    });
+  }
+  /** Token for the sync server, derived from the data key — only unlocked devices can compute it. */
+  async syncToken() {
+    const base = await crypto.subtle.importKey('raw', this.dekRaw, 'HKDF', false, ['deriveBits']);
+    return b64.url(await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: enc.encode('EndoList sync token v1') }, base, 256));
+  }
+  header() {
+    // no login or name: the server must not learn who the account belongs to (the login is typed on the new device)
+    const { id, salt, pw, passkeys, created, userHandle, removedPasskeys } = this.profile;
+    return { id, salt, pw, passkeys: passkeys || [], removedPasskeys: removedPasskeys || [], created, userHandle };
+  }
+  /** Adopts the account header from another device (password change, passkeys). Returns true if the merged header differs from the remote one. */
+  async adoptHeader(h) {
+    if (!h || h.id !== this.pid) return false;
+    const removed = new Set([...(h.removedPasskeys || []), ...(this.profile.removedPasskeys || [])]);
+    const byId = new Map();
+    for (const k of [...(h.passkeys || []), ...(this.profile.passkeys || [])]) if (!removed.has(k.id) && !byId.has(k.id)) byId.set(k.id, k);
+    const merged = [...byId.values()];
+    const differs = merged.length !== (h.passkeys || []).length || removed.size !== (h.removedPasskeys || []).length;
+    Object.assign(this.profile, { salt: h.salt, pw: h.pw, passkeys: merged, removedPasskeys: [...removed] });
+    await saveProfile(this.profile);
+    return differs;
+  }
   async changePassword(oldPw, newPw) {
     const kek = await kekFromPassword(oldPw, b64.to(this.profile.salt));
     await unwrap(kek, this.profile.pw); // throws if wrong
@@ -91,7 +130,7 @@ export class Session {
     await saveProfile(this.profile);
   }
   async addPasskey(label = 'Klucz dostępu') { const pk = await registerPasskey(this.profile, this.dekRaw, label); this.profile.passkeys = [...(this.profile.passkeys || []), pk]; await saveProfile(this.profile); return pk; }
-  async removePasskey(id) { this.profile.passkeys = (this.profile.passkeys || []).filter((p) => p.id !== id); await saveProfile(this.profile); }
+  async removePasskey(id) { this.profile.passkeys = (this.profile.passkeys || []).filter((p) => p.id !== id); this.profile.removedPasskeys = [...new Set([...(this.profile.removedPasskeys || []), id])]; await saveProfile(this.profile); }
   async updateProfile(patch) { Object.assign(this.profile, patch); await saveProfile(this.profile); }
   /** Encrypted backup: the profile header (with wrapped keys only) + encrypted records. Restoring needs the password. */
   async exportBackup() {
@@ -158,6 +197,27 @@ export async function unlockPasskey() {
   if (!out) throw new Error('Klucz dostępu nie zwrócił danych szyfrujących (PRF). Zaloguj się hasłem.');
   let raw;
   try { raw = await unwrap(await kekFromPrf(out), pk.w); } catch { throw new Error('Nie udało się odszyfrować danych tym kluczem.'); }
+  return new Session(p, raw, await importDek(raw));
+}
+
+/* ------------------------------------------------------------ synchronizacja: konto na nowym urządzeniu */
+export const normLogin = (u) => norm(u);
+/** Server account id: SHA-256 of the normalised sync login (the login itself is not stored on the server). */
+export async function acctId(login) { const d = await crypto.subtle.digest('SHA-256', enc.encode('endolist:acct:v1:' + norm(login))); return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join(''); }
+/** Login token for fetching the account header on a new device (PBKDF2 of the password, separate salt from the data key). */
+export async function loginToken(login, password) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(password.normalize('NFC')), 'PBKDF2', false, ['deriveBits']);
+  return b64.url(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode('endolist:login:v1:' + norm(login)), iterations: PBKDF2_ITER }, base, 256));
+}
+/** Opens an account header received from the sync server with the password and stores the profile on this device. */
+export async function openRemoteProfile(header, password, login) {
+  let raw;
+  try { raw = await unwrap(await kekFromPassword(password, b64.to(header.salt)), header.pw); } catch { throw new Error('Nieprawidłowe hasło.'); }
+  const profiles = await listProfiles();
+  let p = profiles.find((x) => x.id === header.id);
+  if (!p && profiles.some((x) => norm(x.username) === norm(login))) throw new Error('Na tym urządzeniu istnieje już inne konto o tym loginie.');
+  p = { username: login.trim(), displayName: '', ...(p || {}), ...header };
+  await saveProfile(p);
   return new Session(p, raw, await importDek(raw));
 }
 

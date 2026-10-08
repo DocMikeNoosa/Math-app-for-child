@@ -1,5 +1,5 @@
 // EndoList — podgląd listu jako „kartka" w aplikacji (do czytania, zaznaczania fragmentów i edycji ręcznej).
-import { letterChartSVG } from './odontogram.js';
+import { letterArchSVG } from './odontogram.js';
 import { fmtDate, fmtDateLong } from './letter.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -37,7 +37,7 @@ export function letterPaperHTML(ctx, notes = [], { editable = false } = {}) {
         <tr><td>${ctx.dates.length > 1 ? 'Daty leczenia' : 'Data leczenia'}</td><td>${ctx.dates.map(fmtDate).join(', ')}</td></tr>
         <tr><td>${ctx.glance.length > 1 ? 'Zęby' : 'Ząb'}</td><td>${ctx.glance.map((g) => g.fdi).join(', ')}</td></tr></table>
       </div>
-      <aside class="lchart"><div class="k">Schemat leczenia</div>${letterChartSVG(marks)}
+      <aside class="lchart"><div class="k">Schemat leczenia</div>${letterArchSVG(marks, Object.fromEntries(ctx.glance.filter((g) => g.canals).map((g) => [g.fdi, g.canals])))}
         ${ctx.glance.map((g) => `<div class="gl"><b>${g.fdi}</b><span>${esc(g.text)}</span></div>`).join('')}</aside>
     </div>
     <h4 class="ltitle">${esc(c.title)}</h4>

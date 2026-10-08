@@ -206,7 +206,9 @@ export function glance(visits) {
       if (r.restor && !['none', 'after', ''].includes(r.restor)) parts.push(`Zal.: ${{ crown: 'korona', onlay: 'onlay', postcrown: 'wkład + korona', direct: 'odbudowa bezp.', access: 'zamknięcie dostępu' }[r.restor]}${r.time === '30d' ? ' ≤30 dni' : r.time === '2w' ? ' ≤2 tyg.' : r.time === '60d' ? ' ≤2 mies.' : r.time === 'asap' ? ' pilnie' : ''}`);
       if (r.control) parts.push(`kontrola ${{ '3m': '3 mies.', '6m': '6 mies.', '12m': '12 mies.', '6-12m': '6/12 mies.', '1-4y': '1–4 lata' }[r.control]}`);
     }
-    return { fdi, mark: markFor(entries), text: [...new Set(parts)].join(' · ') };
+    const last = [...entries].reverse().find(({ rec }) => ENDO[rec.endo?.proc]?.canals && anatKnown(rec));
+    const canals = last ? (last.rec.roots || []).reduce((n, r) => n + r.canals.length, 0) : 0;
+    return { fdi, mark: markFor(entries), canals, text: [...new Set(parts)].join(' · ') };
   });
 }
 

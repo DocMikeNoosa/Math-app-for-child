@@ -144,35 +144,80 @@ export function toothDetailSVG(rec, { done = false } = {}) {
     <g ${flip}>${parts}<path class="enamel" d="${crownPath(ti, cx, cw, ch)}"/>${chamber}${canalSvg}</g>${labels}</svg>`;
 }
 
-/* =============================================================== mini-schemat do listu (czarno-biały) */
-// marks: { fdi: 'endo' | 'stage' | 'work' | 'plan' }
-export function letterChartSVG(marks) {
-  const CW = 36, X0 = 12, GAP = 8, UOCC = 92, LOCC = 106;
-  let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200" font-family="Inter, Helvetica, Arial, sans-serif"><rect width="600" height="200" fill="#fff"/>`;
-  s += `<line x1="300" y1="14" x2="300" y2="186" stroke="#c9c9c9" stroke-width="1" stroke-dasharray="3 3"/><line x1="10" y1="99" x2="590" y2="99" stroke="#c9c9c9" stroke-width="1" stroke-dasharray="3 3"/>`;
-  const rows = [[18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28], [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]];
-  rows.forEach((row, ri) => row.forEach((fdi, idx) => {
-    const ti = toothInfo(fdi), [cw, ch, rl] = DIMS[ti.upper ? 'U' : 'L'][ti.pos];
-    const cx = X0 + CW / 2 + idx * CW + (idx >= 8 ? GAP : 0);
-    const m = marks[fdi];
-    let fill = '#ffffff', stroke = '#a9a9a9', rfill = '#ffffff', dash = '', sw = 1, canal = '';
-    if (m === 'endo') { fill = '#111111'; stroke = '#111111'; rfill = '#3a3a3a'; canal = '#ffffff'; sw = 1.3; }
-    else if (m === 'stage') { fill = '#8a8a8a'; stroke = '#111111'; rfill = '#d0d0d0'; dash = '3 2'; sw = 1.3; canal = '#111111'; }
-    else if (m === 'work') { fill = '#c4c4c4'; stroke = '#222222'; rfill = '#ffffff'; sw = 1.2; }
-    else if (m === 'plan') { fill = '#ffffff'; stroke = '#111111'; rfill = '#ffffff'; dash = '3 2'; sw = 1.2; }
-    const tf = ti.upper ? `translate(0 ${UOCC}) scale(1 -1)` : `translate(0 ${LOCC})`;
-    const nr = ti.type === 'molar' ? (ti.upper ? 3 : 2) : (ti.upper && ti.pos === 4 ? 2 : 1);
-    s += `<g transform="${tf}">`;
-    const rootsXs = nr === 1 ? [[cx, 11, rl, 0]] : nr === 2 && ti.type === 'premolar' ? [[cx - 4.5, 8, rl, -1.5], [cx + 4.5, 8, rl, 1.5]] : nr === 3 ? [[cx, 10, rl + 2, 0], [cx - cw * 0.24, 10, rl, -2.5], [cx + cw * 0.24, 10, rl, 2.5]] : [[cx - cw * 0.24, 10, rl, -2.5], [cx + cw * 0.24, 10, rl, 2.5]];
-    for (const [rx, rw, len, sh] of rootsXs) s += `<path d="${rootPath(rx, rw, ch, len, sh)}" fill="${rfill}" stroke="${stroke}" stroke-width="${sw}" ${dash ? `stroke-dasharray="${dash}"` : ''}/>`;
-    s += `<path d="${crownPath(ti, cx, cw, ch)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" ${dash ? `stroke-dasharray="${dash}"` : ''}/>`;
-    if (canal) for (const [rx, , len, sh] of rootsXs) s += `<line x1="${rx}" y1="${ch * 0.55}" x2="${rx + sh * 0.95}" y2="${ch + len - 2.5}" stroke="${canal}" stroke-width="${m === 'endo' ? 2 : 1.3}" stroke-linecap="round" ${m === 'stage' ? 'stroke-dasharray="2 2"' : ''}/>`;
+/* =============================================================== schemat do listu (druk, czarno-biały) */
+// Two separate occlusal arches (upper on top, lower below, mirrored), drawn for black-and-white print.
+const LA = { cx: 380, a: 300, b: 150, T: 1.6, upY: 62, loY: 438 };
+function archLayoutP(widths, bls, A) {
+  const N = 1600, ts = [], ss = [0];
+  for (let i = 0; i <= N; i++) ts.push((A.T * i) / N);
+  for (let i = 1; i <= N; i++) { const t0 = ts[i - 1], t1 = ts[i]; ss.push(ss[i - 1] + Math.hypot(A.a * (Math.sin(t1) - Math.sin(t0)), A.b * (Math.cos(t0) - Math.cos(t1)))); }
+  const S = ss[N], gap = 0.9, total = widths.reduce((a, w) => a + w + gap, 0), k = S / total;
+  let acc = 0;
+  return widths.map((w, i) => {
+    const s = (acc + (w + gap) / 2) * k; acc += w + gap;
+    let j = ss.findIndex((v) => v >= s); if (j < 1) j = 1;
+    const t = ts[j - 1] + ((s - ss[j - 1]) / (ss[j] - ss[j - 1])) * (ts[j] - ts[j - 1]);
+    return { t, w: w * k * 0.86, h: Math.min(bls[i] * k * 0.8, 46) };
+  });
+}
+const LL_UP = archLayoutP(W_UP, BL_UP, LA), LL_LO = archLayoutP(W_LO, BL_LO, LA);
+
+/** marks: { fdi: 'endo'|'stage'|'work'|'plan' }, canals: { fdi: n } → SVG string (viewBox 760×500). */
+export function letterArchSVG(marks = {}, canals = {}) {
+  const NAVY = '#1d3557', H = 500, MID = (LA.upY + LA.loY) / 2;
+  const curve = (upper) => {
+    let d = '';
+    for (let i = -40; i <= 40; i++) {
+      const t = (LA.T * 0.96 * i) / 40, x = LA.cx + LA.a * Math.sin(t);
+      const y = upper ? LA.upY + LA.b * (1 - Math.cos(t)) : LA.loY - LA.b * (1 - Math.cos(t));
+      d += `${i === -40 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
+    }
+    return d;
+  };
+  let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 ${H}" font-family="Inter, Helvetica, Arial, sans-serif">
+  <defs><pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="7" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="7" stroke="${NAVY}" stroke-width="2.6"/></pattern></defs>
+  <rect width="760" height="${H}" fill="#ffffff"/>
+  <path d="${curve(true)}" fill="none" stroke="#eef1f5" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="${curve(false)}" fill="none" stroke="#eef1f5" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="240" y1="${MID}" x2="520" y2="${MID}" stroke="#d5dbe2" stroke-width="1.2"/>
+  <line x1="${LA.cx}" y1="${MID - 46}" x2="${LA.cx}" y2="${MID + 46}" stroke="#d5dbe2" stroke-width="1.2"/>
+  <text x="300" y="${MID - 12}" font-size="19" font-weight="600" letter-spacing="1.5" fill="#8f99a6" text-anchor="middle">P</text>
+  <text x="460" y="${MID - 12}" font-size="19" font-weight="600" letter-spacing="1.5" fill="#8f99a6" text-anchor="middle">L</text>
+  <text x="${LA.cx}" y="${MID - 56}" font-size="15" font-weight="600" letter-spacing="2.5" fill="#97a1ad" text-anchor="middle">SZCZĘKA</text>
+  <text x="${LA.cx}" y="${MID + 66}" font-size="15" font-weight="600" letter-spacing="2.5" fill="#97a1ad" text-anchor="middle">ŻUCHWA</text>`;
+  const labels = [];
+  const draw = (fdi, Lay, upper, sign) => {
+    const ti = toothInfo(fdi), g = Lay[ti.pos - 1];
+    const x = LA.cx + sign * LA.a * Math.sin(g.t);
+    const y = upper ? LA.upY + LA.b * (1 - Math.cos(g.t)) : LA.loY - LA.b * (1 - Math.cos(g.t));
+    const dx = sign * LA.a * Math.cos(g.t), dy = (upper ? 1 : -1) * LA.b * Math.sin(g.t);
+    const ang = (Math.atan2(dy, dx) * 180) / Math.PI, nl = Math.hypot(dx, dy);
+    let mx = -dy / nl, my = dx / nl; const cy = upper ? LA.upY + LA.b : LA.loY - LA.b;
+    if (mx * (x - LA.cx) + my * (y - cy) < 0) { mx = -mx; my = -my; }
+    const m = marks[fdi] || '';
+    const st = { endo: [NAVY, '#0f1f36', 1.6, ''], stage: ['url(#hatch)', NAVY, 1.7, ''], work: ['#b6c1ce', '#5d6b7c', 1.4, ''], plan: ['#ffffff', NAVY, 1.7, '5 3.5'] }[m] || ['#ffffff', '#c3cbd5', 1.2, ''];
+    s += `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${ang.toFixed(1)})">`;
+    s += `<path d="${occlusalPath(ti.type, g.w, g.h)}" fill="${st[0]}" stroke="${st[1]}" stroke-width="${st[2]}" ${st[3] ? `stroke-dasharray="${st[3]}"` : ''}/>`;
+    if (!m || m === 'plan') s += `<path d="${fissures(ti.type, g.w, g.h)}" fill="none" stroke="#d6dce3" stroke-width="1.1" stroke-linecap="round"/>`;
+    if (m === 'endo') {
+      const n = Math.max(1, Math.min(5, canals[fdi] || (ti.type === 'molar' ? 3 : 1)));
+      const pts = { 1: [[0, 0]], 2: [[-0.2, 0], [0.2, 0]], 3: [[-0.2, -0.17], [-0.2, 0.17], [0.22, 0]], 4: [[-0.2, -0.17], [-0.2, 0.17], [0.2, -0.15], [0.2, 0.15]], 5: [[-0.22, -0.18], [-0.22, 0.18], [0, 0], [0.24, -0.15], [0.24, 0.15]] }[n];
+      for (const [px, py] of pts) s += `<circle cx="${(px * g.w).toFixed(1)}" cy="${(py * g.h).toFixed(1)}" r="${Math.max(2.4, g.w * 0.075).toFixed(1)}" fill="#ffffff"/>`;
+    }
     s += `</g>`;
-    s += `<text x="${cx}" y="${ti.upper ? 13 : 196}" text-anchor="middle" font-size="${m ? 15 : 12}" font-weight="${m ? 700 : 400}" fill="${m ? '#000' : '#8a8a8a'}">${fdi}</text>`;
-  }));
-  return s + '</svg>';
+    const off = Math.max(g.w, g.h) / 2 + (m ? 19 : 15);
+    const lx = x + mx * off, ly = y + my * off + 4.5;
+    if (m) labels.push(`<circle cx="${lx.toFixed(1)}" cy="${(ly - 5).toFixed(1)}" r="17" fill="${NAVY}"/><text x="${lx.toFixed(1)}" y="${(ly + 0.6).toFixed(1)}" text-anchor="middle" font-size="16.5" font-weight="700" fill="#ffffff">${fdi}</text>`);
+    else labels.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="14.5" font-weight="500" fill="#8f99a6">${fdi}</text>`);
+  };
+  for (const fdi of [11, 12, 13, 14, 15, 16, 17, 18]) draw(fdi, LL_UP, true, -1);
+  for (const fdi of [21, 22, 23, 24, 25, 26, 27, 28]) draw(fdi, LL_UP, true, 1);
+  for (const fdi of [41, 42, 43, 44, 45, 46, 47, 48]) draw(fdi, LL_LO, false, -1);
+  for (const fdi of [31, 32, 33, 34, 35, 36, 37, 38]) draw(fdi, LL_LO, false, 1);
+  return s + labels.join('') + '</svg>';
 }
 
+/** Rasterises an SVG string to a PNG data URL (white background) — used for the PDF. */
 export function svgToPng(svg, w, h) {
   return new Promise((res, rej) => {
     const img = new Image();
