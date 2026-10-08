@@ -307,7 +307,7 @@ async function enter(session, { password } = {}) {
   S.folder = new Folder(session.pid);
   if (fsSupported()) await S.folder.init();
   S.view = 'visit'; S.visitId = null;
-  audit('login', deviceName());
+  audit('login');
   renderApp();
   if (S.folder.ok()) backupNow();
   await startSync();
