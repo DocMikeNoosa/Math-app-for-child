@@ -43,6 +43,10 @@ function Handle($client) {
   if ($method -ne 'GET' -and -not $head) { Send $stream 405 'Method Not Allowed' 'text/plain; charset=utf-8' (Text 'Nieobsługiwane') $false; return }
   $path = [System.Uri]::UnescapeDataString(($target -split '\?')[0])
 
+  # stop request from a newer launcher (custom header: a web page cannot send it without a CORS preflight)
+  if ($path -eq '/api/quit' -and ([System.Text.Encoding]::ASCII.GetString($buf, 0, $len) -match '(?im)^X-EndoList:\s*quit')) {
+    Send $stream 200 'OK' 'text/plain; charset=utf-8' (Text 'bye') $false; $script:quit = $true; return
+  }
   if ($path -eq '/api/status') {
     $json = (@{ app = 'EndoList'; version = $Version; dir = $App; sync = $false; server = 'powershell' } | ConvertTo-Json -Compress)
     Send $stream 200 'OK' 'application/json' (Text $json) $head; return
@@ -82,7 +86,7 @@ while ($true) {
   foreach ($e in @($clients)) {
     $c = $e.c
     try {
-      if ($c.Available -gt 0) { Handle $c; $c.Close(); $clients.Remove($e) }
+      if ($c.Available -gt 0) { Handle $c; $c.Close(); $clients.Remove($e); if ($script:quit) { Log 'Zatrzymano na prośbę nowszej wersji.'; foreach ($l in $listeners) { $l.Stop() }; exit 0 } }
       elseif (([DateTime]::UtcNow - $e.t).TotalSeconds -gt 20) { $c.Close(); $clients.Remove($e) }
     } catch { Log "Błąd żądania: $($_.Exception.Message)"; try { $c.Close() } catch {}; $clients.Remove($e) }
   }

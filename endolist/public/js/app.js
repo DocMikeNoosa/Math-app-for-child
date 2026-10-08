@@ -67,6 +67,8 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
+export const APP_VERSION = '2.3.0';
+const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
 const settings = () => S.data.settings.get('main');
@@ -945,7 +947,10 @@ async function createLetter({ patientId, referrerId, visitIds, existing }) {
   const st = settings(), doctor = st.doctor, used = usedFor(referrerId);
   const repeat = [...D().letters.values()].some((l) => l.referrerId === referrerId && l.id !== existing?.id);
   const draft = buildOffline({ visits, patient, doctor, referrer, used, repeat, icd: st.letter.icd });
-  let content = draft, source = 'auto', warnings = [];
+  let content = draft, source = 'auto', warnings = [], aiError = '';
+  if (!st.ai.key) aiError = 'Brak klucza API (Ustawienia → Asystent AI).';
+  else if (st.ai.enabled === false) aiError = 'AI wyłączone w Ustawieniach.';
+  else if (!aiAllowed()) aiError = 'AI wyłączone przez administratora gabinetu.';
   const busy = modal({ title: st.ai.enabled && aiKey() ? 'Asystent AI pisze list…' : 'Tworzenie listu…', body: `<div class="row" style="gap:14px;padding:8px 0 4px"><span class="spin" style="width:22px;height:22px;border-radius:50%;border:2.5px solid var(--accent);border-right-color:transparent;animation:spin .8s linear infinite"></span><span class="muted">${st.ai.enabled && st.ai.key ? 'Do AI trafiają tylko dane kliniczne, bez danych osobowych pacjenta.' : 'Generator wbudowany (bez AI).'}</span></div>` });
   if (st.ai.enabled && aiKey()) {
     try {
@@ -953,12 +958,12 @@ async function createLetter({ patientId, referrerId, visitIds, existing }) {
       audit('ai', 'list wygenerowany przez AI (dane zanonimizowane)', patient?.id);
       content = { opening: out.opening, sections: out.sections, recommendations: out.recommendations, closing: out.closing };
       warnings = out.warnings || []; source = 'ai';
-    } catch (e) { toast(`${e.message} Użyto generatora wbudowanego.`, 'err'); }
+    } catch (e) { aiError = e.message; toast(`AI nie zadziałało: ${e.message} Użyto generatora wbudowanego.`, 'err'); }
   }
   busy.close();
   const letter = existing || { id: V.uid(), createdAt: Date.now(), files: [] };
   Object.assign(letter, {
-    patientId, referrerId, visitIds, date: existing?.date || today(), source, warnings, notes: [], lastChanges: [], instruction: '', genEdit: false,
+    patientId, referrerId, visitIds, date: existing?.date || today(), source, aiError, writer: WRITER, warnings, notes: [], lastChanges: [], instruction: '', genEdit: false,
     content: { title: st.letter.title, salutation: salutation(referrer), signoff: st.letter.signoff, ...content },
     glance: glance(visits),
   });
@@ -974,7 +979,7 @@ function viewLetter() {
   const p = D().patients.get(L.patientId), r = D().referrers.get(L.referrerId);
   L.notes ??= [];
   return `<div class="pagehead"><button class="btn btn-ghost" data-act="letter-back">${I('back')} Wróć</button>
-    <div><h2>List — ${esc(patientName(p))}</h2><div class="small muted">do: ${esc(refName(r))} · ${fmtDate(L.date)} · <span class="ai-badge ${L.source === 'ai' ? '' : 'off'}">${L.source === 'ai' ? `${I('spark')} AI` : 'generator wbudowany'}</span></div></div>
+    <div><h2>List — ${esc(patientName(p))}</h2><div class="small muted">do: ${esc(refName(r))} · ${fmtDate(L.date)} · <span class="ai-badge ${L.source === 'ai' ? '' : 'off'}" title="${esc(L.aiError || '')}">${L.source === 'ai' ? `${I('spark')} napisane przez AI` : 'generator wbudowany (bez AI)'}</span></div></div>
     <span class="grow"></span>
     <button class="btn" data-act="regen">${I('refresh')} Wygeneruj od nowa</button>
     <button class="btn" data-act="pdf-preview">${I('doc')} Podgląd PDF</button>
@@ -991,13 +996,15 @@ function viewLetter() {
     <aside class="panel review-side" id="rside">${reviewSide(L)}</aside>
   </div>`;
 }
-function paperHTML(L) { return letterPaperHTML(letterCtxFull(L), S.manualEdit ? [] : L.notes || [], { editable: S.manualEdit }); }
+function paperHTML(L) { return letterPaperHTML(letterCtxFull(L), S.manualEdit ? [] : L.notes || [], { editable: S.manualEdit, hints: true }); }
 function reviewSide(L) {
   const notes = L.notes || [], hasKey = !!aiKey(), n = notes.filter((x) => x.comment).length;
   const inst = L.instruction || '';
   const d = signer();
   const signHint = !d.signature ? `<div class="banner info" style="margin:0 0 12px"><span class="grow small">List podpisze <b>${esc(doctorName() || 'zalogowany lekarz')}</b>. Dodaj skan podpisu, aby pojawiał się pod listem.</span><button class="btn btn-sm" data-nav="settings">Dodaj podpis</button></div>` : '';
-  return `<div class="body">${signHint}
+  const why = L.source !== 'ai' ? `<div class="banner ${L.aiError && !/Brak klucza/.test(L.aiError) ? 'warn' : 'info'}" style="margin:0 0 12px"><span class="grow small"><b>Ten list napisał generator wbudowany, nie AI.</b>${L.aiError ? ` Powód: ${esc(L.aiError)}` : ''}</span>${aiKey() ? `<button class="btn btn-sm btn-primary" data-act="regen-ai">${I('spark')} Spróbuj z AI</button>` : '<button class="btn btn-sm" data-nav="settings">Ustawienia AI</button>'}</div>` : '';
+  const old = (L.writer || 0) < WRITER ? `<div class="banner info" style="margin:0 0 12px"><span class="grow small">Ten list powstał w starszej wersji aplikacji. Kliknij <b>Wygeneruj od nowa</b>, aby otrzymać nowy styl (list w pierwszej osobie, materiały w ramce z boku).</span></div>` : '';
+  return `<div class="body">${why}${old}${signHint}
     <div class="rs-h">${I('edit')} Uwagi do poprawy <span class="badge">${notes.length || ''}</span></div>
     ${notes.length ? notes.map((x) => `<div class="note-card ${x.done ? 'done' : ''}" data-note-card="${x.id}">
         <button class="nq" data-act="goto-note" data-id="${x.id}">„${esc(x.quote.length > 90 ? x.quote.slice(0, 90) + '…' : x.quote)}"</button>
@@ -1212,7 +1219,7 @@ function viewSettings() {
       <div class="hint" style="margin-top:6px">${aiAllowed() ? 'Przed każdym wysłaniem imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami; aplikacja przywraca je lokalnie.' : 'Listy tworzy generator wbudowany — bez wysyłania danych.'}</div></div>` : `<div class="dpa ${aiKey() ? 'ok' : ''}" style="margin-top:12px"><b>${aiKey() ? 'AI włączone' : st.ai.key ? 'AI wyłączone (przełącznik powyżej)' : 'Wpisz klucz API, aby włączyć AI'}</b>
       <div class="hint" style="margin-top:6px">Przed każdym wysłaniem imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami; aplikacja przywraca je lokalnie. Klucz z konta API kliniki (console.anthropic.com) — warunki Commercial Terms obejmują umowę powierzenia danych (DPA).</div></div>`}
       <div class="grid g2" style="margin-top:12px"><label class="f all"><span>Klucz API</span><input type="password" data-b="s.ai.key" value="${esc(st.ai.key)}" placeholder="sk-ant-…" autocomplete="off"></label>
-      <div class="f"><span>Staranność</span>${seg('s.ai.effort', { low: 'szybko', medium: 'standard', high: 'dokładnie' })}</div><div class="f"><span>&nbsp;</span><button class="btn btn-sm" data-act="test-key">Sprawdź klucz</button></div></div>
+      <div class="f"><span>Staranność</span>${seg('s.ai.effort', { low: 'szybko', medium: 'standard', high: 'dokładnie' })}</div><div class="f"><span>&nbsp;</span><button class="btn btn-sm" data-act="test-key">Sprawdź AI</button></div></div>
       <p class="hint" style="margin-top:12px">Do AI wysyłane są wyłącznie dane kliniczne (numery zębów, wyniki badań, opis leczenia) oraz rodzaj gramatyczny — bez imion, nazwisk, dat urodzenia i adresów, które aplikacja wstawia lokalnie. Klucz jest przechowywany w zaszyfrowanym sejfie. Bez klucza listy tworzy generator wbudowany.</p>
     </div></section>
     <section class="panel"><header><h3>${I('shield')} Bezpieczeństwo</h3></header><div class="body">
@@ -1231,7 +1238,7 @@ function viewSettings() {
       <div class="row" style="margin-top:12px">${fsSupported() ? `<button class="btn btn-sm btn-soft" data-act="folder-pick">${S.folder.root ? 'Zmień folder' : 'Wybierz folder'}</button>${S.folder.root && !S.folder.ok() ? '<button class="btn btn-sm" data-act="folder-reconnect">Połącz</button>' : ''}${S.folder.ok() ? '<button class="btn btn-sm" data-act="backup-now">Utwórz kopię teraz</button>' : ''}` : ''}<button class="btn btn-sm" data-act="download-backup">Pobierz kopię (.json)</button></div>
       <div class="hint" style="margin-top:12px">Struktura folderu: <code class="path">Listy/Kowalska Anna (1980-03-12)/2026-10-08 Kowalska Anna – ząb 36 – do lek. dent. Nowak.pdf</code> oraz <code class="path">Kopia zapasowa (nie edytować)/</code> — zaszyfrowana kopia (najnowsza + 60 dziennych). Po utracie danych przeglądarki: „Przywróć z kopii" na ekranie logowania.</div>
     </div></section>
-    <section class="panel"><header><h3>${I('install')} Aplikacja</h3></header><div class="body small muted" style="line-height:1.6">
+    <section class="panel"><header><h3>${I('install')} Aplikacja</h3><span class="sub">wersja ${APP_VERSION}</span></header><div class="body small muted" style="line-height:1.6">
       ${S.installEvt ? `<button class="btn btn-sm btn-primary" data-act="install" style="margin-bottom:10px">${I('install')} Zainstaluj na tym komputerze</button><br>` : ''}
       W Chrome / Edge: menu ⋮ → „Zainstaluj EndoList" — aplikacja pojawi się w menu Start / Launchpadzie i działa offline.
       ${['localhost', '127.0.0.1'].includes(location.hostname) ? 'Ta kopia działa lokalnie na tym komputerze. Innym lekarzom wyślij adres wersji internetowej (GitHub Pages) albo folder z aplikacją.' : `Link do udostępnienia innym lekarzom: <code class="path">${esc(location.origin + location.pathname)}</code>`} Każdy lekarz ma własne, oddzielne i zaszyfrowane dane na swoim urządzeniu — na serwer trafiają wyłącznie zaszyfrowane dane i tylko przy włączonej synchronizacji.
@@ -1565,6 +1572,7 @@ async function action(act, a) {
     case 'email': { const L = D().letters.get(S.letterId); audit('email', L.id, L.patientId); return emailLetter(L); }
     case 'prodentis': { const L = D().letters.get(S.letterId); audit('prodentis', L.id, L.patientId); return prodentisModal(L); }
     case 'print': { audit('print', S.letterId, D().letters.get(S.letterId)?.patientId); const b = await letterBlob(D().letters.get(S.letterId)); const w = window.open(URL.createObjectURL(b)); if (!w) toast('Zezwól na wyskakujące okna, aby drukować.', 'err'); else setTimeout(() => { try { w.print(); } catch {} }, 800); return; }
+    case 'regen-ai': { const L = D().letters.get(S.letterId); if ((L.notes || []).length && !(await confirmBox('Napisać list od nowa przez AI?', 'Obecna treść i uwagi zostaną zastąpione.', 'Napisz'))) return; await createLetter({ patientId: L.patientId, referrerId: L.referrerId, visitIds: L.visitIds, existing: L }); return; }
     case 'regen': { const L = D().letters.get(S.letterId); if (!(await confirmBox('Wygenerować list od nowa?', 'Obecna treść i uwagi zostaną zastąpione nową wersją listu.', 'Wygeneruj'))) return; return createLetter({ patientId: L.patientId, referrerId: L.referrerId, visitIds: L.visitIds, existing: L }); }
     case 'pdf-preview': return pdfPreview(D().letters.get(S.letterId));
     case 'revise': { const L = D().letters.get(S.letterId); L.instruction = $('#gen-text')?.value || ''; return reviseWithAI(L); }
@@ -1597,7 +1605,7 @@ async function action(act, a) {
     case 'sig-clear': settings().doctor.signature = ''; save('settings', settings()); return renderView();
     case 'logo-pick': { const el = $('#logo-input'), k = a.dataset.k; el.onchange = async () => { const f = el.files[0]; if (f) { settings().doctor[k] = await logoData(f); if (k === 'logo') settings().doctor.logoDefault = false; save('settings', settings()); renderTop(); renderView(); } }; return el.click(); }
     case 'logo-clear': settings().doctor[a.dataset.k] = ''; if (a.dataset.k === 'logo') { settings().doctor.logoDefault = false; settings().doctor.logoCleared = true; } save('settings', settings()); renderTop(); return renderView();
-    case 'test-key': { a.disabled = true; try { await testKey(settings().ai.key); toast('Klucz API działa.', 'ok'); } catch (er) { toast(er.message, 'err'); } a.disabled = false; return; }
+    case 'test-key': { a.disabled = true; a.innerHTML = '<span class="spin"></span> Sprawdzanie…'; try { await testKey((settings().ai.key || '').trim()); toast('AI działa — połączenie z Claude, klucz i środki na koncie są w porządku.', 'ok'); } catch (er) { toast(er.message, 'err'); } a.disabled = false; a.textContent = 'Sprawdź AI'; return; }
     case 'pk-add': { try { await S.session.addPasskey(/iPhone|iPad/.test(navigator.userAgent) ? 'iPhone / iPad' : 'Klucz dostępu'); audit('security', 'dodano klucz dostępu'); toast('Dodano klucz dostępu.', 'ok'); scheduleBackup(); S.sync?.headerChanged().catch(() => {}); renderView(); } catch (er) { if (er.name !== 'NotAllowedError') toast(er.message, 'err'); } return; }
     case 'pk-del': if (await confirmBox('Usunąć klucz dostępu?', 'Logowanie tym kluczem przestanie działać. Hasło działa nadal.')) { audit('security', 'usunięto klucz dostępu'); await S.session.removePasskey(a.dataset.id); scheduleBackup(); S.sync?.headerChanged().catch(() => {}); renderView(); } return;
     case 'change-pw': return changePassword();

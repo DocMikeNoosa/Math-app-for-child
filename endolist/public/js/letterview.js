@@ -14,7 +14,7 @@ function marked(text, loc, notes) {
   return html;
 }
 
-export function letterPaperHTML(ctx, notes = [], { editable = false } = {}) {
+export function letterPaperHTML(ctx, notes = [], { editable = false, hints = false } = {}) {
   const d = ctx.doctor, p = ctx.patient, r = ctx.referrer || {}, c = ctx.content;
   const docName = [d.title, d.first, d.last].filter(Boolean).join(' ');
   const ce = editable ? 'contenteditable="true" spellcheck="true"' : '';
@@ -39,7 +39,8 @@ export function letterPaperHTML(ctx, notes = [], { editable = false } = {}) {
       </div>
       <aside class="lchart"><div class="k">Schemat leczenia</div>${letterArchSVG(marks, Object.fromEntries(ctx.glance.filter((g) => g.canals).map((g) => [g.fdi, g.canals])))}
         ${ctx.glance.map((g) => `<div class="gl"><b>${g.fdi}</b><span>${esc(g.text)}</span></div>`).join('')}
-        ${(ctx.materials || []).length ? `<div class="k" style="margin-top:12px">Materiały i sprzęt</div>${ctx.materials.map((m) => `<div class="gl mat"><b>${m.fdi}</b><span>${esc(m.items.join(', '))}</span></div>`).join('')}` : ''}</aside>
+        ${(ctx.materials || []).length ? `<div class="k" style="margin-top:12px">Materiały i sprzęt</div>${ctx.materials.map((m) => `<div class="gl mat"><b>${m.fdi}</b><span>${esc(m.items.join(', '))}</span></div>`).join('')}`
+          : hints ? `<div class="k" style="margin-top:12px">Materiały i sprzęt</div><div class="gl mat-hint">Nie wybrano — dodaj je w karcie zęba, zakładka „Materiały i sprzęt". Ramka pojawi się tutaj i w PDF.</div>` : ''}</aside>
     </div>
     <h4 class="ltitle">${esc(c.title)}</h4>
     ${P('salutation', c.salutation)}

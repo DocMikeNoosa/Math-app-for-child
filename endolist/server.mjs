@@ -34,6 +34,7 @@ const VERSION = JSON.parse(await readFile(path.join(path.dirname(ROOT), 'package
 const server = http.createServer(async (req, res) => {
   try {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (p === '/api/quit' && req.headers['x-endolist'] === 'quit') { res.writeHead(200); res.end('bye'); setTimeout(() => process.exit(0), 100); return; }
     if (p === '/api/status') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ app: 'EndoList', version: VERSION, dir: path.dirname(ROOT), sync: !!syncStore })); }
     if (syncStore && p.startsWith('/sync/')) return await syncRequest(req, res, p.slice(5));
     // installation config: ENDOLIST_SYNC_URL (e.g. the Cloudflare Worker) or this server's own /sync endpoint

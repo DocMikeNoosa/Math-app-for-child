@@ -21,6 +21,7 @@ Otrzymasz JSON z:
 Zadanie — zwróć JSON zgodny ze schematem:
 1. "opening": krótki (1–2 zdania), uprzejmy, profesjonalny wstęp z podziękowaniem za skierowanie, za każdym razem inaczej sformułowany. Bez przesadnej kurtuazji. Potem od razu przejdź do rzeczy.
 2. "sections": po jednej sekcji na ząb, w kolejności numerów zębów. "heading" dokładnie w formie „Ząb 36 — pierwszy trzonowiec dolny lewy" (użyj "tooth" i "tooth_name"). "paragraphs": prawdziwy list, a nie lista czynności — pisz w pierwszej osobie liczby pojedynczej jako autor listu, z poprawnym rodzajem gramatycznym (np. „Przeprowadziłam leczenie kanałowe…", „Kanały wypełniłam…"), płynnymi, połączonymi zdaniami ze spójnikami i naturalnymi przejściami. Zwykle 2 akapity na ząb: (1) z czym zgłosił(a) się Pacjent/Pacjentka, co stwierdziłam/stwierdziłem w badaniu i na RTG oraz rozpoznanie; (2) przebieg leczenia — warunki zabiegu, opracowanie kanałów (liczba i nazwy kanałów, długości robocze, sposób ich wyznaczenia), płukanie, wypełnienie, zabezpieczenie zęba, istotne obserwacje śródzabiegowe. Nie wyliczaj po przecinku ani w punktach; nie zaczynaj zdań od „Wykonano/Zastosowano". Leczenie wykonane wcześniej przez innego lekarza opisz jako wcześniejsze (z datą i nazwą lekarza, jeśli podano), w formie bezosobowej. Gdy ząb miał kilka wizyt, opisz je chronologicznie, z datami. "draft" jest już napisany w tym stylu — możesz go wygładzić, ale zachowaj wszystkie fakty.
+   Przykład stylu (fikcyjne dane — nie kopiuj faktów): „Pacjentka zgłosiła się z bólem przy nagryzaniu, utrzymującym się od kilku dni. W badaniu ząb nie reagował na zimno, a opukiwanie było wyraźnie bolesne; na zdjęciu RTG widoczne było przejaśnienie okołowierzchołkowe przy korzeniu bliższym. Rozpoznałam martwicę miazgi z objawowym zapaleniem tkanek okołowierzchołkowych." / „Leczenie kanałowe przeprowadziłam w znieczuleniu nasiękowym, w izolacji koferdamem i pod mikroskopem. Po opracowaniu trzech kanałów do długości roboczej wyznaczonej endometrem i płukaniu podchlorynem sodu z aktywacją ultradźwiękową kanały wypełniłam metodą fali ciągłej, a ząb zabezpieczyłam opatrunkiem tymczasowym."
 3. "recommendations": krótkie zalecenia dla lekarza kierującego (odbudowa i jej termin, kontrole, rokowanie). Gdy zębów jest kilka, zaznacz, którego zęba dotyczy zalecenie. Pusta lista, jeśli brak zaleceń.
 4. "closing": krótkie (1–2 zdania), ciepłe, profesjonalne zakończenie: że z przyjemnością pomogliśmy/pomogłam(-em) i że w razie problemów lub dolegliwości Pacjenta/Pacjentkę można ponownie skierować. Za każdym razem inaczej sformułowane.
 5. "warnings": krótkie sugestie dla autora (po polsku): niespójności, brakujące dane, rzeczy do sprawdzenia — nie trafiają do listu.
@@ -101,6 +102,8 @@ async function call(apiKey, system, payload, schema, effort, pseudo = null) {
     if (e instanceof Anthropic.AuthenticationError) throw new AIError('Klucz API jest nieprawidłowy.', 'auth');
     if (e instanceof Anthropic.PermissionDeniedError) throw new AIError('Klucz API nie ma dostępu do modelu.', 'perm');
     if (e instanceof Anthropic.RateLimitError) throw new AIError('Przekroczono limit zapytań — spróbuj za chwilę.', 'rate');
+    if (/credit balance/i.test(e?.message || '')) throw new AIError('Brak środków na koncie Anthropic — doładuj konto: console.anthropic.com → Billing.', 'credit');
+    if (e instanceof Anthropic.NotFoundError) throw new AIError('Model AI jest niedostępny dla tego klucza (sprawdź konto Anthropic).', 'model');
     if (e instanceof Anthropic.BadRequestError) throw new AIError('Zapytanie odrzucone: ' + (e.message || ''), 'bad');
     if (e instanceof Anthropic.APIConnectionError) throw new AIError('Brak połączenia z usługą AI. Sprawdź internet.', 'net');
     if (e instanceof Anthropic.APIError) throw new AIError('Błąd usługi AI (' + (e.status || '?') + ').', 'api');
@@ -118,13 +121,8 @@ export const generateLetter = (apiKey, payload, { effort = 'medium', pseudo } = 
 export const reviseLetter = (apiKey, payload, { effort = 'medium', pseudo } = {}) => call(apiKey, REVISE_PROMPT, payload, REVISE_SCHEMA, effort, pseudo);
 export const cleanDictation = (apiKey, text, context = '', { pseudo } = {}) => call(apiKey, DICTATION_PROMPT, { context, dictation: text }, DICTATION_SCHEMA, 'low', pseudo);
 
+/** Real end-to-end check (key, credit, model access, network) with a tiny request through the same path as letters. */
 export async function testKey(apiKey) {
-  try {
-    await client(apiKey).messages.countTokens({ model: MODEL, messages: [{ role: 'user', content: 'test' }] });
-    return true;
-  } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError) throw new AIError('Klucz API jest nieprawidłowy.', 'auth');
-    if (e instanceof Anthropic.APIConnectionError) throw new AIError('Brak połączenia z usługą AI.', 'net');
-    throw new AIError('Nie udało się sprawdzić klucza: ' + (e.message || e), 'other');
-  }
+  const out = await call(apiKey, 'Test połączenia. Zwróć {"ok": true}.', { test: 'ping' }, { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false }, 'low');
+  return out.ok === true;
 }

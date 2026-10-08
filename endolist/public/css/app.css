@@ -518,3 +518,4 @@ body { overflow-x: hidden; }
 /* 2D tooth drawing (when the computer has no 3D graphics): fill the panel */
 .stage.flat svg { width: auto; height: 88%; max-width: 92%; max-height: none; }
 .ws-left:has(.stage.flat) .stage-bar .hint { display: none; }
+.paper .gl.mat-hint { color: #8a8a8a; font-style: italic; border: 1px dashed #cfcfcf; border-radius: 6px; padding: 6px 8px; }

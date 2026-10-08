@@ -17,6 +17,32 @@ function Show-Message([string]$text) {
   # topmost message box (a hidden launcher's dialog could otherwise open behind other windows)
   try { Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show($text, 'EndoList', 'OK', 'Warning', 'Button1', 'DefaultDesktopOnly') | Out-Null } catch { Write-Host $text }
 }
+# Raw HTTP to 127.0.0.1 (no proxy, no IPv6 detour, no Internet Explorer engine). Returns the response text or ''.
+function Get-Local([string]$path, [string]$extraHeader = '') {
+  $c = New-Object System.Net.Sockets.TcpClient
+  try {
+    $iar = $c.BeginConnect('127.0.0.1', $Port, $null, $null)
+    if (-not $iar.AsyncWaitHandle.WaitOne(800)) { return '' }
+    $c.EndConnect($iar)
+    $s = $c.GetStream(); $s.ReadTimeout = 2000
+    $req = [System.Text.Encoding]::ASCII.GetBytes("GET $path HTTP/1.1`r`nHost: localhost`r`n$extraHeader" + "Connection: close`r`n`r`n")
+    $s.Write($req, 0, $req.Length)
+    return (New-Object System.IO.StreamReader($s)).ReadToEnd()
+  } catch { return '' } finally { $c.Close() }
+}
+$MyVersion = '0'; try { $MyVersion = (Get-Content -Raw -Encoding UTF8 (Join-Path $App 'package.json') | ConvertFrom-Json).version } catch {}
+# An EndoList server from another (older) installation keeps running in the background after an update — replace it.
+function Stop-OtherServer {
+  Log 'Zatrzymuję poprzednią wersję EndoList działającą w tle…'
+  [void](Get-Local '/api/quit' "X-EndoList: quit`r`n")
+  Start-Sleep -Milliseconds 600
+  if ($env:OS -eq 'Windows_NT') {
+    try { Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.CommandLine -and ($_.CommandLine -match 'launcher\\server\.ps1' -or $_.CommandLine -match 'server\.mjs') -and $_.ProcessId -ne $PID } | ForEach-Object { Log "  zatrzymuję proces $($_.ProcessId)"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } } catch { Log "  CIM: $($_.Exception.Message)" }
+    try { Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop | ForEach-Object { if ($_.OwningProcess -ne $PID) { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } } } catch {}
+  }
+  for ($i = 0; $i -lt 20; $i++) { if (-not (Get-Local '/api/status')) { return $true }; Start-Sleep -Milliseconds 250 }
+  return $false
+}
 # Is EndoList answering? Plain TCP to 127.0.0.1 (no proxy, no IPv6 detour, no Internet Explorer engine).
 function Test-EndoList {
   $c = New-Object System.Net.Sockets.TcpClient
@@ -35,7 +61,16 @@ function Test-EndoList {
 try {
   Log "Start (folder: $App)"
   if (-not (Test-Path (Join-Path $App 'public\index.html')) -and -not (Test-Path (Join-Path $App 'public/index.html'))) { Show-Message "Nie znaleziono plików aplikacji w folderze:`n$App`n`nWypakuj cały plik ZIP (prawy przycisk → Wyodrębnij wszystkie) i uruchom instalację ponownie."; exit 1 }
-  if (Test-EndoList) { Log 'Serwer już działa.' }
+  $status = Get-Local '/api/status'
+  if ($status -match '"app"\s*:\s*"EndoList"') {
+    $ver = ''; if ($status -match '"version"\s*:\s*"([^"]*)"') { $ver = $Matches[1] }
+    $dirOk = $status.Replace('\\', '\').Contains($App)
+    if ($ver -ne $MyVersion -or -not $dirOk) {
+      Log "W tle działa inna wersja ($ver) — uruchamiam $MyVersion z: $App"
+      if (-not (Stop-OtherServer)) { Show-Message "Nie udało się zatrzymać poprzedniej wersji EndoList.`n`nUruchom ponownie komputer i kliknij ikonę EndoList jeszcze raz.`n`nDziennik: $Log"; exit 1 }
+    }
+  }
+  if (Test-EndoList) { Log "Serwer już działa ($MyVersion)." }
   else {
     $node = $null; try { $node = (Get-Command node -ErrorAction Stop).Source } catch {}
     $style = 'Hidden'; if ($Visible) { $style = 'Normal' }
