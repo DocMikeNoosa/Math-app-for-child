@@ -54,6 +54,8 @@ const ICONS = {
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
   sync: '<path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5"/><path d="M20 3.5v5h-5"/><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15.5"/><path d="M4 20.5v-5h5"/>',
   phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.6"/><path d="M11 18.5h2"/>',
+  microscope: '<path d="M6 21h12M9 21v-3h6v3M11 18a6 6 0 0 0 6.7-9.5"/><path d="M9.5 3.5l3 1.7-3.5 6-3-1.7z"/><path d="M8 11.5l-1 1.8M13.3 6.3l1-1.8"/>',
+  home: '<path d="M3.5 11 12 4l8.5 7"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-5h4v5"/>',
   install: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 7v6M9.5 10.5 12 13l2.5-2.5M8 20h8"/>',
 };
 
@@ -67,7 +69,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '2.3.2';
+export const APP_VERSION = '2.3.3';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -425,7 +427,7 @@ function renderApp() {
 function renderTop() {
   const st = settings();
   $('#top').innerHTML = `
-    <div class="brand"><div class="mark">${I('tooth')}</div><div><b>EndoList</b><small>${esc(doctorName() || S.session.profile.username)}</small></div>${st.doctor.logo && st.doctor.logoDefault ? `<span class="clinic-logo dark"><img src="${BRAND_LOGO_LIGHT}" alt="${esc(st.doctor.practice)}"></span>` : st.doctor.logo ? `<span class="clinic-logo"><img src="${st.doctor.logo}" alt="${esc(st.doctor.practice)}"></span>` : st.doctor.practice ? `<span class="clinic-name">${esc(st.doctor.practice)}${st.doctor.group ? `<small>${esc(st.doctor.group)}</small>` : ''}</span>` : ''}</div>
+    <div class="brand" data-act="go-home" title="Strona główna"><div class="mark">${I('tooth')}</div><div><b>EndoList</b><small>${esc(doctorName() || S.session.profile.username)}</small></div>${st.doctor.logo && st.doctor.logoDefault ? `<span class="clinic-logo dark"><img src="${BRAND_LOGO_LIGHT}" alt="${esc(st.doctor.practice)}"></span>` : st.doctor.logo ? `<span class="clinic-logo"><img src="${st.doctor.logo}" alt="${esc(st.doctor.practice)}"></span>` : st.doctor.practice ? `<span class="clinic-name">${esc(st.doctor.practice)}${st.doctor.group ? `<small>${esc(st.doctor.group)}</small>` : ''}</span>` : ''}</div>
     <nav class="nav">
       ${[['visit', 'tooth', 'Wizyta'], ['patients', 'users', 'Pacjenci'], ['referrers', 'link', 'Lekarze kierujący', 'Kierujący'], ['settings', 'gear', 'Ustawienia'], ...(S.clinic?.isAdmin() ? [['admin', 'shield', 'Administracja']] : [])].map(([v, ic, l, short]) => `<button data-nav="${v}" class="${S.view === v || (S.view === 'letter' && v === 'patients') || (S.view === 'patient' && v === 'patients') ? 'on' : ''}">${I(ic)}<span>${short ? `<i class="nl">${l}</i><i class="ns">${short}</i>` : l}</span></button>`).join('')}
     </nav>
@@ -749,7 +751,12 @@ function tabMat(t) {
   const cat = S.matCat || 'files';
   const all = [...PRODUCTS[cat], ...custom(cat)];
   const chosen = t.products || [];
-  return `<div class="label">Użyte materiały i sprzęt</div>
+  const e = t.endo || {}, microList = [...PRODUCTS.micro.filter((x) => !/lupy/.test(x)), ...custom('micro')];
+  const micro = `<div class="micro-card ${e.micro ? 'on' : ''}">
+      <label class="micro-toggle"><input type="checkbox" data-b="t.endo.micro" data-re="1" ${e.micro ? 'checked' : ''}><span class="mi">${I('microscope')}</span><span class="grow"><b>Mikroskop zabiegowy</b><small>${e.micro ? 'użyty podczas zabiegu — pojawi się w liście' : 'kliknij, jeśli zabieg był wykonany pod mikroskopem'}</small></span><span class="tick">${e.micro ? I('check') : ''}</span></label>
+      ${e.micro ? `<label class="f" style="margin-top:10px"><span>Marka / model mikroskopu (opcjonalnie)</span><input type="text" data-b="t.endo.microBrand" list="dl-micro" value="${esc(e.microBrand || '')}" placeholder="np. Zeiss Extaro 300 — można pominąć"></label><datalist id="dl-micro">${microList.map((x) => `<option>${esc(x)}</option>`).join('')}</datalist>` : ''}
+    </div>`;
+  return `${micro}<div class="label">Użyte materiały i sprzęt</div>
     <div class="chips">${chosen.length ? chosen.map((x, i) => `<span class="chip on prod">${esc(x.name)}<small>${esc(PRODUCT_CATS[x.cat] || '')}</small><button data-act="rm-prod" data-i="${i}">×</button></span>`).join('') : '<span class="hint">Nic jeszcze nie dodano.</span>'}</div>
     <div class="label">Dodaj</div>
     <div class="grid g2"><label class="f"><span>Kategoria</span><select id="mat-cat">${Object.entries(PRODUCT_CATS).map(([k, l]) => `<option value="${k}" ${k === cat ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
@@ -1008,7 +1015,10 @@ function reviewSide(L) {
   const signHint = !d.signature ? `<div class="banner info" style="margin:0 0 12px"><span class="grow small">List podpisze <b>${esc(doctorName() || 'zalogowany lekarz')}</b>. Dodaj skan podpisu, aby pojawiał się pod listem.</span><button class="btn btn-sm" data-nav="settings">Dodaj podpis</button></div>` : '';
   const why = L.source !== 'ai' ? `<div class="banner ${L.aiError && !/Brak klucza/.test(L.aiError) ? 'warn' : 'info'}" style="margin:0 0 12px"><span class="grow small"><b>Ten list napisał generator wbudowany, nie AI.</b>${L.aiError ? ` Powód: ${esc(L.aiError)}` : ''}</span>${aiKey() ? `<button class="btn btn-sm btn-primary" data-act="regen-ai">${I('spark')} Spróbuj z AI</button>` : '<button class="btn btn-sm" data-nav="settings">Ustawienia AI</button>'}</div>` : '';
   const old = (L.writer || 0) < WRITER ? `<div class="banner info" style="margin:0 0 12px"><span class="grow small">Ten list powstał w starszej wersji aplikacji. Kliknij <b>Wygeneruj od nowa</b>, aby otrzymać nowy styl (list w pierwszej osobie, materiały w ramce z boku).</span></div>` : '';
-  return `<div class="body">${why}${old}${signHint}
+  const next = `<div class="next-card"><div class="rs-h">${I('check')} List gotowy? Co dalej</div>
+      <div class="next-btns"><button class="btn btn-primary btn-lg" data-act="next-patient">${I('plus')} Nowy pacjent</button><button class="btn btn-lg" data-act="go-home">${I('home')} Strona główna</button></div>
+      <button class="btn btn-ghost btn-sm" data-act="letter-back" style="margin-top:6px">${I('back')} Wróć do karty pacjenta</button></div>`;
+  return `<div class="body">${next}${why}${old}${signHint}
     <div class="rs-h">${I('edit')} Uwagi do poprawy <span class="badge">${notes.length || ''}</span></div>
     ${notes.length ? notes.map((x) => `<div class="note-card ${x.done ? 'done' : ''}" data-note-card="${x.id}">
         <button class="nq" data-act="goto-note" data-id="${x.id}">„${esc(x.quote.length > 90 ? x.quote.slice(0, 90) + '…' : x.quote)}"</button>
@@ -1541,6 +1551,12 @@ async function action(act, a) {
     case 'backup-now': S.folder.error = ''; if (await backupNow()) toast('Kopia zapasowa utworzona.', 'ok'); renderBanner(); return renderView();
     case 'download-backup': audit('backup', 'zaszyfrowana kopia .json'); download(new Blob([JSON.stringify(await S.session.exportBackup())], { type: 'application/json' }), `endolist-kopia-${today()}.json`); return toast('Pobrano zaszyfrowaną kopię. Do odtworzenia potrzebne jest hasło.', 'ok');
     /* visit */
+    case 'go-home': { const cv = curVisit(); if (!cv || cv.teeth.length || cv.patientId) S.visitId = null; S.patientId = null; S.letterId = null; return go('visit'); }
+    case 'next-patient': {
+      S.visitId = null; S.patientId = null; S.letterId = null; go('visit');
+      const nv = ensureVisit(); const p = await pickPatient(); if (p) { nv.patientId = p.id; save('visits', nv); renderView(); }
+      return;
+    }
     case 'new-visit': { const nv = newVisit(v?.patientId || '', v?.referrerId || ''); D().visits.set(nv.id, nv); return go('visit', { visitId: nv.id }); }
     case 'pick-patient': { const p = await pickPatient(); if (p) { v.patientId = p.id; save('visits', v); renderView(); } return; }
     case 'pick-referrer': { const r = await pickReferrer(); if (r) { v.referrerId = r.id; save('visits', v); renderView(); } return; }
@@ -1736,4 +1752,4 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 boot().catch((e) => { console.error(e); $('#root').innerHTML = `<div class="auth"><div class="auth-card"><h1>Błąd uruchomienia</h1><p class="lead">${esc(e.message)}</p><p class="hint">Upewnij się, że nie używasz trybu prywatnego / incognito.</p></div></div>`; });
 
 // test hooks (used by the automated tests only)
-window.__endolist = { S, save, settings, rerender: () => (S.view === 'letter' ? rerenderLetter() : renderView()), refreshClinic };
+window.__endolist = { S, save, settings, rerender: () => (S.view === 'letter' ? rerenderLetter() : renderView()), refreshClinic, go };

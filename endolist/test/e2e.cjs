@@ -116,6 +116,13 @@ async function mockAI(p, reviseOut) {
   await p.selectOption('#mat-cat', 'apex'); await p.click('[data-act=pick-prod][data-name="Raypex 6"]');
   await p.selectOption('#mat-cat', 'sealer'); await p.fill('#mat-name', 'Mój uszczelniacz testowy'); await p.click('[data-act=add-prod]');
   ok(await p.locator('.chip.prod').count() === 3, '3 products chosen (incl. custom)');
+  // microscope: big toggle on the Materials tab (not hidden), on by default for endo, brand optional
+  ok(await p.locator('.micro-card.on label.micro-toggle').isVisible() && await p.locator('[data-b="t.endo.microBrand"]').isVisible(), 'microscope button visible on Materials tab (ticked by default) with optional brand field');
+  await p.click('.micro-card label.micro-toggle'); await p.waitForTimeout(200);
+  ok(await p.locator('.micro-card.on').count() === 0 && await p.locator('[data-b="t.endo.microBrand"]').count() === 0, 'microscope can be unticked (brand field hides)');
+  await p.click('.micro-card label.micro-toggle'); await p.waitForTimeout(200);
+  ok(await p.locator('.micro-card.on').count() === 1, 'microscope ticked again');
+  await p.fill('[data-b="t.endo.microBrand"]', 'Zeiss Extaro 300'); await p.waitForTimeout(300);
   await shot(p, '07-ws-materials');
   // manual description with dictation (fake recogniser) + AI cleanup (MOCK)
   await mockAI(p, () => ({}));
@@ -160,6 +167,8 @@ async function mockAI(p, reviseOut) {
   ok(!/ProTaper|Raypex|Filtek/.test(body) && (await p.textContent('#paper .lchart')).includes('ProTaper Gold'), 'materials in the side box, not in the letter text');
   ok(/Przeprowadziłam leczenie kanałowe/.test(body) && /Kanały wypełniłam/.test(body), 'letter written in the first person by the doctor');
   ok((await p.textContent('#paper')).includes('lek. dent. Katarzyna Zielińska'), 'letter signed by the logged-in doctor');
+  { const lc = await p.textContent('#paper .lchart'); ok(lc.includes('mikroskop Zeiss Extaro 300') && (lc.match(/mikroskop/g) || []).length === 1 && /mikroskopu zabiegowego/.test(body), 'microscope in the letter text, brand in the materials box (only for the root-canal tooth)'); }
+  ok(await p.locator('#rside .next-card [data-act=next-patient]').isVisible() && await p.locator('#rside .next-card [data-act=go-home]').isVisible(), '"Nowy pacjent" and "Strona główna" buttons next to the letter');
   await shot(p, '11-review', { fullPage: true });
   // highlight a passage → popover → comment → tick "done"
   const sel = await p.evaluate(() => {
@@ -194,6 +203,16 @@ async function mockAI(p, reviseOut) {
   ok(!!pdf, 'PDF saved: ' + pdf);
   fs.writeFileSync(path.join(OUT, 'letter.pdf'), await opfsRead(p, pdf));
   ok(!(await opfsRead(p, 'Kopia zapasowa (nie edytować)/endolist-dane.json')).toString().includes('Kowalska'), 'backup encrypted');
+  // after the letter: home and next patient
+  const letterId = await p.evaluate(() => window.__endolist.S.letterId);
+  await p.click('#rside [data-act=go-home]'); await p.waitForSelector('#arch', { timeout: 5000 }); await p.waitForTimeout(300);
+  ok(await p.evaluate(() => { const S = window.__endolist.S; return S.view === 'visit' && !S.patientId && !S.letterId; }) && !(await p.textContent('#vteeth')).includes('36'), '"Strona główna" → empty main screen (new visit)');
+  await p.evaluate((id) => window.__endolist.go('letter', { letterId: id }), letterId); await p.waitForSelector('#rside .next-card', { timeout: 10000 });
+  await p.click('#rside [data-act=next-patient]'); await p.waitForSelector('.modal #psearch', { timeout: 5000 });
+  ok(await p.evaluate(() => window.__endolist.S.view === 'visit') && await p.locator('.modal').count() === 1, '"Nowy pacjent" → fresh visit + patient picker');
+  await p.click('.modal footer .btn-ghost'); await p.waitForTimeout(300);
+  await p.click('.brand[data-act=go-home]'); await p.waitForTimeout(300);
+  ok(await p.evaluate(() => window.__endolist.S.view === 'visit'), 'clicking the logo goes to the main screen');
   console.log('ERRORS-1', p.errs);
   // lock + passkey, restart + password, persistence
   await p.click('[data-act=lock]'); await p.waitForSelector('#login', { timeout: 10000 });

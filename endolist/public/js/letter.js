@@ -258,6 +258,8 @@ export function materialsFor(visits) {
     const items = [];
     for (const { visit, rec } of entries) {
       if (visit.performer === 'other') continue;
+      const pr = ENDO[rec.endo?.proc];
+      if (rec.endo?.micro && pr && !pr.consult && rec.endo.status !== 'planned') { const mb = rec.endo.microBrand?.trim(); if (!mb) items.push('mikroskop zabiegowy'); else if (!(rec.products || []).some((x) => x.name === mb)) items.push(`mikroskop ${mb}`); }
       for (const x of rec.products || []) { const pre = PROD_PREFIX[x.cat]; items.push(pre && !x.name.toLowerCase().includes(pre.slice(0, 6)) ? `${pre} ${x.name}` : x.name); }
       for (const w of rec.work || []) if (w.product) items.push(w.product);
     }

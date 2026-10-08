@@ -537,3 +537,21 @@ body { overflow-x: hidden; }
   .letter-main .btn-xl { width: 100%; }
   .actionbar .btn-xl { height: 44px; padding: 0 16px; font-size: 14.5px; }
 }
+
+/* ================================================================ microscope card + next steps */
+.micro-card { padding: 12px; margin-bottom: 18px; border-radius: 16px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, 0.025); }
+.micro-card.on { border-color: rgba(94, 230, 214, 0.45); background: linear-gradient(135deg, rgba(94, 230, 214, 0.1), rgba(98, 169, 255, 0.07)); }
+.micro-toggle { display: flex; align-items: center; gap: 14px; cursor: pointer; }
+.micro-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.micro-toggle .mi { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; background: rgba(255, 255, 255, 0.05); color: var(--dim); flex: none; }
+.micro-toggle .mi svg { width: 30px; height: 30px; }
+.micro-card.on .mi { background: rgba(94, 230, 214, 0.18); color: var(--accent); }
+.micro-toggle b { display: block; font-size: 16px; color: var(--strong); }
+.micro-toggle small { display: block; font-size: 12.5px; color: var(--dim); margin-top: 2px; }
+.micro-toggle .tick { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line-2); display: grid; place-items: center; color: #04121a; flex: none; }
+.micro-card.on .tick { background: var(--accent); border-color: var(--accent); }
+.micro-toggle .tick svg { width: 18px; height: 18px; }
+.next-card { padding: 14px; margin: 0 0 14px; border-radius: 16px; border: 1px solid rgba(94, 230, 214, 0.3); background: linear-gradient(135deg, rgba(94, 230, 214, 0.08), rgba(98, 169, 255, 0.06)); }
+.next-btns { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 10px; }
+.next-btns .btn { width: 100%; min-width: 0; justify-content: center; }
+.brand[data-act="go-home"] { cursor: pointer; }
