@@ -76,7 +76,7 @@ export async function buildLetterPDF(o) {
   ry += imgH + 4.2;
   // legenda
   const used = new Set(o.glance.map((g) => g.mark));
-  const legend = [['endo', 'leczenie kanałowe'], ['stage', 'w trakcie'], ['work', 'inne prace'], ['plan', 'zaplanowane / konsultacja']].filter(([k]) => used.has(k));
+  const legend = [['endo', 'leczenie kanałowe'], ['stage', 'w trakcie'], ['work', 'inne prace'], ['plan', 'zaplanowane / konsultacja'], ['exam', 'badanie']].filter(([k]) => used.has(k));
   let lx = boxX; set('Inter', 6, GRAY);
   for (const [k, lab] of legend) {
     const sx = lx, sy = ry - 1.95, sw = 2.3;
@@ -86,6 +86,7 @@ export async function buildLetterPDF(o) {
       doc.setFillColor(255, 255, 255); doc.setDrawColor(29, 53, 87); doc.roundedRect(sx, sy, sw, sw, 0.5, 0.5, 'FD');
       doc.setLineWidth(0.3); for (const t of [0.6, 1.2, 1.8]) doc.line(sx + t - 0.45, sy + sw - 0.15, sx + t + 0.45, sy + 0.15);
     } else if (k === 'work') { doc.setFillColor(182, 193, 206); doc.setDrawColor(93, 107, 124); doc.roundedRect(sx, sy, sw, sw, 0.5, 0.5, 'FD'); }
+    else if (k === 'exam') { doc.setFillColor(233, 238, 245); doc.setDrawColor(29, 53, 87); doc.setLineWidth(0.4); doc.roundedRect(sx, sy, sw, sw, 0.5, 0.5, 'FD'); }
     else { doc.setFillColor(255, 255, 255); doc.setDrawColor(29, 53, 87); doc.setLineDashPattern([0.45, 0.3], 0); doc.roundedRect(sx, sy, sw, sw, 0.5, 0.5, 'FD'); doc.setLineDashPattern([], 0); }
     doc.text(lab, lx + 3, ry); lx += 3 + doc.getTextWidth(lab) + 3;
     if (lx > boxX + boxW - 10) { lx = boxX; ry += 3.2; }
@@ -98,6 +99,18 @@ export async function buildLetterPDF(o) {
     lines.forEach((l, i) => doc.text(l, boxX + 6.5, ry + i * 3.05));
     ry += lines.length * 3.05 + 1.5;
   }
+  // materials & equipment — kept out of the letter text, listed here for reference
+  if ((o.materials || []).length) {
+    ry += 2.2;
+    set('InterSemi', 6.4, GRAY); doc.text('MATERIAŁY I SPRZĘT', boxX, ry, { charSpace: 0.35 }); ry += 3.6;
+    for (const m of o.materials) {
+      set('InterSemi', 7, INK); doc.text(String(m.fdi), boxX, ry);
+      set('Inter', 6.7, GRAY);
+      const lines = doc.splitTextToSize(m.items.join(', '), boxW - 7);
+      lines.forEach((l, i) => doc.text(l, boxX + 6.5, ry + i * 2.95));
+      ry += lines.length * 2.95 + 1.4;
+    }
+  }
 
   // ---------- lewa kolumna: adresat i dane pacjenta
   const LW = boxX - M - 8;
@@ -108,7 +121,7 @@ export async function buildLetterPDF(o) {
   set('Inter', 8.8, GRAY);
   for (const l of [r.kind === 'clinic' ? '' : r.clinic, ...(r.address || '').split('\n')].map((s) => s && s.trim()).filter(Boolean)) { doc.text(doc.splitTextToSize(l, LW), M, ly); ly += 4.1; }
   ly += 5;
-  const rows = [['PACJENT', [p.first, p.last].filter(Boolean).join(' ')], [p.pesel ? 'PESEL' : 'DATA UR.', p.pesel || (p.dob ? fmtDate(p.dob) : '—')], [o.dates.length > 1 ? 'DATY LECZENIA' : 'DATA LECZENIA', o.dates.map(fmtDate).join(', ')], [o.glance.length > 1 ? 'ZĘBY' : 'ZĄB', o.glance.map((g) => g.fdi).join(', ')]];
+  const rows = [['PACJENT', [p.first, p.last].filter(Boolean).join(' ')], ...(p.pesel || p.dob ? [[p.pesel ? 'PESEL' : 'DATA UR.', p.pesel || fmtDate(p.dob)]] : []), [o.dates.length > 1 ? 'DATY LECZENIA' : 'DATA LECZENIA', o.dates.map(fmtDate).join(', ')], [o.glance.length > 1 ? 'ZĘBY' : 'ZĄB', o.glance.map((g) => g.fdi).join(', ')]];
   for (const [k, v] of rows) {
     set('InterSemi', 6.4, GRAY); doc.text(k, M, ly, { charSpace: 0.35 });
     set('InterMedium', 9.4, INK); const ls = doc.splitTextToSize(v || '—', LW - 30); doc.text(ls, M + 29, ly); ly += ls.length * 4.4 + 1.2;

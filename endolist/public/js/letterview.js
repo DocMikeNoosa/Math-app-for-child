@@ -33,12 +33,13 @@ export function letterPaperHTML(ctx, notes = [], { editable = false } = {}) {
         <div class="k">Adresat</div><div class="rn">${esc(rname)}</div>
         <div class="ra">${esc([r.kind === 'clinic' ? '' : r.clinic, r.address].filter(Boolean).join('\n'))}</div>
         <table class="lrows"><tr><td>Pacjent</td><td>${esc([p.first, p.last].join(' '))}</td></tr>
-        <tr><td>${p.pesel ? 'PESEL' : 'Data ur.'}</td><td>${esc(p.pesel || (p.dob ? fmtDate(p.dob) : '—'))}</td></tr>
+        ${p.pesel || p.dob ? `<tr><td>${p.pesel ? 'PESEL' : 'Data ur.'}</td><td>${esc(p.pesel || fmtDate(p.dob))}</td></tr>` : ''}
         <tr><td>${ctx.dates.length > 1 ? 'Daty leczenia' : 'Data leczenia'}</td><td>${ctx.dates.map(fmtDate).join(', ')}</td></tr>
         <tr><td>${ctx.glance.length > 1 ? 'Zęby' : 'Ząb'}</td><td>${ctx.glance.map((g) => g.fdi).join(', ')}</td></tr></table>
       </div>
       <aside class="lchart"><div class="k">Schemat leczenia</div>${letterArchSVG(marks, Object.fromEntries(ctx.glance.filter((g) => g.canals).map((g) => [g.fdi, g.canals])))}
-        ${ctx.glance.map((g) => `<div class="gl"><b>${g.fdi}</b><span>${esc(g.text)}</span></div>`).join('')}</aside>
+        ${ctx.glance.map((g) => `<div class="gl"><b>${g.fdi}</b><span>${esc(g.text)}</span></div>`).join('')}
+        ${(ctx.materials || []).length ? `<div class="k" style="margin-top:12px">Materiały i sprzęt</div>${ctx.materials.map((m) => `<div class="gl mat"><b>${m.fdi}</b><span>${esc(m.items.join(', '))}</span></div>`).join('')}` : ''}</aside>
     </div>
     <h4 class="ltitle">${esc(c.title)}</h4>
     ${P('salutation', c.salutation)}

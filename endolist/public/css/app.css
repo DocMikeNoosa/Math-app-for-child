@@ -514,3 +514,7 @@ body { overflow-x: hidden; }
 .nav i.nl, .nav i.ns { font-style: normal; }
 .nav i.ns { display: none; }
 @media (max-width: 720px) { .nav i.nl { display: none; } .nav i.ns { display: inline; } }
+
+/* 2D tooth drawing (when the computer has no 3D graphics): fill the panel */
+.stage.flat svg { width: auto; height: 88%; max-width: 92%; max-height: none; }
+.ws-left:has(.stage.flat) .stage-bar .hint { display: none; }

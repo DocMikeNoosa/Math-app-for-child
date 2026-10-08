@@ -161,4 +161,15 @@ export class Tooth3D {
   }
 }
 
-export function webglOk() { try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { return false; } }
+// three.js (r163+) needs WebGL 2 — a WebGL 1-only machine must get the 2D drawing instead
+export function webglOk() { try { const c = document.createElement('canvas'); const gl = c.getContext('webgl2'); if (!gl) return false; gl.getExtension('WEBGL_lose_context')?.loseContext(); return true; } catch { return false; } }
+/** true when the 3D view really drew something (some GPUs give a context but render nothing) */
+export function drewSomething(t3d) {
+  try {
+    const src = t3d.renderer.domElement; if (!src.width || !src.height) return false;
+    const c = document.createElement('canvas'); c.width = 48; c.height = 48; const x = c.getContext('2d');
+    x.drawImage(src, 0, 0, 48, 48); const d = x.getImageData(0, 0, 48, 48).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 0) return true;
+    return false;
+  } catch { return false; }
+}

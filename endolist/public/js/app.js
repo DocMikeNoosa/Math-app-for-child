@@ -8,11 +8,11 @@ import {
 } from './data.js';
 import { suggestDx, finalDx } from './dx.js';
 import { archSVG, toothDetailSVG } from './odontogram.js';
-import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT } from './letter.js';
+import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT, materialsFor } from './letter.js';
 import { generateLetter, reviseLetter, cleanDictation, testKey } from './ai.js';
 import { Pseudonymizer } from './privacy.js';
 import { Clinic, fingerprint } from './org.js';
-import { Tooth3D, webglOk } from './tooth3d.js';
+import { Tooth3D, webglOk, drewSomething } from './tooth3d.js';
 import { Dictation, speechSupported } from './speech.js';
 import { letterPaperHTML } from './letterview.js';
 import { buildLetterPDF } from './pdf.js';
@@ -86,6 +86,8 @@ function pseudoHere() {
   if (S.view === 'letter') { const L = D().letters.get(S.letterId); if (L) return pseudoFor(D().patients.get(L.patientId), D().referrers.get(L.referrerId), L.visitIds.map((id) => D().visits.get(id))); }
   const v = curVisit(); return pseudoFor(v && D().patients.get(v.patientId), v && D().referrers.get(v.referrerId), v ? [v] : []);
 }
+/** The logged-in doctor signs every letter: her name, title, specialty and signature come from her own account. */
+const signer = () => settings().doctor;
 const doctorName = () => { const d = settings().doctor; return [d.title, d.first, d.last].filter(Boolean).join(' '); };
 
 /* ================================================================ persistence */
@@ -511,7 +513,7 @@ function viewVisit() {
     <button class="who ${p ? '' : 'empty'}" data-act="pick-patient"><span class="av">${p ? esc(initials(p.first, p.last).toUpperCase()) : I('user')}</span><span><small>Pacjent</small><b>${p ? esc(patientName(p)) : 'Wybierz pacjenta'}</b>${p && (p.pesel || p.dob) ? `<em>${p.pesel ? 'PESEL ' + esc(p.pesel) : 'ur. ' + fmtDate(p.dob)}</em>` : ''}</span></button>
     <button class="who ${r ? '' : 'empty'}" data-act="pick-referrer"><span class="av ref">${r ? esc((r.kind === 'clinic' ? (r.clinic || 'K')[0] : initials(r.first, r.last)).toUpperCase()) : I('link')}</span><span><small>Lekarz kierujący</small><b>${r ? esc(refName(r)) : 'Wybierz adresata'}</b></span></button>
     <label class="f datebox"><span>Data wizyty</span><input type="date" data-b="v.date" value="${esc(v.date)}"></label>
-    <div class="f"><span>Kto leczył</span>${seg('v.performer', { self: 'Ja', other: 'Inny lekarz' }, { re: true })}</div>
+    <div class="f"><span>Kto leczył</span>${seg('v.performer', { self: doctorName() ? `Ja (${doctorName()})` : "Ja", other: 'Inny lekarz' }, { re: true })}</div>
     ${v.performer === 'other' ? `<label class="f" style="min-width:220px"><span>Lekarz / gabinet</span><input type="text" data-b="v.otherDentist" value="${esc(v.otherDentist)}" placeholder="np. lek. dent. Jan Nowak"></label>` : ''}
     <span class="grow"></span>
     <button class="btn btn-ghost" data-act="new-visit">${I('plus')} Nowa wizyta</button>
@@ -591,8 +593,20 @@ function refreshWorkspace({ tabs = true, model = false } = {}) {
 function opts3D(t) { return { done: t.endo.status === 'done' && !!ENDO[t.endo.proc]?.obt, all: true }; }
 function mount3D() {
   const el = $('#stage'), t = S.ws.draft;
-  if (webglOk()) { try { S.t3d = new Tooth3D(el); S.t3d.xray = S.xray !== false; S.t3d.setTooth(t, opts3D(t)); return; } catch (e) { console.warn('3D unavailable', e); } }
-  el.innerHTML = toothDetailSVG(t, { done: opts3D(t).done ? 'all' : false }); el.classList.add('flat');
+  const flat = (why) => {
+    if (why) console.warn('3D unavailable — 2D drawing instead:', why);
+    if (S.t3d) { try { S.t3d.dispose(); } catch {} S.t3d = null; }
+    if (!$('#stage')) return;
+    el.innerHTML = toothDetailSVG(S.ws?.draft || t, { done: opts3D(S.ws?.draft || t).done ? 'all' : false }); el.classList.add('flat');
+    const xr = $('#xray')?.closest('label'); if (xr) xr.hidden = true;
+  };
+  if (localStorage.getItem('endolist:no3d') === '1' || !webglOk()) return flat(localStorage.getItem('endolist:no3d') === '1' ? 'turned off' : 'no WebGL 2');
+  try {
+    S.t3d = new Tooth3D(el); S.t3d.xray = S.xray !== false; S.t3d.setTooth(t, opts3D(t));
+    S.t3d.renderer.domElement.addEventListener('webglcontextlost', (e) => { e.preventDefault(); flat('context lost'); });
+    const mine = S.t3d;
+    setTimeout(() => { if (S.t3d === mine && !drewSomething(mine)) flat('nothing rendered'); }, 1500);
+  } catch (e) { flat(e); }
 }
 const update3D = debounce(() => { if (!S.ws) return; const t = S.ws.draft; if (S.t3d) S.t3d.setTooth(t, opts3D(t)); else $('#stage').innerHTML = toothDetailSVG(t, { done: opts3D(t).done ? 'all' : false }); }, 120);
 function closeWorkspace() { if (S.t3d) { S.t3d.dispose(); S.t3d = null; } $('#ws')?.remove(); S.ws = null; refreshVisit(); }
@@ -663,7 +677,8 @@ function quickToggle(t, key) {
   if (!v) e[f] = !on;
   else if (f === 'irrig') e.irrig = on ? e.irrig.filter((x) => x !== v) : [...(e.irrig || []), v];
   else e[f] = on ? '' : v;
-  if (!on && ['obtur', 'sealer'].includes(f) && !e.proc) e.proc = 'RCT';
+  // ticking any treatment step means root canal treatment was done (rubber dam / microscope alone do not)
+  if (!on && !e.proc && !['dam', 'micro'].includes(f)) { e.proc = 'RCT'; e.status = f === 'medic' && !e.obtur ? 'stage' : 'done'; }
 }
 function tabEndo(t) {
   const e = t.endo, pr = ENDO[e.proc];
@@ -796,12 +811,12 @@ function patientForm(p = {}) {
   return `<div class="grid g2">
     <label class="f"><span>Imię</span><input type="text" data-f="first" value="${esc(p.first || '')}" autofocus></label>
     <label class="f"><span>Nazwisko</span><input type="text" data-f="last" value="${esc(p.last || '')}"></label>
-    <label class="f"><span>PESEL</span><input type="text" inputmode="numeric" maxlength="11" data-f="pesel" value="${esc(p.pesel || '')}" placeholder="11 cyfr (opcjonalnie)"><em class="pesel-state"></em></label>
-    <label class="f"><span>Data urodzenia</span><input type="date" data-f="dob" value="${esc(p.dob || '')}"></label>
+    <label class="f"><span>Data urodzenia <i class="faint">(opcjonalnie)</i></span><input type="date" data-f="dob" value="${esc(p.dob || '')}"></label>
+    <label class="f"><span>PESEL <i class="faint">(opcjonalnie)</i></span><input type="text" inputmode="numeric" autocomplete="off" data-f="pesel" value="${esc(p.pesel || '')}" placeholder="można pominąć"><em class="pesel-state"></em></label>
     <label class="f"><span>Płeć (do odmiany w liście)</span><select data-f="sex"><option value="f" ${p.sex !== 'm' ? 'selected' : ''}>Pacjentka</option><option value="m" ${p.sex === 'm' ? 'selected' : ''}>Pacjent</option></select></label>
     <label class="f"><span>Telefon</span><input type="tel" data-f="phone" value="${esc(p.phone || '')}"></label>
     <label class="f all"><span>E-mail</span><input type="email" data-f="email" value="${esc(p.email || '')}"></label>
-  </div><div class="hint" style="margin-top:8px">PESEL uzupełnia datę urodzenia i płeć. W liście pojawi się PESEL (lub data urodzenia). Dane osobowe nigdy nie są wysyłane do AI.</div>`;
+  </div><div class="hint" style="margin-top:8px">Wystarczy imię i nazwisko. PESEL nie jest wymagany — jeśli go wpiszesz, uzupełni datę urodzenia i płeć, a w liście pojawi się zamiast daty urodzenia. Dane osobowe nigdy nie są wysyłane do AI.</div>`;
 }
 /** PESEL → data urodzenia i płeć, z kontrolą sumy kontrolnej */
 function wirePesel(el) {
@@ -809,7 +824,12 @@ function wirePesel(el) {
   const upd = () => { const v = f.value.replace(/\D/g, ''); const st = $('.pesel-state', el); if (!v) { st.textContent = ''; return; } const r = parsePesel(v); if (r) { $('[data-f=dob]', el).value = r.dob; $('[data-f=sex]', el).value = r.sex; st.textContent = '✓ poprawny'; st.className = 'pesel-state ok'; } else { st.textContent = v.length === 11 ? '✗ błędna suma kontrolna' : `${v.length}/11`; st.className = 'pesel-state ' + (v.length === 11 ? 'bad' : ''); } };
   f.addEventListener('input', upd); upd();
 }
-function validPatient(f) { if (!f.last && !f.first) { toast('Podaj imię i nazwisko.', 'err'); return false; } if (f.pesel && !parsePesel(f.pesel)) { toast('PESEL jest nieprawidłowy — popraw go lub usuń.', 'err'); return false; } f.pesel = f.pesel.replace(/\D/g, ''); return true; }
+function validPatient(f) {
+  if (!f.last && !f.first) { toast('Podaj imię i nazwisko.', 'err'); return false; }
+  f.pesel = (f.pesel || '').replace(/\D/g, '');
+  if (f.pesel && !parsePesel(f.pesel) && !confirm(`PESEL ${f.pesel} nie przechodzi kontroli (${f.pesel.length === 11 ? 'błędna cyfra kontrolna lub data' : `ma ${f.pesel.length} cyfr zamiast 11`}).\n\nOK — zapisz mimo to\nAnuluj — popraw`)) return false;
+  return true;
+}
 const readForm = (el) => Object.fromEntries($$('[data-f]', el).map((i) => [i.dataset.f, i.type === 'checkbox' ? i.checked : i.value.trim()]));
 
 function pickPatient() {
@@ -881,7 +901,22 @@ function pickVisits(patientId, preselect) {
 }
 
 /* ================================================================ letter generation */
+function askSignerName() {
+  return new Promise((res) => {
+    const d = settings().doctor;
+    modal({ title: 'Kto podpisuje listy?', body: `<p class="muted" style="margin-top:0">Listy podpisuje zalogowana lekarka / lekarz. Uzupełnij dane raz — pojawią się pod każdym listem.</p>
+      <div class="grid g2"><label class="f"><span>Tytuł</span><select id="sn-title">${DOC_TITLES.map((t) => `<option ${d.title === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label class="f"><span>Forma</span><select id="sn-g"><option value="f" ${d.gender !== 'm' ? 'selected' : ''}>Pani</option><option value="m" ${d.gender === 'm' ? 'selected' : ''}>Pan</option></select></label>
+      <label class="f"><span>Imię</span><input type="text" id="sn-first" value="${esc(d.first)}" autofocus></label><label class="f"><span>Nazwisko</span><input type="text" id="sn-last" value="${esc(d.last)}"></label></div>`,
+      buttons: [{ label: 'Anuluj', cls: 'btn-ghost', onClick: () => res(false) }, { label: 'Zapisz i kontynuuj', cls: 'btn-primary', onClick: (ov) => {
+        const first = $('#sn-first', ov).value.trim(), last = $('#sn-last', ov).value.trim();
+        if (!last) { toast('Podaj nazwisko.', 'err'); return false; }
+        const st = settings(); Object.assign(st.doctor, { title: $('#sn-title', ov).value, gender: $('#sn-g', ov).value, first, last }); save('settings', st); renderTop(); res(true);
+      } }], onClose: () => res(false) });
+  });
+}
 async function startLetter(fromVisitId) {
+  if (!settings().doctor.last && !(await askSignerName())) return;
   let v = D().visits.get(fromVisitId);
   if (!v.patientId) { const p = await pickPatient(); if (!p) return; v.patientId = p.id; save('visits', v); }
   if (!v.referrerId) { const r = await pickReferrer(); if (!r) return; v.referrerId = r.id; save('visits', v); }
@@ -892,7 +927,17 @@ async function startLetter(fromVisitId) {
   await createLetter({ patientId: v.patientId, referrerId: v.referrerId, visitIds: ids });
 }
 function usedFor(refId) { const st = settings(); st.used[refId] ??= { openings: [], closings: [] }; return st.used[refId]; }
+/** Key saved but AI not yet allowed (RODO): ask once per session instead of silently using the built-in writer. */
+function askAiConsent() {
+  return new Promise((res) => {
+    modal({ title: 'Użyć AI do napisania listu?', body: `<p class="muted" style="margin-top:0">Klucz API jest zapisany, ale AI jest wyłączone, dopóki nie potwierdzisz, że gabinet ma z Anthropic umowę powierzenia danych (DPA — akceptowana razem z warunkami Commercial Terms przy zakładaniu konta API).</p>
+      <p class="small muted">Do AI trafiają wyłącznie dane kliniczne; imiona, nazwiska, PESEL, daty urodzenia, telefony i e-maile są zastępowane znacznikami.</p>`,
+      buttons: [{ label: 'Generator wbudowany', cls: 'btn-ghost', onClick: () => res(false) }, { label: `${I('spark')} Potwierdzam — użyj AI`, cls: 'btn-primary', onClick: () => { const st = settings(); st.ai.dpa = true; save('settings', st); audit('security', 'potwierdzono umowę powierzenia z Anthropic (AI włączone)'); res(true); } }],
+      onClose: () => res(false) });
+  });
+}
 async function createLetter({ patientId, referrerId, visitIds, existing }) {
+  { const st = settings(); if (st.ai.enabled && st.ai.key && !aiAllowed() && !S.org && !S.aiAsked) { S.aiAsked = true; await askAiConsent(); } }
   audit('letter-create', existing ? 'ponowne wygenerowanie' : '', patientId);
   const patient = D().patients.get(patientId), referrer = D().referrers.get(referrerId);
   const visits = visitIds.map((id) => D().visits.get(id)).filter(Boolean);
@@ -949,7 +994,9 @@ function paperHTML(L) { return letterPaperHTML(letterCtxFull(L), S.manualEdit ? 
 function reviewSide(L) {
   const notes = L.notes || [], hasKey = !!aiKey(), n = notes.filter((x) => x.comment).length;
   const inst = L.instruction || '';
-  return `<div class="body">
+  const d = signer();
+  const signHint = !d.signature ? `<div class="banner info" style="margin:0 0 12px"><span class="grow small">List podpisze <b>${esc(doctorName() || 'zalogowany lekarz')}</b>. Dodaj skan podpisu, aby pojawiał się pod listem.</span><button class="btn btn-sm" data-nav="settings">Dodaj podpis</button></div>` : '';
+  return `<div class="body">${signHint}
     <div class="rs-h">${I('edit')} Uwagi do poprawy <span class="badge">${notes.length || ''}</span></div>
     ${notes.length ? notes.map((x) => `<div class="note-card ${x.done ? 'done' : ''}" data-note-card="${x.id}">
         <button class="nq" data-act="goto-note" data-id="${x.id}">„${esc(x.quote.length > 90 ? x.quote.slice(0, 90) + '…' : x.quote)}"</button>
@@ -977,7 +1024,9 @@ function letterCtxFull(L) {
 function letterCtx(L) {
   const st = settings(), p = D().patients.get(L.patientId), r = D().referrers.get(L.referrerId);
   const visits = L.visitIds.map((id) => D().visits.get(id)).filter(Boolean);
-  return { doctor: st.doctor, patient: p || {}, referrer: r, content: L.content, glance: L.glance, dates: [...new Set(visits.filter((v) => v.performer !== 'other').map((v) => v.date))].sort(), letterDate: L.date, title: L.content.title };
+  // schematic marks and materials are always taken from the current visit data
+  const live = visits.length ? glance(visits) : L.glance;
+  return { doctor: signer(), patient: p || {}, referrer: r, content: L.content, glance: live, materials: materialsFor(visits), dates: [...new Set(visits.filter((v) => v.performer !== 'other').map((v) => v.date))].sort(), letterDate: L.date, title: L.content.title };
 }
 async function letterBlob(L) { return buildLetterPDF(letterCtxFull(L)); }
 function afterLetter() {}

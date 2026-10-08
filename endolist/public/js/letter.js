@@ -7,8 +7,8 @@ import { finalDx } from './dx.js';
 
 /* ------------------------------------------------------------ polszczyzna */
 export const PT = {
-  f: { nom: 'Pacjentka', gen: 'Pacjentki', acc: 'Pacjentkę', ins: 'Pacjentką', welcome: 'mile widziana' },
-  m: { nom: 'Pacjent', gen: 'Pacjenta', acc: 'Pacjenta', ins: 'Pacjentem', welcome: 'mile widziany' },
+  f: { nom: 'Pacjentka', gen: 'Pacjentki', acc: 'Pacjentkę', ins: 'Pacjentką', welcome: 'mile widziana', came: 'zgłosiła się', reported: 'podawała' },
+  m: { nom: 'Pacjent', gen: 'Pacjenta', acc: 'Pacjenta', ins: 'Pacjentem', welcome: 'mile widziany', came: 'zgłosił się', reported: 'podawał' },
 };
 const past = (stem, g) => stem + (g === 'm' ? 'em' : 'am'); // mogł-am / mogł-em
 export const plNum = (v) => String(v ?? '').trim().replace('.', ',');
@@ -34,7 +34,7 @@ export function examPhrases(dx) {
   out.push({ pain: 'bolesne opukiwanie', wnl: 'opukiwanie niebolesne' }[x.perc]);
   out.push({ pain: 'bolesna palpacja okolicy wierzchołka', wnl: 'palpacja niebolesna' }[x.palp]);
   out.push({ pain: 'ból przy nagryzaniu', release: 'ból przy zwolnieniu nacisku', wnl: 'nagryzanie bez dolegliwości' }[x.bite]);
-  if (x.probe !== '' && x.probe != null) out.push(x.probeIso ? `izolowana wąska kieszeń ${plNum(x.probe)} mm` : `głębokość kieszonek do ${plNum(x.probe)} mm`);
+  if (x.probe !== '' && x.probe != null) out.push(x.probeIso ? `izolowana wąska kieszeń ${plNum(x.probe)} mm` : `głębokość kieszonek nie przekraczała ${plNum(x.probe)} mm`);
   else if (x.probeIso) out.push('izolowana wąska kieszeń');
   if (x.mob === 'phys') out.push('ruchomość fizjologiczna'); else if (['I', 'II', 'III'].includes(x.mob)) out.push(`ruchomość ${x.mob}°`);
   if (x.swelling === 'intra') out.push('obrzęk wewnątrzustny'); else if (x.swelling === 'extra') out.push('obrzęk zewnątrzustny');
@@ -150,12 +150,139 @@ export function recSentences(rec) {
   return out;
 }
 
+/* ------------------------------------------------------------ list pisany w 1. osobie (generator wbudowany) */
+// Verb in the first person past tense, by the author's gender: v('przeprowadził', g) → przeprowadziłam / przeprowadziłem.
+const v = (stem, g) => stem + (g === 'm' ? 'em' : 'am');
+const IRREG = { rozpoczął: ['rozpoczęłam', 'rozpocząłem'], zamknął: ['zamknęłam', 'zamknąłem'], usunął: ['usunęłam', 'usunąłem'] };
+const vi = (k, g) => IRREG[k][g === 'm' ? 1 : 0];
+
+/** Examination in two natural sentences: what was abnormal ("W badaniu ząb nie reagował na zimno…, a nagryzanie wywoływało ból.")
+ *  and, separately, the normal findings ("Palpacja … była niebolesna, a ruchomość zęba fizjologiczna."). */
+export function examNarrative(dx) {
+  const x = dx.tests || {}, tooth = [], abn = [], nor = [];
+  if (x.cold === 'nr' && x.ept === 'neg') tooth.push(`nie reagował na zimno ani na test elektryczny${x.eptVal ? ` (${x.eptVal})` : ''}`);
+  else {
+    const c = { wnl: 'prawidłowo reagował na zimno', exag: 'reagował na zimno nasilonym, krótkotrwałym bólem', ling: 'reagował na zimno bólem utrzymującym się po usunięciu bodźca', nr: 'nie reagował na zimno' }[x.cold];
+    if (c) tooth.push(c);
+    const e = { pos: `reagował na test elektryczny${x.eptVal ? ` (${x.eptVal})` : ''}`, neg: `nie reagował na test elektryczny${x.eptVal ? ` (${x.eptVal})` : ''}` }[x.ept];
+    if (e) tooth.push(e);
+  }
+  const h = { wnl: 'prawidłowo reagował na ciepło', ling: 'reagował na ciepło przedłużonym bólem', nr: 'nie reagował na ciepło' }[x.heat];
+  if (h) tooth.push(h);
+  if (x.perc === 'pain') abn.push('opukiwanie było bolesne'); else if (x.perc === 'wnl') nor.push('opukiwanie było niebolesne');
+  if (x.palp === 'pain') abn.push('palpacja okolicy wierzchołka wywoływała ból'); else if (x.palp === 'wnl') nor.push('palpacja okolicy wierzchołka była niebolesna');
+  if (x.bite === 'pain') abn.push('nagryzanie wywoływało ból'); else if (x.bite === 'release') abn.push('ból pojawiał się przy zwolnieniu nacisku'); else if (x.bite === 'wnl') nor.push('nagryzanie nie wywoływało dolegliwości');
+  if (x.probe !== '' && x.probe != null) (x.probeIso ? abn : nor).push(x.probeIso ? `obecna była izolowana wąska kieszeń o głębokości ${plNum(x.probe)} mm` : `głębokość kieszonek nie przekraczała ${plNum(x.probe)} mm`);
+  else if (x.probeIso) abn.push('obecna była izolowana wąska kieszeń');
+  if (x.mob === 'phys') nor.push('ruchomość zęba była fizjologiczna'); else if (['I', 'II', 'III'].includes(x.mob)) abn.push(`ruchomość zęba odpowiadała ${x.mob}°`);
+  if (x.swelling === 'intra') abn.push('obecny był obrzęk wewnątrzustny'); else if (x.swelling === 'extra') abn.push('obecny był obrzęk zewnątrzustny');
+  if (x.sinus === 'yes') abn.push('obecna była przetoka');
+  const first = [tooth.length ? 'ząb ' + join(tooth, ', ', ' i ') : '', ...abn].filter(Boolean);
+  const out = [];
+  if (first.length) out.push(`W badaniu ${join(first, ', ', ', a ')}.`);
+  if (nor.length) out.push(first.length ? `${cap(join(nor, ', ', ', a '))}.` : `W badaniu ${join(nor, ', ', ', a ')}.`);
+  return out.join(' ');
+}
+
+const ACT_INS = { us: 'z aktywacją ultradźwiękową', sonic: 'z aktywacją soniczną', xp: 'z użyciem XP-endo Finisher', laser: 'z aktywacją laserową' };
+/** Root canal treatment told by the author ("Przeprowadziłam leczenie kanałowe…"). */
+export function endoNarrative(rec, P, g) {
+  const e = rec.endo || {}, pr = ENDO[e.proc];
+  if (!pr) return [];
+  const out = [];
+  if (pr.consult) { if (e.note) out.push(cap(e.note.trim().replace(/([^.])$/, '$1.'))); return out; }
+  if (e.status === 'planned') { out.push(`${cap(v('zaplanował', g))} ${pr.acc}.`); if (e.note) out.push(cap(e.note.trim().replace(/([^.])$/, '$1.'))); return out; }
+  const cond = [];
+  if (e.anesth && e.anesth !== 'none') cond.push(`w znieczuleniu ${ANESTH_INS[e.anesth]}${e.agent ? ` (${e.agent.trim()})` : ''}`);
+  else if (e.agent) cond.push(`w znieczuleniu miejscowym (${e.agent.trim()})`);
+  if (e.dam && !pr.surgical) cond.push('w izolacji koferdamem');
+  if (e.micro) cond.push('z użyciem mikroskopu zabiegowego');
+  const start = e.status === 'stage' && pr.staged ? cap(vi('rozpoczął', g)) : cap(v('przeprowadził', g));
+  out.push(`${start} ${pr.acc}${cond.length ? ' ' + join(cond, ', ', ' i ') : ''}.`);
+  const canals = anatKnown(rec) ? (rec.roots || []).flatMap((r) => r.canals.map((c) => ({ ...c, root: r }))) : [];
+  if (pr.canals && canals.length) {
+    const n = canals.length, single = n === 1;
+    const names = canals.map((c) => canalLabel(c.name)).filter((x) => x !== 'kanał');
+    const wl = canals.filter((c) => c.wl);
+    const how = [e.apexloc && 'endometrem', e.wlxray && (e.apexloc ? 'potwierdzonej zdjęciem RTG' : 'na podstawie zdjęcia RTG')].filter(Boolean);
+    const howTxt = how.length ? `, wyznaczonej ${how[0]}${how[1] ? ` i ${how[1]}` : ''}` : '';
+    let s = single ? `${cap(v('opracował', g))} chemomechanicznie kanał` : `${cap(v('opracował', g))} chemomechanicznie ${n} ${canalsWord(n)}${names.length ? ` (${names.join(', ')})` : ''}`;
+    if (wl.length) s += single ? ` do długości roboczej ${plNum(wl[0].wl)} mm${howTxt}` : ` do długości roboczej ${wl.map((c) => `${canalLabel(c.name)} ${plNum(c.wl)} mm`).join(', ')}${howTxt}`;
+    else if (how.length) s += `; długość roboczą ${v('wyznaczył', g)} ${how.map((x) => x.replace('potwierdzonej zdjęciem RTG', 'i zdjęciem RTG').replace('na podstawie zdjęcia RTG', 'na podstawie zdjęcia RTG')).join(' ')}`;
+    out.push(s + '.');
+    const maf = canals.filter((c) => c.maf);
+    if (maf.length) out.push(`Końcowy rozmiar opracowania: ${maf.map((c) => (single ? c.maf : `${canalLabel(c.name)} ${c.maf}`)).join(', ')}.`);
+    const ir = (e.irrig || []).filter((k) => !ACT_INS[k]).map((k) => (k === 'naocl' && e.naocl ? `${plNum(e.naocl)}% NaOCl` : IRRIG[k]));
+    const act = (e.irrig || []).filter((k) => ACT_INS[k]).map((k) => ACT_INS[k]);
+    if (ir.length) out.push(`Kanały ${v('płukał', g)} ${join(ir, ', ', ' i ')}${act.length ? `, ${join(act, ', ', ' i ')}` : ''}.`);
+    else if (act.length) out.push(`Płukanie kanałów ${v('prowadził', g)} ${join(act, ', ', ' i ')}.`);
+  }
+  for (const r of anatKnown(rec) ? rec.roots || [] : []) if (r.lateral) out.push(r.lateral === 'delta' ? `W obrębie ${rootGen(r.label)} ${v('stwierdził', g)} deltę korzeniową.` : `${cap(v('uwidocznił', g))} kanał boczny ${LATERAL[r.lateral]} ${rootGen(r.label)}.`);
+  if (e.medic && e.status === 'stage') out.push(`Do kanałów ${v('założył', g)} opatrunek leczniczy (${MEDIC[e.medic]}).`);
+  else if (e.medic) out.push(`Jako opatrunek leczniczy ${v('zastosował', g)} ${MEDIC[e.medic]}.`);
+  if (pr.obt && e.status === 'done' && e.obtur) out.push(`${!canals.length ? 'System kanałowy' : canals.length === 1 ? 'Kanał' : 'Kanały'} ${v('wypełnił', g)} ${OBT_INS[e.obtur]}${e.sealer ? ` z ${SEAL_INS[e.sealer] || `uszczelniaczem (${e.sealer})`}` : ''}.`);
+  if (pr.material && e.material) {
+    const m = e.material.trim();
+    out.push({ PULPOT: `Miazgę w komorze ${v('zaopatrzył', g)} materiałem ${m}.`, DPC: `Obnażoną miazgę ${v('pokrył', g)} materiałem ${m}.`, IPC: `Dno ubytku ${v('pokrył', g)} materiałem ${m}.`, APEX: `Barierę wierzchołkową ${v('wykonał', g)} z materiału ${m}.`, REP: `Barierę koronową ${v('wykonał', g)} z materiału ${m}.`, APICO: `Wsteczne wypełnienie ${v('wykonał', g)} materiałem ${m}.`, PERF: `Perforację ${vi('zamknął', g)} materiałem ${m}.` }[e.proc] || `${cap(v('zastosował', g))} materiał ${m}.`);
+  }
+  if (e.temp === 'comp') out.push(`Na zakończenie ${v('odbudował', g)} ząb materiałem kompozytowym.`);
+  else if (e.temp) out.push(`Na zakończenie ząb ${v('zabezpieczył', g)} ${TEMP_INS[e.temp]}.`);
+  if (e.postxray) out.push(e.status === 'done' ? `Leczenie ${v('zakończył', g)} kontrolnym zdjęciem RTG.` : `${cap(v('wykonał', g))} kontrolne zdjęcie RTG.`);
+  if ((e.findings || []).length) out.push(`W trakcie zabiegu: ${join(e.findings.map((k) => FINDINGS[k]), '; ', '; ')}.`);
+  if (e.status === 'stage' && pr.staged) out.push(`${P.nom} zgłosi się na kolejną wizytę w celu zakończenia leczenia.`);
+  if (e.note) out.push(cap(e.note.trim().replace(/([^.])$/, '$1.')));
+  return out;
+}
+/** Other work on the tooth, told by the author; brand names go to the materials box, not the text. */
+export function workNarrative(w, g) {
+  const note = w.note ? ` ${cap(w.note.trim().replace(/([^.])$/, '$1.'))}` : '';
+  switch (w.type) {
+    case 'FILL': { const surf = (w.surf || []).join(''); return `${cap(v('wypełnił', g))} ubytek${w.cls ? ` klasy ${w.cls} wg Blacka` : ''}${surf ? ` (${surf})` : ''}${w.mat ? ` ${MAT_INS[w.mat] || `materiałem: ${w.mat}`}` : ''}.${note}`; }
+    case 'BUILDUP': return `${cap(v('odbudował', g))} ząb po leczeniu kanałowym${w.mat ? ` ${MAT_INS[w.mat] || w.mat}` : ''}${w.postType ? ` z wkładem ${POST_TYPE[w.postType]}` : ''}.${note}`;
+    case 'POST': return `${cap(v('osadził', g))} wkład koronowo-korzeniowy${w.postType ? ` ${POST_TYPE[w.postType]}` : ''}.${note}`;
+    case 'CROWNPREP': return `${cap(v('opracował', g))} ząb pod koronę protetyczną.${note}`;
+    case 'TEMPCROWN': return `${cap(v('osadził', g))} koronę tymczasową.${note}`;
+    case 'CROWN': return `${cap(v('osadził', g))} koronę protetyczną.${note}`;
+    case 'ONLAY': return `${cap(v('osadził', g))} nakład (onlay).${note}`;
+    case 'EXT': return `${cap(vi('usunął', g))} ząb.${note}`;
+    case 'IMPLPREP': return `W ramach przygotowania do leczenia implantologicznego: ${(w.prep || []).map((k) => IMPL_PREP[k]).join(', ') || 'kwalifikacja'}.${note}`;
+    case 'IMPLANT': return `${cap(v('wszczepił', g))} implant.${note}`;
+    case 'PERIO': return `${cap(v('przeprowadził', g))} leczenie periodontologiczne (skaling).${note}`;
+    default: return (w.note ? cap(w.note.trim().replace(/([^.])$/, '$1.')) : '');
+  }
+}
+/** Materials and equipment per tooth — shown in a side box next to the schematic, not in the letter text. */
+export function materialsFor(visits) {
+  const { teeth } = collect(visits);
+  return teeth.map(([fdi, entries]) => {
+    const items = [];
+    for (const { visit, rec } of entries) {
+      if (visit.performer === 'other') continue;
+      for (const x of rec.products || []) { const pre = PROD_PREFIX[x.cat]; items.push(pre && !x.name.toLowerCase().includes(pre.slice(0, 6)) ? `${pre} ${x.name}` : x.name); }
+      for (const w of rec.work || []) if (w.product) items.push(w.product);
+    }
+    return { fdi, items: [...new Set(items)] };
+  }).filter((m) => m.items.length);
+}
+
 /* ------------------------------------------------------------ fakty (z wybranych wizyt) */
 /** Groups the selected visits by tooth. Each entry: { visit, rec } in date order. */
+/** Root canal details actually entered (not the routine defaults such as rubber dam or NaOCl/EDTA). */
+export function endoEntered(rec) {
+  const e = rec.endo || {};
+  return !!(e.obtur || e.sealer || e.medic || e.apexloc || e.wlxray || e.postxray || e.temp || (e.findings || []).length || (rec.roots || []).some((r) => r.canals.some((c) => c.wl || c.maf)));
+}
+/** A tooth with root canal details but no procedure chosen is described as root canal treatment (nothing gets lost). */
+function normalized(rec) {
+  const e = rec.endo || {};
+  if (e.proc || !endoEntered(rec)) return rec;
+  return { ...rec, endo: { ...e, proc: 'RCT', status: e.medic && !e.obtur ? 'stage' : e.status || 'done' } };
+}
 export function collect(visits) {
   const sorted = [...visits].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   const byTooth = new Map();
-  for (const v of sorted) for (const rec of v.teeth || []) {
+  for (const v of sorted) for (const rec0 of v.teeth || []) {
+    const rec = normalized(rec0);
     if (!byTooth.has(rec.fdi)) byTooth.set(rec.fdi, []);
     byTooth.get(rec.fdi).push({ visit: v, rec });
   }
@@ -164,13 +291,14 @@ export function collect(visits) {
 
 export function markFor(entries) {
   let best = '';
-  const rank = { endo: 4, stage: 3, work: 2, plan: 1, '': 0 };
+  const rank = { endo: 5, stage: 4, work: 3, plan: 2, exam: 1, '': 0 };
   for (const { rec } of entries) {
     const e = rec.endo || {}, pr = ENDO[e.proc];
     let m = '';
     if (pr && !pr.consult) m = e.status === 'done' ? 'endo' : e.status === 'stage' ? 'stage' : 'plan';
     else if ((rec.work || []).length) m = 'work';
     else if (pr && pr.consult) m = 'plan';
+    else m = 'exam'; // examined / described only — still marked on the schematic
     if (rank[m] > rank[best]) best = m;
   }
   return best;
@@ -208,6 +336,7 @@ export function glance(visits) {
     }
     const last = [...entries].reverse().find(({ rec }) => ENDO[rec.endo?.proc]?.canals && anatKnown(rec));
     const canals = last ? (last.rec.roots || []).reduce((n, r) => n + r.canals.length, 0) : 0;
+    if (!parts.length) { const d = dxPhrase(entries.at(-1).rec.dx || {}, false); parts.push(d ? `Badanie · ${d.split(';')[0]}` : 'Badanie'); }
     return { fdi, mark: markFor(entries), canals, text: [...new Set(parts)].join(' · ') };
   });
 }
@@ -259,28 +388,36 @@ export function buildOffline({ visits, patient, doctor, referrer, used = { openi
   const recs = [];
   for (const [fdi, entries] of teeth) {
     const ti = toothInfo(fdi), paras = [];
-    const multi = entries.length > 1 || entries.some((x) => x.visit.performer === 'other');
+    const multi = entries.length > 1;
     for (const { visit, rec } of entries) {
-      const lines = [];
-      const prefix = multi ? `${fmtDate(visit.date)}${visit.performer === 'other' ? ` — leczenie wykonane wcześniej${visit.otherDentist ? ` (${visit.otherDentist})` : ' w innym gabinecie'}` : ''}: ` : '';
-      const dx = rec.dx || {};
-      if (dx.history?.cc) lines.push(`Powód zgłoszenia: ${low(dx.history.cc.trim().replace(/\.$/, ''))}.`);
-      const hx = [dx.history?.spontaneous && 'ból samoistny', dx.history?.night && 'ból nocny', dx.history?.deep && 'głęboka próchnica'].filter(Boolean);
-      if (hx.length) lines.push(`W wywiadzie: ${hx.join(', ')}.`);
-      const ex = examPhrases(dx);
-      if (ex.length) lines.push(`W badaniu: ${ex.join(', ')}.`);
+      const dx = rec.dx || {}, other = visit.performer === 'other';
+      // treatment done elsewhere earlier: reported impersonally
+      if (other) {
+        const lines = [...endoSentences(rec, P), ...(rec.work || []).map(workSentence).filter(Boolean)];
+        if (rec.manual && rec.manual.trim()) lines.push(cap(rec.manual.trim().replace(/([^.!?])$/, '$1.')));
+        if (lines.length) paras.push(`${visit.date ? fmtDate(visit.date) + ' ' : ''}ząb był leczony w innym gabinecie${visit.otherDentist ? ` (${visit.otherDentist})` : ''}: ${low(lines.join(' '))}`.replace(/^./, (c) => c.toUpperCase()));
+        continue;
+      }
+      // 1) why the patient came and what I found
+      const a = [];
+      const cc = dx.history?.cc?.trim().replace(/\.$/, '');
+      const hx = [dx.history?.spontaneous && 'ból samoistny', dx.history?.night && 'ból nocny', dx.history?.deep && 'głęboką próchnicę'].filter(Boolean);
+      if (cc) a.push(`${P.nom} ${P.came}${multi && visit.date ? ` (${fmtDate(visit.date)})` : ''} z dolegliwościami ze strony tego zęba — ${low(cc)}.`);
+      else if (multi && visit.date) a.push(`Podczas wizyty ${fmtDate(visit.date)}:`);
+      if (hx.length) a.push(`W wywiadzie ${P.reported} ${join(hx, ', ', ' i ')}.`);
+      const ex = examNarrative(dx);
+      if (ex) a.push(ex);
       const rp = radioPhrase(dx);
-      if (rp) lines.push(`RTG: ${low(rp)}.`);
+      if (rp) a.push(`W obrazie RTG: ${low(rp)}.`);
       const d = dxPhrase(dx, icd);
-      if (d && (rec.endo?.proc || ex.length)) lines.push(`Rozpoznanie: ${d}.`);
-      lines.push(...endoSentences(rec, P));
-      for (const w of rec.work || []) { const s = workSentence(w); if (s) lines.push(s); }
-      const prods = productList(rec);
-      if (prods) lines.push(`Użyte materiały i sprzęt: ${prods}.`);
-      if (rec.manual && rec.manual.trim()) lines.push(cap(rec.manual.trim().replace(/([^.!?])$/, '$1.')));
-      if (lines.length) paras.push(prefix + lines.join(' '));
-      if (visit.performer !== 'other') recs.push(...recSentences(rec).map((s) => (teeth.length > 1 ? `Ząb ${fdi}: ${low(s)}` : s)));
-      if (rec.rec?.prog && visit.performer !== 'other') recs.push(`${teeth.length > 1 ? `Ząb ${fdi} — rokowanie` : 'Rokowanie'}: ${PROG[rec.rec.prog]}.`);
+      if (d && (rec.endo?.proc || ex)) a.push(`Na tej podstawie ${v('ustalił', g)} rozpoznanie: ${d.replace(/; /g, ', ')}.`);
+      // 2) what I did
+      const b = [...endoNarrative(rec, P, g), ...(rec.work || []).map((w) => workNarrative(w, g)).filter(Boolean)];
+      if (rec.manual && rec.manual.trim()) b.push(cap(rec.manual.trim().replace(/([^.!?])$/, '$1.')));
+      if (a.length) paras.push(a.join(' '));
+      if (b.length) paras.push(b.join(' '));
+      recs.push(...recSentences(rec).map((x) => (teeth.length > 1 ? `Ząb ${fdi}: ${low(x)}` : x)));
+      if (rec.rec?.prog) recs.push(`${teeth.length > 1 ? `Ząb ${fdi} — rokowanie` : 'Rokowanie'}: ${PROG[rec.rec.prog]}.`);
     }
     sections.push({ heading: `Ząb ${fdi} — ${ti.name}`, paragraphs: paras });
   }

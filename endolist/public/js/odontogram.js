@@ -195,10 +195,10 @@ export function letterArchSVG(marks = {}, canals = {}) {
     let mx = -dy / nl, my = dx / nl; const cy = upper ? LA.upY + LA.b : LA.loY - LA.b;
     if (mx * (x - LA.cx) + my * (y - cy) < 0) { mx = -mx; my = -my; }
     const m = marks[fdi] || '';
-    const st = { endo: [NAVY, '#0f1f36', 1.6, ''], stage: ['url(#hatch)', NAVY, 1.7, ''], work: ['#b6c1ce', '#5d6b7c', 1.4, ''], plan: ['#ffffff', NAVY, 1.7, '5 3.5'] }[m] || ['#ffffff', '#c3cbd5', 1.2, ''];
+    const st = { endo: [NAVY, '#0f1f36', 1.6, ''], stage: ['url(#hatch)', NAVY, 1.7, ''], work: ['#b6c1ce', '#5d6b7c', 1.4, ''], plan: ['#ffffff', NAVY, 1.7, '5 3.5'], exam: ['#e9eef5', NAVY, 2.4, ''] }[m] || ['#ffffff', '#c3cbd5', 1.2, ''];
     s += `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${ang.toFixed(1)})">`;
     s += `<path d="${occlusalPath(ti.type, g.w, g.h)}" fill="${st[0]}" stroke="${st[1]}" stroke-width="${st[2]}" ${st[3] ? `stroke-dasharray="${st[3]}"` : ''}/>`;
-    if (!m || m === 'plan') s += `<path d="${fissures(ti.type, g.w, g.h)}" fill="none" stroke="#d6dce3" stroke-width="1.1" stroke-linecap="round"/>`;
+    if (!m || m === 'plan' || m === 'exam') s += `<path d="${fissures(ti.type, g.w, g.h)}" fill="none" stroke="#d6dce3" stroke-width="1.1" stroke-linecap="round"/>`;
     if (m === 'endo') {
       const n = Math.max(1, Math.min(5, canals[fdi] || (ti.type === 'molar' ? 3 : 1)));
       const pts = { 1: [[0, 0]], 2: [[-0.2, 0], [0.2, 0]], 3: [[-0.2, -0.17], [-0.2, 0.17], [0.22, 0]], 4: [[-0.2, -0.17], [-0.2, 0.17], [0.2, -0.15], [0.2, 0.15]], 5: [[-0.22, -0.18], [-0.22, 0.18], [0, 0], [0.24, -0.15], [0.24, 0.15]] }[n];

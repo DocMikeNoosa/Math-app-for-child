@@ -138,6 +138,9 @@ async function mockAI(p, reviseOut) {
   await p.click('#arch g.tooth[data-fdi="16"]'); await p.waitForSelector('#ws'); await p.waitForTimeout(1500); await shot(p, '09-ws-16');
   await p.click('[data-act=ws-cancel]'); await p.waitForTimeout(300); if (await p.locator('.modal').count()) await p.click('.modal footer .btn-danger'); await p.waitForTimeout(300);
   ok(!(await p.textContent('#vteeth')).includes('Pierwszy trzonowiec górny'), 'cancelled tooth not added');
+  // tooth 26: examined only (no treatment) — must still be marked on the letter schematic
+  await p.click('#arch g.tooth[data-fdi="26"]'); await p.waitForSelector('#ws'); await p.click('[data-ttab=dx]'); await seg('t.dx.tests.cold', 'wnl'); await seg('t.dx.tests.perc', 'wnl');
+  await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
   await shot(p, '10-visit-full');
   // ---------- letter: built-in generator (no key)
   await p.unroute('https://api.anthropic.com/**');
@@ -147,6 +150,12 @@ async function mockAI(p, reviseOut) {
   ok(L0.source === 'auto', 'letter created by built-in generator');
   console.log('--- LETTER (built-in generator) ---\n' + [L0.content.salutation, L0.content.opening, ...L0.content.sections.map((s) => s.heading + '\n' + s.paragraphs.join('\n')), 'Zalecenia: ' + L0.content.recommendations.join(' | '), L0.content.closing].join('\n'));
   ok((await p.textContent('#paper')).includes(PES), 'PESEL shown in the letter');
+  const chart = await p.evaluate(() => { const svg = document.querySelector('#paper .lchart svg'); const badges = [...svg.querySelectorAll('circle[fill="#1d3557"]')].length; const txt = [...svg.querySelectorAll('text')].filter((t) => t.getAttribute('fill') === '#ffffff').map((t) => t.textContent); return { badges, txt }; });
+  ok(['36', '37', '26'].every((n) => chart.txt.includes(n)), 'letter schematic marks every tooth in the letter (36 endo, 37 filling, 26 examined): ' + chart.txt.join(','));
+  const body = await p.evaluate(() => [...document.querySelectorAll('#paper .lp, #paper h5')].map((e) => e.textContent).join(' '));
+  ok(!/ProTaper|Raypex|Filtek/.test(body) && (await p.textContent('#paper .lchart')).includes('ProTaper Gold'), 'materials in the side box, not in the letter text');
+  ok(/Przeprowadziłam leczenie kanałowe/.test(body) && /Kanały wypełniłam/.test(body), 'letter written in the first person by the doctor');
+  ok((await p.textContent('#paper')).includes('lek. dent. Katarzyna Zielińska'), 'letter signed by the logged-in doctor');
   await shot(p, '11-review', { fullPage: true });
   // highlight a passage → popover → comment → tick "done"
   const sel = await p.evaluate(() => {
@@ -161,14 +170,14 @@ async function mockAI(p, reviseOut) {
   await p.click('#gen-edit'); await p.fill('#gen-text', 'Bardziej zwięźle i bardziej formalnie.');
   await shot(p, '13-notes', { fullPage: true });
   // AI revision (MOCK response, applies a visible change so the flow can be checked)
-  await mockAI(p, (body) => { const inp = JSON.parse(body.messages[0].content); const l = inp.letter; l.sections[0].paragraphs[0] = l.sections[0].paragraphs[0].replace(/W badaniu:[^.]*\./, 'W badaniu: brak reakcji na testy żywotności, bolesne opukiwanie.'); return { ...l, changes: ['Skrócono opis badania zęba 36.', 'Ujednolicono styl na bardziej formalny.'], warnings: [] }; });
+  await mockAI(p, (body) => { const inp = JSON.parse(body.messages[0].content); const l = inp.letter; l.sections[0].paragraphs[0] = l.sections[0].paragraphs[0].replace(/W badaniu [^.]*\./, 'W badaniu ząb nie reagował na testy żywotności, a opukiwanie było bolesne.'); return { ...l, changes: ['Skrócono opis badania zęba 36.', 'Ujednolicono styl na bardziej formalny.'], warnings: [] }; });
   await p.evaluate(() => { const st = window.__endolist.settings(); st.ai.key = 'sk-ant-test'; st.ai.dpa = true; window.__endolist.save('settings', st); });
   await p.evaluate(() => window.__endolist.rerender());
   await p.click('[data-act=revise]'); await p.waitForTimeout(1500);
   const rv = aiCalls.at(-1); const rIn = JSON.parse(rv.body.messages[0].content);
   ok(rIn.annotations.length === 1 && rIn.annotations[0].quote.startsWith('W badaniu') && rIn.instruction.includes('zwięźle'), 'revision request carries the highlight + general instruction');
   ok(!/Kowalska|Anna|Nowak|Maria|1980|Zielińska|Katarzyna|Uśmiech|\d{11}/.test(JSON.stringify(rIn)), 'revision request contains no personal data / PESEL');
-  ok((await p.textContent('#paper')).includes('brak reakcji na testy żywotności') && (await p.textContent('#rside')).includes('Skrócono opis badania'), 'AI revision applied and changes listed');
+  ok((await p.textContent('#paper')).includes('nie reagował na testy żywotności') && (await p.textContent('#rside')).includes('Skrócono opis badania'), 'AI revision applied and changes listed');
   await shot(p, '14-revised', { fullPage: true });
   // manual editing
   await p.click('label.switch:has(#manual-edit)'); await p.waitForTimeout(200);
