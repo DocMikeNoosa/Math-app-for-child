@@ -55,13 +55,8 @@ async function mockAI(p, reviseOut) {
   await p.click('[data-act=ob-next]');
   ok((await p.inputValue('[data-ob=practice]')) === 'Centrum Stomatologiczne' && (await p.inputValue('[data-ob=group]')) === 'Niewiński Group', 'clinic defaults prefilled');
   await p.fill('[data-ob=phone]', '+48 25 000 00 00'); await p.fill('[data-ob=email]', 'rejestracja@example.pl');
-  // placeholder test logos (NOT the real clinic logos — those could not be downloaded in the build environment)
-  const mkLogo = (txt, col) => p.evaluate(([txt, col]) => { const c = document.createElement('canvas'); c.width = 520; c.height = 140; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 520, 140); x.fillStyle = col; x.font = 'bold 44px sans-serif'; x.fillText(txt, 24, 88); x.strokeStyle = col; x.lineWidth = 4; x.strokeRect(6, 6, 508, 128); return c.toDataURL('image/png').split(',')[1]; }, [txt, col]);
-  fs.writeFileSync(path.join(OUT, 'logo1.png'), Buffer.from(await mkLogo('LOGO KLINIKI', '#0b4f8a'), 'base64'));
-  fs.writeFileSync(path.join(OUT, 'logo2.png'), Buffer.from(await mkLogo('LOGO GRUPY', '#8a6d0b'), 'base64'));
-  await p.click('[data-act=ob-logo][data-k=logo]'); await p.setInputFiles('#ob-logo-input', path.join(OUT, 'logo1.png')); await p.waitForTimeout(400);
-  await p.click('[data-act=ob-logo][data-k=groupLogo]'); await p.setInputFiles('#ob-logo-input', path.join(OUT, 'logo2.png')); await p.waitForTimeout(400);
-  ok(await p.locator('.logo-slot img').count() === 2, 'two logos uploaded in onboarding');
+  await p.waitForSelector('.logo-slot img', { timeout: 5000 });
+  ok(await p.locator('.logo-slot img').count() === 1, 'Centrum Stomatologiczne logo prefilled');
   await shot(p, '02-clinic');
   await p.click('[data-act=ob-next]');
   const sig = await p.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 200; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 600, 200); x.strokeStyle = '#1a2a6c'; x.lineWidth = 5; x.beginPath(); x.moveTo(40, 140); x.bezierCurveTo(120, 20, 160, 190, 240, 90); x.bezierCurveTo(300, 30, 330, 170, 420, 100); x.bezierCurveTo(470, 70, 520, 120, 560, 80); x.stroke(); return c.toDataURL('image/png').split(',')[1]; });
@@ -73,7 +68,7 @@ async function mockAI(p, reviseOut) {
   await p.click('[data-act=ob-passkey]'); await p.waitForTimeout(1200);
   ok((await p.textContent('#pk-state')).includes('dodany'), 'passkey (PRF) registered');
   await p.click('[data-act=ob-finish]'); await p.waitForSelector('#arch', { timeout: 20000 });
-  ok(await p.locator('.clinic-logo img').count() === 1, 'clinic logo shown in top bar');
+  ok(await p.locator('.clinic-logo.dark img').count() === 1, 'clinic logo (light version) shown in top bar');
   await p.click('.banner [data-act=folder-pick]'); await p.waitForTimeout(1000);
   // ---------- patient with PESEL + referrer
   const PES = pesel(1980, 3, 12, true);
@@ -180,7 +175,7 @@ async function mockAI(p, reviseOut) {
   console.log('ERRORS-1', p.errs);
   // lock + passkey, restart + password, persistence
   await p.click('[data-act=lock]'); await p.waitForSelector('#login', { timeout: 10000 });
-  ok(await p.locator('.auth-brand img').count() === 2, 'clinic logos on the login screen');
+  ok(await p.locator('.auth-brand img.light').count() === 1, 'clinic logo on the login screen');
   await shot(p, '15-lock');
   await p.click('[data-act=passkey-login]'); await p.waitForSelector('#arch', { timeout: 15000 });
   await ctx.close();

@@ -126,10 +126,10 @@ async function boot() {
 function brandHTML() {
   let b = {}; try { b = JSON.parse(localStorage.getItem('endolist:brand') || '{}'); } catch {}
   const logos = [b.logo, b.groupLogo].filter(Boolean);
-  if (logos.length) return `<div class="auth-brand">${logos.map((l) => `<img src="${l}" alt="">`).join('')}</div>`;
+  if (b.light || logos.length) return `<div class="auth-brand">${b.light ? `<img class="light" src="${b.light}" alt="">` : ''}${logos.map((l) => `<img src="${l}" alt="">`).join('')}</div>`;
   return b.practice ? `<div class="auth-brand text">${esc(b.practice)}${b.group ? `<small>${esc(b.group)}</small>` : ''}</div>` : '';
 }
-function mirrorBrand() { try { const d = settings().doctor; localStorage.setItem('endolist:brand', JSON.stringify({ logo: d.logo, groupLogo: d.groupLogo, practice: d.practice, group: d.group })); } catch {} }
+function mirrorBrand() { try { const d = settings().doctor; localStorage.setItem('endolist:brand', JSON.stringify({ logo: d.logoDefault ? '' : d.logo, light: d.logoDefault && d.logo ? BRAND_LOGO_LIGHT : '', groupLogo: d.groupLogo, practice: d.practice, group: d.group })); } catch {} }
 function authShell(inner, wide = false) { $('#root').innerHTML = `<div class="auth"><div class="auth-card ${wide ? 'wide' : ''}">${inner}</div></div>`; }
 
 function renderLock(profiles, err = '') {
@@ -160,7 +160,7 @@ function renderLock(profiles, err = '') {
 
 let OB = null;
 function renderOnboarding(step = 0) {
-  OB ??= { doctor: clone(DEFAULT_SETTINGS.doctor), username: '', aiKey: '' };
+  if (!OB) { OB = { doctor: clone(DEFAULT_SETTINGS.doctor), username: '', aiKey: '' }; brandLogoData().then((l) => { if (l && !OB.doctor.logo) { OB.doctor.logo = l; OB.doctor.logoDefault = true; if (OB.step === 1) { readOB(); renderOnboarding(1); } } }); }
   const steps = `<div class="steps">${[0, 1, 2, 3, 4].map((i) => `<i class="${i <= step ? 'on' : ''}"></i>`).join('')}</div>`;
   const d = OB.doctor;
   const titleOpts = DOC_TITLES.map((t) => `<option ${d.title === t ? 'selected' : ''}>${t}</option>`).join('');
@@ -225,6 +225,7 @@ async function enter(session) {
   S.data = { patients: all.patients || new Map(), visits: all.visits || new Map(), letters: all.letters || new Map(), referrers: all.referrers || new Map(), settings: all.settings || new Map() };
   if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS));
   const st = settings(); for (const k of Object.keys(DEFAULT_SETTINGS)) if (typeof DEFAULT_SETTINGS[k] === 'object' && !Array.isArray(DEFAULT_SETTINGS[k])) st[k] = { ...DEFAULT_SETTINGS[k], ...(st[k] || {}) };
+  if (!st.doctor.logo && isCentrum(st.doctor) && !st.doctor.logoCleared) { const l = await brandLogoData(); if (l) { st.doctor.logo = l; st.doctor.logoDefault = true; save('settings', st); } }
   mirrorBrand();
   S.folder = new Folder(session.pid);
   if (fsSupported()) await S.folder.init();
@@ -241,7 +242,7 @@ function renderApp() {
 function renderTop() {
   const st = settings();
   $('#top').innerHTML = `
-    <div class="brand"><div class="mark">${I('tooth')}</div><div><b>EndoList</b><small>${esc(doctorName() || S.session.profile.username)}</small></div>${st.doctor.logo ? `<span class="clinic-logo"><img src="${st.doctor.logo}" alt="${esc(st.doctor.practice)}"></span>` : st.doctor.practice ? `<span class="clinic-name">${esc(st.doctor.practice)}${st.doctor.group ? `<small>${esc(st.doctor.group)}</small>` : ''}</span>` : ''}</div>
+    <div class="brand"><div class="mark">${I('tooth')}</div><div><b>EndoList</b><small>${esc(doctorName() || S.session.profile.username)}</small></div>${st.doctor.logo && st.doctor.logoDefault ? `<span class="clinic-logo dark"><img src="${BRAND_LOGO_LIGHT}" alt="${esc(st.doctor.practice)}"></span>` : st.doctor.logo ? `<span class="clinic-logo"><img src="${st.doctor.logo}" alt="${esc(st.doctor.practice)}"></span>` : st.doctor.practice ? `<span class="clinic-name">${esc(st.doctor.practice)}${st.doctor.group ? `<small>${esc(st.doctor.group)}</small>` : ''}</span>` : ''}</div>
     <nav class="nav">
       ${[['visit', 'tooth', 'Wizyta'], ['patients', 'users', 'Pacjenci'], ['referrers', 'link', 'Lekarze kierujący'], ['settings', 'gear', 'Ustawienia']].map(([v, ic, l]) => `<button data-nav="${v}" class="${S.view === v || (S.view === 'letter' && v === 'patients') || (S.view === 'patient' && v === 'patients') ? 'on' : ''}">${I(ic)}<span>${l}</span></button>`).join('')}
     </nav>
@@ -1010,7 +1011,7 @@ async function action(act, a) {
     case 'ob-next': readOB(); if (OB.step === 0 && !OB.doctor.last) return toast('Podaj nazwisko.', 'err'); return renderOnboarding(OB.step + 1);
     case 'ob-prev': readOB(); return renderOnboarding(OB.step - 1);
     case 'ob-sig': return $('#ob-sig-input').click();
-    case 'ob-logo': { const el = $('#ob-logo-input'), k = a.dataset.k; el.onchange = async () => { const f = el.files[0]; if (f) { readOB(); OB.doctor[k] = await logoData(f); renderOnboarding(1); } }; return el.click(); }
+    case 'ob-logo': { const el = $('#ob-logo-input'), k = a.dataset.k; el.onchange = async () => { const f = el.files[0]; if (f) { readOB(); OB.doctor[k] = await logoData(f); if (k === 'logo') OB.doctor.logoDefault = false; renderOnboarding(1); } }; return el.click(); }
     case 'ob-sig-clear': readOB(); OB.doctor.signature = ''; return renderOnboarding(2);
     case 'ob-create': {
       const f = new FormData($('#ob-acc'));
@@ -1114,8 +1115,8 @@ async function action(act, a) {
     /* settings */
     case 'sig-pick': { const el = $('#sig-input'); el.onchange = async () => { const f = el.files[0]; if (f) { settings().doctor.signature = await signatureData(f); save('settings', settings()); renderView(); } }; return el.click(); }
     case 'sig-clear': settings().doctor.signature = ''; save('settings', settings()); return renderView();
-    case 'logo-pick': { const el = $('#logo-input'), k = a.dataset.k; el.onchange = async () => { const f = el.files[0]; if (f) { settings().doctor[k] = await logoData(f); save('settings', settings()); renderTop(); renderView(); } }; return el.click(); }
-    case 'logo-clear': settings().doctor[a.dataset.k] = ''; save('settings', settings()); renderTop(); return renderView();
+    case 'logo-pick': { const el = $('#logo-input'), k = a.dataset.k; el.onchange = async () => { const f = el.files[0]; if (f) { settings().doctor[k] = await logoData(f); if (k === 'logo') settings().doctor.logoDefault = false; save('settings', settings()); renderTop(); renderView(); } }; return el.click(); }
+    case 'logo-clear': settings().doctor[a.dataset.k] = ''; if (a.dataset.k === 'logo') { settings().doctor.logoDefault = false; settings().doctor.logoCleared = true; } save('settings', settings()); renderTop(); return renderView();
     case 'test-key': { a.disabled = true; try { await testKey(settings().ai.key); toast('Klucz API działa.', 'ok'); } catch (er) { toast(er.message, 'err'); } a.disabled = false; return; }
     case 'pk-add': { try { await S.session.addPasskey(); toast('Dodano klucz dostępu.', 'ok'); scheduleBackup(); renderView(); } catch (er) { if (er.name !== 'NotAllowedError') toast(er.message, 'err'); } return; }
     case 'pk-del': if (await confirmBox('Usunąć klucz dostępu?', 'Logowanie tym kluczem przestanie działać. Hasło działa nadal.')) { await S.session.removePasskey(a.dataset.id); scheduleBackup(); renderView(); } return;
@@ -1174,6 +1175,12 @@ async function signatureData(file) {
     x.putImageData(d, 0, 0); return cv.toDataURL('image/png');
   } finally { URL.revokeObjectURL(url); }
 }
+/** Built-in Centrum Stomatologiczne logo (vector recreation): navy PNG for letters, light SVG for the dark UI. */
+const BRAND_LOGO = 'brand/centrum-logo.png', BRAND_LOGO_LIGHT = 'brand/centrum-logo-light.svg';
+async function brandLogoData() {
+  try { const b = await (await fetch(BRAND_LOGO)).blob(); return await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); }); } catch { return ''; }
+}
+const isCentrum = (d) => /centrum stomatologiczne/i.test(d.practice || '');
 async function logoData(file) {
   const url = URL.createObjectURL(file);
   try {
