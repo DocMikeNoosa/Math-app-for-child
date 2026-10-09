@@ -1,0 +1,71 @@
+{
+ "_note": "EU version: iShares Core S&P 500 UCITS ETF (CSPX, London, USD) as the core. Verify the contract in IBKR/PKO before trading. Its price is not in the bundled dataset, so pass --prices in paper/manual mode.",
+ "targets": {
+  "CSPX": 0.700003,
+  "NVDA": 0.033333,
+  "GOOGL": 0.033333,
+  "ANET": 0.033333,
+  "FTNT": 0.033333,
+  "AMAT": 0.033333,
+  "LRCX": 0.033333,
+  "KLAC": 0.033333,
+  "VRTX": 0.033333,
+  "REGN": 0.033333
+ },
+ "band": 0.02,
+ "max_cost_pct": 0.01,
+ "cash_buffer": 0.005,
+ "max_order_value": 25000,
+ "ibkr_contracts": {
+  "CSPX": {
+   "symbol": "CSPX",
+   "exchange": "LSEETF",
+   "currency": "USD"
+  },
+  "NVDA": {
+   "symbol": "NVDA",
+   "exchange": "SMART",
+   "currency": "USD"
+  },
+  "GOOGL": {
+   "symbol": "GOOGL",
+   "exchange": "SMART",
+   "currency": "USD"
+  },
+  "ANET": {
+   "symbol": "ANET",
+   "exchange": "SMART",
+   "currency": "USD"
+  },
+  "FTNT": {
+   "symbol": "FTNT",
+   "exchange": "SMART",
+   "currency": "USD"
+  },
+  "AMAT": {
+   "symbol": "AMAT",
+   "exchange": "SMART",
+   "currency": "USD"
+  },
+  "LRCX": {
+   "symbol": "LRCX",
+   "exchange": "SMART",
+   "currency": "USD"
+  },
+  "KLAC": {
+   "symbol": "KLAC",
+   "exchange": "SMART",
+   "currency": "USD"
+  },
+  "VRTX": {
+   "symbol": "VRTX",
+   "exchange": "SMART",
+   "currency": "USD"
+  },
+  "REGN": {
+   "symbol": "REGN",
+   "exchange": "SMART",
+   "currency": "USD"
+  }
+ }
+}

@@ -1,0 +1,418 @@
+{
+ "targets": {
+  "SPY": 0.7,
+  "NVDA": 0.03333333333333334,
+  "GOOGL": 0.03333333333333334,
+  "ANET": 0.03333333333333334,
+  "FTNT": 0.03333333333333334,
+  "AMAT": 0.03333333333333334,
+  "LRCX": 0.03333333333333334,
+  "KLAC": 0.03333333333333334,
+  "VRTX": 0.03333333333333334,
+  "REGN": 0.03333333333333334
+ },
+ "start": "2016-01-04",
+ "end": "2026-10-07",
+ "runs": [
+  {
+   "size": 10000,
+   "broker": "PKO BP",
+   "policy": "Monthly",
+   "final_value": 91740.6645105049,
+   "cagr": 0.22880293951461717,
+   "max_drawdown": -0.32968630647230734,
+   "orders": 77,
+   "costs": 1436.3585045840528
+  },
+  {
+   "size": 10000,
+   "broker": "PKO BP",
+   "policy": "Quarterly",
+   "final_value": 87620.14556994812,
+   "cagr": 0.22356459723246913,
+   "max_drawdown": -0.3263814132601006,
+   "orders": 48,
+   "costs": 1119.668810705126
+  },
+  {
+   "size": 10000,
+   "broker": "PKO BP",
+   "policy": "Yearly",
+   "final_value": 80152.93676708169,
+   "cagr": 0.21347459511953004,
+   "max_drawdown": -0.3198213235954408,
+   "orders": 23,
+   "costs": 816.225478344724
+  },
+  {
+   "size": 10000,
+   "broker": "PKO BP",
+   "policy": "When 2+ points off (checked monthly)",
+   "final_value": 91845.2765890082,
+   "cagr": 0.22893313199372223,
+   "max_drawdown": -0.32968630647230734,
+   "orders": 65,
+   "costs": 1314.8258214156638
+  },
+  {
+   "size": 10000,
+   "broker": "PKO BP",
+   "policy": "Never (buy once and hold)",
+   "final_value": 112183.04601790328,
+   "cagr": 0.25199890808789815,
+   "max_drawdown": -0.3334152326123948,
+   "orders": 10,
+   "costs": 724.0798600575621
+  },
+  {
+   "size": 10000,
+   "broker": "Interactive Brokers",
+   "policy": "Monthly",
+   "final_value": 90145.27204477658,
+   "cagr": 0.2268005622855518,
+   "max_drawdown": -0.3164446748652495,
+   "orders": 439,
+   "costs": 442.9673496014216
+  },
+  {
+   "size": 10000,
+   "broker": "Interactive Brokers",
+   "policy": "Quarterly",
+   "final_value": 86119.07085803832,
+   "cagr": 0.2216006420532528,
+   "max_drawdown": -0.31526912225471193,
+   "orders": 232,
+   "costs": 236.90420688322885
+  },
+  {
+   "size": 10000,
+   "broker": "Interactive Brokers",
+   "policy": "Yearly",
+   "final_value": 75337.23409674931,
+   "cagr": 0.20650489132615912,
+   "max_drawdown": -0.31503098346475356,
+   "orders": 76,
+   "costs": 81.36530346569043
+  },
+  {
+   "size": 10000,
+   "broker": "Interactive Brokers",
+   "policy": "When 2+ points off (checked monthly)",
+   "final_value": 90389.17524725548,
+   "cagr": 0.22710875643462414,
+   "max_drawdown": -0.31526832853502174,
+   "orders": 63,
+   "costs": 69.45902238502923
+  },
+  {
+   "size": 10000,
+   "broker": "Interactive Brokers",
+   "policy": "Never (buy once and hold)",
+   "final_value": 114991.05051355307,
+   "cagr": 0.2548796371007396,
+   "max_drawdown": -0.3311922708506142,
+   "orders": 10,
+   "costs": 13.399916
+  },
+  {
+   "size": 25000,
+   "broker": "PKO BP",
+   "policy": "Monthly",
+   "final_value": 225169.51458758645,
+   "cagr": 0.22670251832801225,
+   "max_drawdown": -0.3144710861994744,
+   "orders": 142,
+   "costs": 3097.7067232103873
+  },
+  {
+   "size": 25000,
+   "broker": "PKO BP",
+   "policy": "Quarterly",
+   "final_value": 208210.1689053186,
+   "cagr": 0.21780518076118982,
+   "max_drawdown": -0.32264959154986994,
+   "orders": 90,
+   "costs": 2489.2476146047647
+  },
+  {
+   "size": 25000,
+   "broker": "PKO BP",
+   "policy": "Yearly",
+   "final_value": 177731.6580955657,
+   "cagr": 0.20001820509418655,
+   "max_drawdown": -0.3205804668681834,
+   "orders": 39,
+   "costs": 1782.2583366147737
+  },
+  {
+   "size": 25000,
+   "broker": "PKO BP",
+   "policy": "When 2+ points off (checked monthly)",
+   "final_value": 221767.33090754095,
+   "cagr": 0.224967555655051,
+   "max_drawdown": -0.3149712100239498,
+   "orders": 63,
+   "costs": 2348.027271014051
+  },
+  {
+   "size": 25000,
+   "broker": "PKO BP",
+   "policy": "Never (buy once and hold)",
+   "final_value": 282005.0257427877,
+   "cagr": 0.25263947754560667,
+   "max_drawdown": -0.3334152326123947,
+   "orders": 10,
+   "costs": 1682.2511002683352
+  },
+  {
+   "size": 25000,
+   "broker": "Interactive Brokers",
+   "policy": "Monthly",
+   "final_value": 225881.9547785968,
+   "cagr": 0.22706281801956374,
+   "max_drawdown": -0.316815842726598,
+   "orders": 768,
+   "costs": 789.8460883896216
+  },
+  {
+   "size": 25000,
+   "broker": "Interactive Brokers",
+   "policy": "Quarterly",
+   "final_value": 215330.85729834178,
+   "cagr": 0.22161814237926225,
+   "max_drawdown": -0.3151396844888352,
+   "orders": 317,
+   "costs": 345.0074942833089
+  },
+  {
+   "size": 25000,
+   "broker": "Interactive Brokers",
+   "policy": "Yearly",
+   "final_value": 189224.00901618705,
+   "cagr": 0.20702837900003201,
+   "max_drawdown": -0.3145266458022228,
+   "orders": 88,
+   "costs": 114.84831233879021
+  },
+  {
+   "size": 25000,
+   "broker": "Interactive Brokers",
+   "policy": "When 2+ points off (checked monthly)",
+   "final_value": 226289.28498228887,
+   "cagr": 0.22726835271984047,
+   "max_drawdown": -0.3152461808690622,
+   "orders": 63,
+   "costs": 105.68184108670455
+  },
+  {
+   "size": 25000,
+   "broker": "Interactive Brokers",
+   "policy": "Never (buy once and hold)",
+   "final_value": 287633.0724986981,
+   "cagr": 0.25494270086512394,
+   "max_drawdown": -0.3311922708506141,
+   "orders": 10,
+   "costs": 19.999789999999997
+  },
+  {
+   "size": 50000,
+   "broker": "PKO BP",
+   "policy": "Monthly",
+   "final_value": 437627.80250198755,
+   "cagr": 0.22344174970314135,
+   "max_drawdown": -0.31768574698248575,
+   "orders": 238,
+   "costs": 5784.791113469976
+  },
+  {
+   "size": 50000,
+   "broker": "PKO BP",
+   "policy": "Quarterly",
+   "final_value": 422086.99543396285,
+   "cagr": 0.21933632323681018,
+   "max_drawdown": -0.3135519582362457,
+   "orders": 145,
+   "costs": 4810.9370760026495
+  },
+  {
+   "size": 50000,
+   "broker": "PKO BP",
+   "policy": "Yearly",
+   "final_value": 359734.15734874,
+   "cagr": 0.2013512959569317,
+   "max_drawdown": -0.31545884794871926,
+   "orders": 53,
+   "costs": 3407.8870141305924
+  },
+  {
+   "size": 50000,
+   "broker": "PKO BP",
+   "policy": "When 2+ points off (checked monthly)",
+   "final_value": 439488.54853835545,
+   "cagr": 0.22392440567828675,
+   "max_drawdown": -0.3154496590278364,
+   "orders": 64,
+   "costs": 4253.21982034764
+  },
+  {
+   "size": 50000,
+   "broker": "PKO BP",
+   "policy": "Never (buy once and hold)",
+   "final_value": 565041.6586175952,
+   "cagr": 0.25285229233184725,
+   "max_drawdown": -0.3334152326123948,
+   "orders": 10,
+   "costs": 3279.2031672862922
+  },
+  {
+   "size": 50000,
+   "broker": "Interactive Brokers",
+   "policy": "Monthly",
+   "final_value": 453060.7707535904,
+   "cagr": 0.22738985149537783,
+   "max_drawdown": -0.3172951355914606,
+   "orders": 991,
+   "costs": 1075.3757406334305
+  },
+  {
+   "size": 50000,
+   "broker": "Interactive Brokers",
+   "policy": "Quarterly",
+   "final_value": 431592.2609389123,
+   "cagr": 0.22186328577990788,
+   "max_drawdown": -0.3151142194443044,
+   "orders": 376,
+   "costs": 469.89514412338093
+  },
+  {
+   "size": 50000,
+   "broker": "Interactive Brokers",
+   "policy": "Yearly",
+   "final_value": 379458.9232460533,
+   "cagr": 0.20732774628129036,
+   "max_drawdown": -0.31518153882610966,
+   "orders": 94,
+   "costs": 168.729523082486
+  },
+  {
+   "size": 50000,
+   "broker": "Interactive Brokers",
+   "policy": "When 2+ points off (checked monthly)",
+   "final_value": 452744.3226453636,
+   "cagr": 0.22731013019428414,
+   "max_drawdown": -0.3152432810523125,
+   "orders": 63,
+   "costs": 184.06587313195524
+  },
+  {
+   "size": 50000,
+   "broker": "Interactive Brokers",
+   "policy": "Never (buy once and hold)",
+   "final_value": 575369.775807273,
+   "cagr": 0.25496371525038986,
+   "max_drawdown": -0.3311922708506141,
+   "orders": 10,
+   "costs": 30.999579999999998
+  },
+  {
+   "size": 100000,
+   "broker": "PKO BP",
+   "policy": "Monthly",
+   "final_value": 875686.6640188072,
+   "cagr": 0.22349775077522605,
+   "max_drawdown": -0.3164841286314505,
+   "orders": 439,
+   "costs": 11665.182046723268
+  },
+  {
+   "size": 100000,
+   "broker": "PKO BP",
+   "policy": "Quarterly",
+   "final_value": 837590.2480569881,
+   "cagr": 0.2184491393982726,
+   "max_drawdown": -0.31541989852239516,
+   "orders": 232,
+   "costs": 9421.798214330269
+  },
+  {
+   "size": 100000,
+   "broker": "PKO BP",
+   "policy": "Yearly",
+   "final_value": 733463.4098258144,
+   "cagr": 0.20350477797529676,
+   "max_drawdown": -0.31522659119494445,
+   "orders": 76,
+   "costs": 6835.9880107976915
+  },
+  {
+   "size": 100000,
+   "broker": "PKO BP",
+   "policy": "When 2+ points off (checked monthly)",
+   "final_value": 880463.3252564177,
+   "cagr": 0.22411664309422408,
+   "max_drawdown": -0.315438939861474,
+   "orders": 64,
+   "costs": 8273.199002493508
+  },
+  {
+   "size": 100000,
+   "broker": "PKO BP",
+   "policy": "Never (buy once and hold)",
+   "final_value": 1131023.1113324605,
+   "cagr": 0.2529491126660066,
+   "max_drawdown": -0.3334152326123948,
+   "orders": 10,
+   "costs": 6480.6989152814795
+  },
+  {
+   "size": 100000,
+   "broker": "Interactive Brokers",
+   "policy": "Monthly",
+   "final_value": 909299.6623044449,
+   "cagr": 0.22778941410418052,
+   "max_drawdown": -0.31726899013568,
+   "orders": 1126,
+   "costs": 1429.0581980571762
+  },
+  {
+   "size": 100000,
+   "broker": "Interactive Brokers",
+   "policy": "Quarterly",
+   "final_value": 864014.7839217938,
+   "cagr": 0.22197249340866865,
+   "max_drawdown": -0.3151733912482788,
+   "orders": 401,
+   "costs": 695.4134146121983
+  },
+  {
+   "size": 100000,
+   "broker": "Interactive Brokers",
+   "policy": "Yearly",
+   "final_value": 758854.7689284071,
+   "cagr": 0.2073184173929825,
+   "max_drawdown": -0.3151794556277826,
+   "orders": 97,
+   "costs": 294.2302815256157
+  },
+  {
+   "size": 100000,
+   "broker": "Interactive Brokers",
+   "policy": "When 2+ points off (checked monthly)",
+   "final_value": 905500.1642448598,
+   "cagr": 0.22731158160407827,
+   "max_drawdown": -0.3152432846661263,
+   "orders": 63,
+   "costs": 366.096590887743
+  },
+  {
+   "size": 100000,
+   "broker": "Interactive Brokers",
+   "policy": "Never (buy once and hold)",
+   "final_value": 1150739.5557597785,
+   "cagr": 0.25496371567064324,
+   "max_drawdown": -0.3311922708506143,
+   "orders": 10,
+   "costs": 61.9988
+  }
+ ]
+}

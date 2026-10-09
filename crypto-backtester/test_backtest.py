@@ -100,6 +100,30 @@ def test_portfolio_delisted_stock_goes_to_cash():
     assert np.isclose(eq.iloc[-1], 10_000) and eq.notna().all()
 
 
+def test_portfolio_min_fee_and_custody():
+    from portfolio import run_portfolio
+    idx = pd.bdate_range("2021-01-01", periods=60)
+    px = pd.DataFrame({"A": 100.0, "B": 50.0}, idx)
+    # Two orders at the first rebalance, each $2,500 -> 0.28% = $7 < $10 minimum.
+    eq, info = run_portfolio(px, lambda d: {"A": 0.25, "B": 0.25}, idx[0], fee=0.0028, slippage=0.0,
+                             min_fee=10.0)
+    assert info["orders"] == 2 and np.isclose(eq.iloc[-1], 10_000 - 20)
+    eq2, info2 = run_portfolio(px, lambda d: {"A": 0.5}, idx[0], fee=0.0, slippage=0.0, custody_annual=0.0252)
+    days_held = (eq2.index > idx[idx.get_loc(next(d for d in idx if d.month == 2)) - 1]).sum()
+    assert eq2.iloc[-1] < 10_000 and np.isclose(10_000 - eq2.iloc[-1], info2["total_costs"])
+
+
+def test_portfolio_band_and_quarterly_frequency():
+    from portfolio import decision_days_for, run_portfolio
+    idx = pd.bdate_range("2021-01-01", "2021-12-31")
+    assert len(decision_days_for(idx, "Q")) == 4 and len(decision_days_for(idx, "A")) == 1
+    a = pd.Series(np.linspace(100, 110, len(idx)), idx)   # drifts weight by under 2 points
+    px = pd.DataFrame({"A": a, "B": 100.0})
+    _, banded = run_portfolio(px, lambda d: {"A": 0.5, "B": 0.5}, idx[0], fee=0.0, slippage=0.0, band=0.05)
+    _, monthly = run_portfolio(px, lambda d: {"A": 0.5, "B": 0.5}, idx[0], fee=0.0, slippage=0.0)
+    assert banded["orders"] == 2 and monthly["orders"] > banded["orders"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

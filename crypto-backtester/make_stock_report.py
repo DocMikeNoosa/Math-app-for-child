@@ -119,6 +119,48 @@ def matrix():
             f"<tbody>{''.join(rows)}</tbody></table></div>")
 
 
+BR_FILE = HERE / "results" / "brokers.json"
+BR = json.loads(BR_FILE.read_text()) if BR_FILE.exists() else None
+
+
+def broker_section():
+    if BR is None:
+        return ""
+    runs = {(r["size"], r["broker"], r["policy"]): r for r in BR["runs"]}
+    pols = ["When 2+ points off (checked monthly)", "Quarterly", "Never (buy once and hold)"]
+    rows = []
+    for size in (10_000, 50_000, 100_000):
+        for pol in pols:
+            k, i = runs[(size, "PKO BP", pol)], runs[(size, "Interactive Brokers", pol)]
+            rows.append(f"<tr><th scope=row>{money(size)} · {html.escape(pol)}</th>"
+                        f"<td>{money(k['costs'])}</td><td>{k['orders']}</td>"
+                        f"<td>{money(i['costs'])}</td><td>{i['orders']}</td></tr>")
+    return f"""
+<section id="brokers">
+  <h2>PKO BP vs Interactive Brokers <small>same portfolio, {BR['start']} to {BR['end']}</small></h2>
+  <p>The portfolio is 70% S&amp;P 500 fund plus 30% split across the nine picks. The table shows what each broker would have charged in total, including commissions, custody fees and currency conversion. "Orders" counts trades placed. At PKO, rebalancing trades whose $10 minimum fee would be more than 1% of the trade are skipped.</p>
+  <div class="scroll"><table class="narrow"><thead><tr><th scope=col>Starting amount · rebalancing</th><th>PKO BP costs</th><th>Orders</th><th>IBKR costs</th><th>Orders</th></tr></thead>
+  <tbody>{''.join(rows)}</tbody></table></div>
+  <p class="muted">PKO cost model: 0.28% per foreign order with a $10 minimum, 0.15% a year custody on foreign holdings, and about 1% to convert PLN to USD once. Interactive Brokers: about $0.005 per share with a $1 minimum, no custody fee. Costs grow with the portfolio, because custody is charged on its value. Check both brokers' current price lists; PKO's figures come from its website and comparison sites.</p>
+  <div class="pair">
+    <div>
+      <h3>PKO BP at a glance</h3>
+      <ul class="picks" style="grid-template-columns:1fr">
+        <li>US stocks and ETFs: 0.28%, minimum $10 / 38 PLN per order</li>
+        <li>Custody of foreign securities: 0.15% a year</li>
+        <li>Currency: use a USD sub-account and PKO's online exchange (about 0.8–1.1% spread)</li>
+        <li>No public trading API found: orders go through PKO supermakler by hand</li>
+        <li>IKE/IKZE for foreign shares: reported as unavailable (2024); ask PKO to confirm</li>
+      </ul>
+    </div>
+    <div>
+      <h3>What that means</h3>
+      <p>For a buy-and-hold portfolio of about $50,000 or more, PKO's main cost is the 0.15% yearly custody fee. Below about $25,000, the $10 minimum makes rebalancing small positions expensive. Interactive Brokers is cheaper at every size and has an API. PKO's advantages are a Polish bank account, Polish-language support and tax reporting (PIT-8C).</p>
+    </div>
+  </div>
+</section>"""
+
+
 P, RB = R["portfolios"], R["rule_based"]
 eqw, mom, spy, qqq = (P["Equal weight, rebalanced monthly"], P["Momentum: top 4 of 9 (6-month return)"],
                       P["S&P 500 (SPY)"], P["Nasdaq-100 (QQQ)"])
@@ -169,6 +211,8 @@ page = f"""<title>Quality Stock Backtest</title>
   {stats_table(P, "Equal weight, rebalanced monthly", {"S&P 500 (SPY)", "Nasdaq-100 (QQQ)"})}
   <p class="muted">Each month, weights are set from that month's closing data and traded the next day. The trend filter holds a stock only while it's above its 200-day average, otherwise that slot sits in cash. Momentum holds the 4 picks with the best 6-month return. Inverse-volatility gives calmer stocks bigger weights.</p>
 </section>
+
+{broker_section()}
 
 <section id="timing">
   <h2>Timing each stock on its own <small>yearly return since {R['start_a'][:4]}</small></h2>

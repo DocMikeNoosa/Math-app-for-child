@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 data/stocks/
+rebalancer/paper_account.json
+rebalancer/trade_log.csv
+orders_to_enter.csv
