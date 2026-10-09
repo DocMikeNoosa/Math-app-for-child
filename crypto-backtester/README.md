@@ -20,6 +20,19 @@ Options:
   re-runs crypto at Interactive Brokers' 0.18% rate (the report compares both).
 - `--assets BTC,ETH,SP500` picks markets; S&P 500 costs are set in `run.py`.
 
+## Stocks
+
+```bash
+pip install pyarrow
+python run_stocks.py          # downloads ~165 MB of daily S&P 500 stock prices on first run
+python make_stock_report.py   # builds stocks_report.html
+```
+
+Tests 9 hand-picked low-debt, high-margin, R&D-heavy stocks (individually and as
+portfolios, since 2016), plus a rule-based "hot & steady" stock picker that
+uses only point-in-time S&P 500 membership and past prices (since 2012).
+The hand-picked results carry hindsight bias; the rule-based test does not.
+
 ## Files
 
 | File | What it does |
@@ -28,7 +41,11 @@ Options:
 | `strategies.py` | Indicators and the 12 strategies (each returns a 0–1 position) |
 | `backtest.py` | Engine (next-day-open execution, fees, slippage) and metrics |
 | `run.py` | Runs everything, splits results before/after 2022, walk-forward and robustness tests |
-| `make_report.py` | HTML report |
+| `make_report.py` | HTML report (crypto + S&P 500) |
+| `stock_data.py` | Downloads and loads the stock dataset and point-in-time index membership |
+| `portfolio.py` | Monthly-rebalanced multi-stock portfolio engine |
+| `run_stocks.py` | Stock picks, screens and all stock backtests |
+| `make_stock_report.py` | HTML stock report |
 
 ## Assumptions
 

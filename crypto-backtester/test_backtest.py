@@ -72,6 +72,34 @@ def test_parse_kraken_ohlc_format():
     assert df["Close"].iloc[-1] == 37800.0 and len(df) == 2
 
 
+def test_portfolio_single_asset_matches_price_ratio():
+    from portfolio import run_portfolio
+    idx = pd.bdate_range("2021-01-01", periods=80)
+    px = pd.DataFrame({"A": np.linspace(100, 180, 80)}, idx)
+    eq, info = run_portfolio(px, lambda d: {"A": 1.0}, idx[0], fee=0.0, slippage=0.0)
+    first_trade = idx.get_loc(next(d for d in idx if d.month == 2))  # day after Jan month-end
+    assert np.isclose(eq.iloc[-1], 10_000 * px["A"].iloc[-1] / px["A"].iloc[first_trade])
+
+
+def test_portfolio_costs_and_cash_weight():
+    from portfolio import run_portfolio
+    idx = pd.bdate_range("2021-01-01", periods=60)
+    px = pd.DataFrame({"A": 100.0, "B": 50.0}, idx)
+    eq, info = run_portfolio(px, lambda d: {"A": 0.25, "B": 0.25}, idx[0], fee=0.001, slippage=0.0)
+    # Flat prices: only the first rebalance trades (50% of capital), later ones trade nothing.
+    assert np.isclose(eq.iloc[-1], 10_000 - 5_000 * 0.001)
+
+
+def test_portfolio_delisted_stock_goes_to_cash():
+    from portfolio import run_portfolio
+    idx = pd.bdate_range("2021-01-01", periods=60)
+    a = pd.Series(100.0, idx)
+    a.iloc[40:] = np.nan                     # price history ends
+    px = pd.DataFrame({"A": a, "B": 50.0})
+    eq, _ = run_portfolio(px, lambda d: {"A": 1.0}, idx[0], fee=0.0, slippage=0.0)
+    assert np.isclose(eq.iloc[-1], 10_000) and eq.notna().all()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
