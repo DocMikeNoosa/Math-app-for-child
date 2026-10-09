@@ -55,6 +55,7 @@ const ICONS = {
   sync: '<path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5"/><path d="M20 3.5v5h-5"/><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15.5"/><path d="M4 20.5v-5h5"/>',
   phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.6"/><path d="M11 18.5h2"/>',
   microscope: '<path d="M6 21h12M9 21v-3h6v3M11 18a6 6 0 0 0 6.7-9.5"/><path d="M9.5 3.5l3 1.7-3.5 6-3-1.7z"/><path d="M8 11.5l-1 1.8M13.3 6.3l1-1.8"/>',
+  gauge: '<path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-5"/><circle cx="12" cy="17" r="1.2"/>',
   home: '<path d="M3.5 11 12 4l8.5 7"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-5h4v5"/>',
   install: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 7v6M9.5 10.5 12 13l2.5-2.5M8 20h8"/>',
 };
@@ -69,7 +70,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '2.3.3';
+export const APP_VERSION = '2.3.4';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -571,7 +572,7 @@ function openTooth(fdi) {
 function workspaceHTML() {
   const t = S.ws.draft, ti = toothInfo(t.fdi);
   const counts = { anat: (t.roots || []).reduce((a, r) => a + r.canals.length, 0), work: (t.work || []).length, mat: (t.products || []).length, manual: t.manual ? '✓' : '' };
-  const tabs = [['anat', 'Anatomia', counts.anat], ['dx', 'Badanie i rozpoznanie'], ['endo', 'Endodoncja', t.endo.proc ? '✓' : ''], ['work', 'Inne prace', counts.work || ''], ['mat', 'Materiały i sprzęt', counts.mat || ''], ['manual', 'Opis własny', counts.manual], ['rec', 'Zalecenia']];
+  const tabs = [['anat', 'Anatomia', counts.anat], ['dx', 'Badanie i rozpoznanie'], ['endo', 'Endodoncja', t.endo.proc ? '✓' : ''], ['work', 'Inne prace', counts.work || ''], ['mat', 'Materiały i sprzęt', counts.mat || ''], ['manual', 'Opis własny', counts.manual], ['rec', 'Zalecenia', t.rec?.prog ? '✓' : '']];
   return `<div class="ws" role="dialog" aria-modal="true" aria-label="Ząb ${t.fdi}">
     <header class="ws-head"><div class="tp-num">${t.fdi}</div><div class="grow"><div class="ws-title">${esc(ti.name[0].toUpperCase() + ti.name.slice(1))}</div><div class="tp-name" id="ws-sum">${esc(toothSummary(t))}</div></div>
       ${S.ws.isNew ? '' : `<button class="btn btn-ghost btn-sm btn-danger" data-act="rm-tooth">${I('trash')} Usuń ząb</button>`}
@@ -695,6 +696,13 @@ function quickToggle(t, key) {
   // ticking any treatment step means root canal treatment was done (rubber dam / microscope alone do not)
   if (!on && !e.proc && !['dam', 'micro'].includes(f)) { e.proc = 'RCT'; e.status = f === 'medic' && !e.obtur ? 'stage' : 'done'; }
 }
+/** Prognosis — large, colour-coded buttons (shown in Endodoncja and Zalecenia; same field). */
+function progCard(t) {
+  const v = t.rec?.prog || '';
+  const opts = [['good', 'dobre'], ['fair', 'niepewne'], ['poor', 'złe'], ['', 'nie podawaj']];
+  return `<div class="prog-card ${v ? 'set p-' + v : ''}"><div class="pc-h"><span class="mi">${I('gauge')}</span><span class="grow"><b>Rokowanie</b><small>${v ? `w liście: „Rokowanie: ${esc(PROG[v])}”` : 'wybierz — pojawi się w zaleceniach listu'}</small></span></div>
+    <div class="seg prog-seg" data-seg="t.rec.prog">${opts.map(([k, l]) => `<button type="button" data-v="${k}" class="${v === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
+}
 function tabEndo(t) {
   const e = t.endo, pr = ENDO[e.proc];
   const procs = { '': '— brak leczenia endodontycznego —', ...Object.fromEntries(Object.entries(ENDO).map(([k, v]) => [k, v.label])) };
@@ -702,6 +710,7 @@ function tabEndo(t) {
   if (!pr) return `${sel('t.endo.proc', 'Procedura', procs, { re: true })}${quick}<div class="hint" style="margin-top:10px">Wybierz procedurę endodontyczną. Prace inne niż endodontyczne dodasz w zakładce „Inne prace", a wszystko, czego nie ma w formularzu — w zakładce „Opis własny".</div>`;
   const canals = t.roots.flatMap((r, ri) => r.canals.map((c, ci) => ({ c, ri, ci })));
   return `<div class="grid g3">${sel('t.endo.proc', 'Procedura', procs, { cls: 'span2', re: true })}${pr.consult ? '' : `<div class="f"><span>Status</span>${seg('t.endo.status', ENDO_STATUS, { re: true })}</div>`}</div>
+    ${pr.consult ? '' : progCard(t)}
     ${pr.consult ? `<div class="row nowrap" style="margin-top:12px">${inp('t.endo.note', 'Opis konsultacji', { area: true, rows: 4, ph: 'Wnioski z konsultacji, zalecany plan leczenia…' })}${micBtn('t.endo.note')}</div>` : e.status === 'planned' ? `<div style="margin-top:12px">${inp('t.endo.note', 'Uwagi', { area: true, rows: 2 })}</div>` : `
     ${quick}
     <div class="label">Znieczulenie</div>
@@ -775,7 +784,7 @@ function tabManual(t) {
 function tabRec(t) {
   return `<div class="grid g2">${sel('t.rec.restor', 'Odbudowa', RESTOR, { re: true })}${!['', 'none', 'after'].includes(t.rec.restor) ? `<div class="f"><span>Termin</span>${seg('t.rec.time', { '2w': '2 tyg.', '30d': '30 dni', '60d': '2 mies.', asap: 'pilnie', '': 'bez terminu' })}</div>` : '<div></div>'}</div>
     <div class="label">Kontrola</div>${seg('t.rec.control', CONTROL)}
-    <div class="label">Rokowanie</div>${seg('t.rec.prog', PROG)}
+    <div style="margin-top:16px">${progCard(t)}</div>
     <div class="row nowrap" style="margin-top:14px">${inp('t.rec.note', 'Dodatkowe zalecenia', { area: true, rows: 2, ph: 'Opcjonalnie' })}${micBtn('t.rec.note')}</div>`;
 }
 
@@ -1460,7 +1469,7 @@ document.addEventListener('click', async (e) => {
   const t = e.target;
   const nav = t.closest('[data-nav]'); if (nav && S.session) { S.search = ''; go(nav.dataset.nav); return; }
   const segb = t.closest('.seg[data-seg] button');
-  if (segb) { const sg = segb.parentElement; setBound(sg.dataset.seg, segb.dataset.v); $$('button', sg).forEach((b) => b.classList.toggle('on', b === segb)); if (sg.dataset.re || sg.dataset.seg.startsWith('v.')) rerender(sg.dataset.seg); return; }
+  if (segb) { const sg = segb.parentElement; setBound(sg.dataset.seg, segb.dataset.v); $$('button', sg).forEach((b) => b.classList.toggle('on', b === segb)); if (sg.classList.contains('prog-seg')) { const c = sg.closest('.prog-card'), v = segb.dataset.v; c.className = `prog-card ${v ? 'set p-' + v : ''}`; $('.pc-h small', c).textContent = v ? `w liście: „Rokowanie: ${PROG[v]}”` : 'wybierz — pojawi się w zaleceniach listu'; const tb = $('#ws-tabs [data-ttab=rec]'); if (tb) tb.innerHTML = `Zalecenia${v ? ' <span class="badge">✓</span>' : ''}`; } if (sg.dataset.re || sg.dataset.seg.startsWith('v.')) rerender(sg.dataset.seg); return; }
   const mic = t.closest('[data-mic]'); if (mic) { toggleMic(mic); return; }
   const tooth = t.closest('#arch g.tooth'); if (tooth) { openTooth(+tooth.dataset.fdi); return; }
   const tch = t.closest('[data-open-tooth]'); if (tch) { openTooth(+tch.dataset.openTooth); return; }

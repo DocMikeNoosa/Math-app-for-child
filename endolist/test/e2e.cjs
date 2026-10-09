@@ -109,6 +109,10 @@ async function mockAI(p, reviseOut) {
   await seg('t.endo.anesth', 'block'); await p.fill('[data-b="t.endo.agent"]', 'Ubistesin forte, 1 karpula');
   const wls = p.locator('table.wl input[data-b$=".wl"]'); const wl = ['21', '21', '20,5', '21']; for (let i = 0; i < 4; i++) await wls.nth(i).fill(wl[i]);
   await p.fill('[data-b="t.endo.naocl"]', '5,25');
+  // prognosis: large card right in the Endodoncja tab
+  ok(await p.locator('#ws .prog-card .prog-seg button[data-v="good"]').isVisible(), 'prognosis card visible in the Endodoncja tab');
+  await seg('t.rec.prog', 'fair'); await p.waitForTimeout(100);
+  ok(await p.locator('#ws .prog-card.p-fair').count() === 1 && (await p.textContent('#ws .prog-card')).includes('niepewne'), 'prognosis chosen in Endodoncja (card shows the choice)'); await p.locator('#ws .prog-card').scrollIntoViewIfNeeded(); await p.locator('#ws .ws-right').screenshot({ path: path.join(OUT, '06b-prognosis.png') });
   await p.waitForTimeout(700);
   await shot(p, '06-ws-endo');
   await p.click('[data-ttab=mat]');
@@ -137,7 +141,7 @@ async function mockAI(p, reviseOut) {
   await p.evaluate(() => { window.__speak = ''; });
   await shot(p, '08-ws-manual');
   await p.click('[data-ttab=rec]');
-  await p.selectOption('[data-b="t.rec.restor"]', 'crown'); await p.waitForTimeout(100); await seg('t.rec.time', '30d'); await seg('t.rec.control', '6-12m'); await seg('t.rec.prog', 'good');
+  await p.selectOption('[data-b="t.rec.restor"]', 'crown'); await p.waitForTimeout(100); await seg('t.rec.time', '30d'); await seg('t.rec.control', '6-12m'); ok(await p.locator('#ws .prog-card [data-v="fair"].on').count() === 1, 'same prognosis shown in Zalecenia'); await seg('t.rec.prog', 'good');
   await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
   ok(await p.locator('#ws').count() === 0 && (await p.textContent('#vteeth')).includes('36'), 'tooth saved and workspace closed');
   // tooth 37: filling with product; tooth 16 just viewed

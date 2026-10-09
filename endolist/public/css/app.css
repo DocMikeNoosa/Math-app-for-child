@@ -555,3 +555,22 @@ body { overflow-x: hidden; }
 .next-btns { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 10px; }
 .next-btns .btn { width: 100%; min-width: 0; justify-content: center; }
 .brand[data-act="go-home"] { cursor: pointer; }
+
+/* prognosis card (Endodoncja + Zalecenia) */
+.prog-card { padding: 12px 14px 14px; margin: 14px 0 16px; border-radius: 16px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, 0.025); }
+.prog-card .pc-h { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.prog-card .pc-h .mi { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: rgba(255, 255, 255, 0.05); color: var(--dim); flex: none; }
+.prog-card .pc-h b { display: block; font-size: 15px; color: var(--strong); }
+.prog-card .pc-h small { display: block; color: var(--dim); font-size: 12px; margin-top: 1px; }
+.prog-card.p-good { border-color: rgba(52, 211, 153, 0.5); background: rgba(52, 211, 153, 0.07); }
+.prog-card.p-fair { border-color: rgba(255, 181, 71, 0.5); background: rgba(255, 181, 71, 0.07); }
+.prog-card.p-poor { border-color: rgba(255, 99, 120, 0.5); background: rgba(255, 99, 120, 0.07); }
+.prog-card.p-good .mi { color: #34d399; } .prog-card.p-fair .mi { color: #ffb547; } .prog-card.p-poor .mi { color: #ff6378; }
+.prog-seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; gap: 6px; padding: 0; border: 0; background: none; }
+.prog-seg button { transition: none; height: 42px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--line-2); background: rgba(3, 8, 18, 0.35); font-size: 14px; font-weight: 650; color: var(--text); }
+.prog-seg button[data-v=""] { font-weight: 500; color: var(--dim); font-size: 12.5px; }
+.prog-seg button[data-v="good"].on { background: rgba(52, 211, 153, 0.2); color: #6ee7b7; box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.7); }
+.prog-seg button[data-v="fair"].on { background: rgba(255, 181, 71, 0.2); color: #ffcf85; box-shadow: inset 0 0 0 1px rgba(255, 181, 71, 0.7); }
+.prog-seg button[data-v="poor"].on { background: rgba(255, 99, 120, 0.2); color: #ff9aa8; box-shadow: inset 0 0 0 1px rgba(255, 99, 120, 0.7); }
+.prog-seg button[data-v=""].on { background: rgba(255, 255, 255, 0.07); color: var(--strong); box-shadow: inset 0 0 0 1px var(--line-2); }
+@media (max-width: 520px) { .prog-seg { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
