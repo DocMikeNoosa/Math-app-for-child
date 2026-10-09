@@ -30,9 +30,14 @@ def rsi(close, n=14):
     return (100 - 100 / (1 + rs)).fillna(100)
 
 
-def realized_vol(close, n=30):
-    """Annualised volatility of daily log returns (crypto trades 365 days)."""
-    return np.log(close).diff().rolling(n, min_periods=n).std() * np.sqrt(365)
+def periods_per_year(df):
+    """Bars per year: 365 for crypto, 252 for stocks (set in df.attrs by run.py)."""
+    return df.attrs.get("periods_per_year", 365)
+
+
+def realized_vol(close, n=30, ann=365):
+    """Annualised volatility of daily log returns."""
+    return np.log(close).diff().rolling(n, min_periods=n).std() * np.sqrt(ann)
 
 
 def rolling_pct_rank(s, n=365):
@@ -49,9 +54,10 @@ def mood_proxy(df):
     see news or social media, so it's a proxy, not true news sentiment.
     """
     c = df["Close"]
-    momentum = rolling_pct_rank(c / sma(c, 90) - 1)
-    calm = 1 - rolling_pct_rank(realized_vol(c, 30))
-    vol_surge = rolling_pct_rank(df["Volume"].rolling(7).mean() / df["Volume"].rolling(90).mean())
+    year = periods_per_year(df)
+    momentum = rolling_pct_rank(c / sma(c, 90) - 1, year)
+    calm = 1 - rolling_pct_rank(realized_vol(c, 30), year)
+    vol_surge = rolling_pct_rank(df["Volume"].rolling(7).mean() / df["Volume"].rolling(90).mean(), year)
     # Volume surges during rallies read as greed, during sell-offs as fear.
     direction = np.sign(c.pct_change(7)).replace(0, 1)
     volume_score = 0.5 + direction * (vol_surge - 0.5)
@@ -145,9 +151,14 @@ def trend_ensemble(df, sent=None):
     return sum(votes) / len(votes)
 
 
-def vol_target(df, pos, target=0.50, cap=1.0):
-    """Scale a position so expected volatility is ~target (no leverage)."""
-    vol = realized_vol(df["Close"], 30)
+def vol_target(df, pos, target=None, cap=1.0):
+    """Scale a position so expected volatility is ~target (no leverage).
+
+    Default target comes from df.attrs: 50% for crypto, 15% for stock indexes
+    (both a bit below each market's long-run volatility).
+    """
+    target = target or df.attrs.get("vol_target", 0.50)
+    vol = realized_vol(df["Close"], 30, periods_per_year(df))
     return (pos * (target / vol).clip(upper=cap)).fillna(0.0)
 
 

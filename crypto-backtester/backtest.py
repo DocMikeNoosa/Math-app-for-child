@@ -58,16 +58,16 @@ def run_backtest(df, target, start, end=None, capital=10_000.0,
     return Result(pd.Series(equity, idx), pd.Series(weights, idx), trades, fees)
 
 
-def metrics(res: Result) -> dict:
+def metrics(res: Result, periods_per_year: int = 365) -> dict:
     eq = res.equity
     rets = eq.pct_change().dropna()
     years = (eq.index[-1] - eq.index[0]).days / 365.25
     total = eq.iloc[-1] / eq.iloc[0] - 1
     cagr = (eq.iloc[-1] / eq.iloc[0]) ** (1 / years) - 1 if years > 0 else np.nan
     dd = eq / eq.cummax() - 1
-    vol = rets.std() * np.sqrt(365)
-    sharpe = rets.mean() / rets.std() * np.sqrt(365) if rets.std() > 0 else np.nan
-    downside = rets[rets < 0].std() * np.sqrt(365)
+    vol = rets.std() * np.sqrt(periods_per_year)
+    sharpe = rets.mean() / rets.std() * np.sqrt(periods_per_year) if rets.std() > 0 else np.nan
+    downside = rets[rets < 0].std() * np.sqrt(periods_per_year)
     return {
         "final_value": eq.iloc[-1],
         "total_return": total,
@@ -75,7 +75,7 @@ def metrics(res: Result) -> dict:
         "max_drawdown": dd.min(),
         "volatility": vol,
         "sharpe": sharpe,
-        "sortino": rets.mean() * 365 / downside if downside > 0 else np.nan,
+        "sortino": rets.mean() * periods_per_year / downside if downside > 0 else np.nan,
         "calmar": cagr / abs(dd.min()) if dd.min() < 0 else np.nan,
         "time_in_market": res.weight.mean(),
         "trades": res.trades,

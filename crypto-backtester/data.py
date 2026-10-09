@@ -21,19 +21,24 @@ DATA_DIR = Path(__file__).parent / "data"
 KRAKEN_PAIRS = {"BTC": "XBTUSD", "ETH": "ETHUSD"}
 
 
-def load_csv(symbol: str) -> pd.DataFrame:
-    """Load daily OHLCV for symbol ('BTC' or 'ETH') from data/<symbol>.csv."""
+def load_csv(symbol: str, fill_calendar: bool = True) -> pd.DataFrame:
+    """Load daily OHLCV from data/<symbol>.csv.
+
+    fill_calendar=True for 24/7 crypto markets; False for stocks/ETFs, whose
+    rows are trading days only (weekends and holidays are not missing data).
+    """
     df = pd.read_csv(DATA_DIR / f"{symbol.lower()}.csv", parse_dates=["Date"])
-    return _clean(df.set_index("Date"))
+    return _clean(df.set_index("Date"), fill_calendar)
 
 
-def _clean(df: pd.DataFrame) -> pd.DataFrame:
+def _clean(df: pd.DataFrame, fill_calendar: bool = True) -> pd.DataFrame:
     df = df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
     df = df[~df.index.duplicated(keep="last")].sort_index()
-    # Crypto trades every day; a handful of days are missing in public datasets.
-    # Forward-fill prices (zero volume) so the calendar is continuous.
-    full = pd.date_range(df.index[0], df.index[-1], freq="D")
-    df = df.reindex(full)
+    if fill_calendar:
+        # Crypto trades every day; a handful of days are missing in public
+        # datasets. Forward-fill prices (zero volume) to keep the calendar continuous.
+        full = pd.date_range(df.index[0], df.index[-1], freq="D")
+        df = df.reindex(full)
     df["Close"] = df["Close"].ffill()
     for col in ("Open", "High", "Low"):
         df[col] = df[col].fillna(df["Close"])

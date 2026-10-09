@@ -1,7 +1,8 @@
-# Crypto strategy backtester
+# Strategy backtester (crypto + S&P 500)
 
 Tests 12 trading strategies (trend-following, mean reversion, sentiment, and
-combinations) on daily BTC and ETH prices, with Kraken Pro fees and slippage.
+combinations) on daily BTC, ETH and S&P 500 prices, with realistic broker fees
+(Kraken Pro or Interactive Brokers for crypto, Interactive Brokers for ETFs).
 
 ## Run it
 
@@ -15,7 +16,9 @@ python test_backtest.py       # engine sanity tests
 Options:
 - `python run.py --fear-greed` uses the real Crypto Fear & Greed Index from
   alternative.me (needs internet). Without it, a price-based mood score stands in.
-- `python run.py --fee 0.0025` tests a different fee (e.g. maker/limit orders).
+- `python run.py --crypto-fee 0.0018 --assets BTC,ETH --out results_ibkr_crypto.json`
+  re-runs crypto at Interactive Brokers' 0.18% rate (the report compares both).
+- `--assets BTC,ETH,SP500` picks markets; S&P 500 costs are set in `run.py`.
 
 ## Files
 
@@ -32,6 +35,8 @@ Options:
 - Signal at day t's close, trade at day t+1's open: no look-ahead (tested).
 - 0.40% taker fee + 0.10% slippage per trade, long-only spot, no leverage, idle cash earns 0%.
 - Taxes are not modelled.
+- `data/sp500.csv` is the S&P 500 index, price only: no dividends (~1.5–2%/yr),
+  and idle cash earns no interest in any test.
 - `data/btc.csv` and `data/eth.csv` are daily USD candles (from the public
   `Mario-SO/ohlcv` GitHub dataset), spot-checked against known historical closes.
   Kraken's API only returns the latest 720 daily candles, so it can't supply
