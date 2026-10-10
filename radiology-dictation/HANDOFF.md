@@ -66,7 +66,7 @@ https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-rad
      restored sentences, and example final reports per template.
 6. Classifications (Fleischner, Bosniak, TI-RADS, LI-RADS, ASPECTS, Fazekas) only from dictated data;
    otherwise a warning naming what is missing.
-6. Workflow: app opens **blank** (choose a template); stopping dictation does NOT make the report — the
+7. Workflow: app opens **blank** (choose a template); stopping dictation does NOT make the report — the
    "Przygotuj opis" button does (background pre-processing during pauses makes it instant); "Nowy opis"
    returns to blank. Voice commands, PowerMic toggle (press = start, press = stop), today's reports list,
    style learning from edits, bold date/clock in the top bar.
