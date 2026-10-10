@@ -153,7 +153,19 @@ export function recSentences(rec) {
 /* ------------------------------------------------------------ list pisany w 1. osobie (generator wbudowany) */
 // Verb in the first person past tense, by the author's gender: v('przeprowadził', g) → przeprowadziłam / przeprowadziłem.
 const v = (stem, g) => stem + (g === 'm' ? 'em' : 'am');
-const IRREG = { rozpoczął: ['rozpoczęłam', 'rozpocząłem'], zamknął: ['zamknęłam', 'zamknąłem'], usunął: ['usunęłam', 'usunąłem'] };
+const IRREG = { rozpoczął: ['rozpoczęłam', 'rozpocząłem'], zamknął: ['zamknęłam', 'zamknąłem'], usunął: ['usunęłam', 'usunąłem'], ominął: ['ominęłam', 'ominąłem'] };
+// Intra-operative findings as first-person sentences (removals are merged into one sentence, told before the shaping).
+const FIND_REMOVED = { postrem: 'wkład koronowo-korzeniowy', oldrem: 'stare wypełnienie kanałowe', sepret: 'złamane narzędzie' };
+const FIND_1P = {
+  mb2: (g) => `${cap(v('odnalazł', g))} i ${v('opracował', g)} kanał MB2.`, extra: (g) => `${cap(v('odnalazł', g))} dodatkowy kanał.`,
+  oblit: (g, one) => (one ? 'Kanał był częściowo zobliterowany.' : 'Kanały były częściowo zobliterowane.'), curve: (g, one) => (one ? 'Kanał był silnie zakrzywiony.' : 'Kanały były silnie zakrzywione.'),
+  crack: (g) => `${cap(v('stwierdził', g))} linię pęknięcia.`, vrf: () => 'Istnieje podejrzenie pionowego złamania korzenia.',
+  sepbp: (g) => `${cap(vi('ominął', g))} złamane narzędzie.`, sepleft: (g) => `Złamane narzędzie ${v('pozostawił', g)} w kanale.`,
+  perf: (g) => `${cap(vi('zamknął', g))} perforację.`, resorp: (g) => `${cap(v('stwierdził', g))} resorpcję.`,
+  ledge: (g) => `W kanale ${v('stwierdził', g)} stopień (niedrożność).`, pus: () => 'Z kanału wydobywał się wysięk ropny.',
+  bleed: (g) => `${cap(v('obserwował', g))} krwawienie z kanału.`, open: () => 'Wierzchołek korzenia był otwarty.',
+  notneg: () => 'Nie udało się udrożnić kanału na pełną długość.',
+};
 const vi = (k, g) => IRREG[k][g === 'm' ? 1 : 0];
 
 /** Examination in two natural sentences: what was abnormal ("W badaniu ząb nie reagował na zimno…, a nagryzanie wywoływało ból.")
@@ -199,6 +211,8 @@ export function endoNarrative(rec, P, g) {
   if (e.micro) cond.push('z użyciem mikroskopu zabiegowego');
   const start = e.status === 'stage' && pr.staged ? cap(vi('rozpoczął', g)) : cap(v('przeprowadził', g));
   out.push(`${start} ${pr.acc}${cond.length ? ' ' + join(cond, ', ', ' i ') : ''}.`);
+  const removed = (e.findings || []).filter((k) => FIND_REMOVED[k]).map((k) => FIND_REMOVED[k]);
+  if (removed.length) out.push(`${cap(vi('usunął', g))} ${join(removed, ', ', ' i ')}.`);
   const canals = anatKnown(rec) ? (rec.roots || []).flatMap((r) => r.canals.map((c) => ({ ...c, root: r }))) : [];
   if (pr.canals && canals.length) {
     const n = canals.length, single = n === 1;
@@ -214,10 +228,11 @@ export function endoNarrative(rec, P, g) {
     if (maf.length) out.push(`Końcowy rozmiar opracowania: ${maf.map((c) => (single ? c.maf : `${canalLabel(c.name)} ${c.maf}`)).join(', ')}.`);
     const ir = (e.irrig || []).filter((k) => !ACT_INS[k]).map((k) => (k === 'naocl' && e.naocl ? `${plNum(e.naocl)}% NaOCl` : IRRIG[k]));
     const act = (e.irrig || []).filter((k) => ACT_INS[k]).map((k) => ACT_INS[k]);
-    if (ir.length) out.push(`Kanały ${v('płukał', g)} ${join(ir, ', ', ' i ')}${act.length ? `, ${join(act, ', ', ' i ')}` : ''}.`);
-    else if (act.length) out.push(`Płukanie kanałów ${v('prowadził', g)} ${join(act, ', ', ' i ')}.`);
+    if (ir.length) out.push(`${single ? 'Kanał' : 'Kanały'} ${v('płukał', g)} ${join(ir, ', ', ' i ')}${act.length ? `, ${join(act, ', ', ' i ')}` : ''}.`);
+    else if (act.length) out.push(`Płukanie ${single ? 'kanału' : 'kanałów'} ${v('prowadził', g)} ${join(act, ', ', ' i ')}.`);
   }
   for (const r of anatKnown(rec) ? rec.roots || [] : []) if (r.lateral) out.push(r.lateral === 'delta' ? `W obrębie ${rootGen(r.label)} ${v('stwierdził', g)} deltę korzeniową.` : `${cap(v('uwidocznił', g))} kanał boczny ${LATERAL[r.lateral]} ${rootGen(r.label)}.`);
+  for (const k of e.findings || []) if (!FIND_REMOVED[k]) out.push(FIND_1P[k] ? FIND_1P[k](g, canals.length === 1) : cap(`${FINDINGS[k] || k}.`));
   if (e.medic && e.status === 'stage') out.push(`Do kanałów ${v('założył', g)} opatrunek leczniczy (${MEDIC[e.medic]}).`);
   else if (e.medic) out.push(`Jako opatrunek leczniczy ${v('zastosował', g)} ${MEDIC[e.medic]}.`);
   if (pr.obt && e.status === 'done' && e.obtur) out.push(`${!canals.length ? 'System kanałowy' : canals.length === 1 ? 'Kanał' : 'Kanały'} ${v('wypełnił', g)} ${OBT_INS[e.obtur]}${e.sealer ? ` z ${SEAL_INS[e.sealer] || `uszczelniaczem (${e.sealer})`}` : ''}.`);
@@ -228,7 +243,6 @@ export function endoNarrative(rec, P, g) {
   if (e.temp === 'comp') out.push(`Na zakończenie ${v('odbudował', g)} ząb materiałem kompozytowym.`);
   else if (e.temp) out.push(`Na zakończenie ząb ${v('zabezpieczył', g)} ${TEMP_INS[e.temp]}.`);
   if (e.postxray) out.push(e.status === 'done' ? `Leczenie ${v('zakończył', g)} kontrolnym zdjęciem RTG.` : `${cap(v('wykonał', g))} kontrolne zdjęcie RTG.`);
-  if ((e.findings || []).length) out.push(`W trakcie zabiegu: ${join(e.findings.map((k) => FINDINGS[k]), '; ', '; ')}.`);
   if (e.status === 'stage' && pr.staged) out.push(`${P.nom} zgłosi się na kolejną wizytę w celu zakończenia leczenia.`);
   if (e.note) out.push(cap(e.note.trim().replace(/([^.])$/, '$1.')));
   return out;
