@@ -45,7 +45,7 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>', x: '<path d="M6 6l12 12M18 6 6 18"/>', check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   print: '<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/>',
-  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>', back: '<path d="M15 5l-7 7 7 7"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>', back: '<path d="M15 5l-7 7 7 7"/>', next: '<path d="M9 5l7 7-7 7"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
   shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.4-4.6"/>',
@@ -70,7 +70,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '2.3.5';
+export const APP_VERSION = '2.4.0';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -514,7 +514,7 @@ function viewVisit() {
   const v = ensureVisit();
   const p = D().patients.get(v.patientId), r = D().referrers.get(v.referrerId);
   const { marks, inv } = visitMarks(v);
-  return `
+  return `<div id="flow">${flowHTML(v)}</div>
   <div class="visitbar">
     <button class="who ${p ? '' : 'empty'}" data-act="pick-patient"><span class="av">${p ? esc(initials(p.first, p.last).toUpperCase()) : I('user')}</span><span><small>Pacjent</small><b>${p ? esc(patientName(p)) : 'Wybierz pacjenta'}</b>${p && (p.pesel || p.dob) ? `<em>${p.pesel ? 'PESEL ' + esc(p.pesel) : 'ur. ' + fmtDate(p.dob)}</em>` : ''}</span></button>
     <button class="who ${r ? '' : 'empty'}" data-act="pick-referrer"><span class="av ref">${r ? esc((r.kind === 'clinic' ? (r.clinic || 'K')[0] : initials(r.first, r.last)).toUpperCase()) : I('link')}</span><span><small>Lekarz kierujący</small><b>${r ? esc(refName(r)) : 'Wybierz adresata'}</b></span></button>
@@ -533,11 +533,22 @@ function viewVisit() {
     <section class="panel vside">
       <header><h3>Zęby w tej wizycie</h3><span class="sub" id="vcount">${v.teeth.length || ''}</span></header>
       <div class="body" id="vteeth">${visitTeethList(v)}</div>
-      <div class="body" style="border-top:1px solid var(--line)">
+      <div class="body" style="border-top:1px solid var(--line)">${v.notes || S.vNotesOpen ? `
         <div class="row" style="margin-bottom:8px"><span class="label" style="margin:0">Uwagi do całej wizyty</span><span class="grow"></span>${micBtn('v.notes')}</div>
-        <textarea data-b="v.notes" rows="3" placeholder="Opcjonalnie — np. ogólny stan, zalecenia dla pacjenta. AI uwzględni je w liście.">${esc(v.notes)}</textarea>
+        <textarea data-b="v.notes" rows="3" placeholder="Opcjonalnie — np. ogólny stan, zalecenia dla pacjenta. AI uwzględni je w liście.">${esc(v.notes)}</textarea>` : `<button class="btn btn-ghost btn-sm" data-act="vnotes-open">${I('plus')} Uwagi do całej wizyty <span class="faint">(opcjonalnie)</span></button>`}
       </div>
     </section>
+  </div>`;
+}
+function flowHTML(v) {
+  const p = D().patients.get(v.patientId), r = D().referrers.get(v.referrerId);
+  const s1 = !!(p && r), s2 = v.teeth.length > 0;
+  return `<div class="flow">
+    <button class="fstep ${s1 ? 'done' : 'on'}" data-act="${p ? (r ? 'pick-patient' : 'pick-referrer') : 'pick-patient'}"><span class="n">${s1 ? I('check') : 1}</span><span><b>Pacjent i lekarz kierujący</b><small>${s1 ? 'wybrani' : !p ? 'wybierz pacjenta' : 'wybierz lekarza kierującego'}</small></span></button>
+    <span class="fsep">${I('next')}</span>
+    <div class="fstep ${s2 ? 'done' : s1 ? 'on' : ''}"><span class="n">${s2 ? I('check') : 2}</span><span><b>Zęby</b><small>${s2 ? `${v.teeth.length} ${v.teeth.length === 1 ? 'ząb' : v.teeth.length < 5 ? 'zęby' : 'zębów'} — możesz dodać kolejne` : 'kliknij ząb na schemacie'}</small></span></div>
+    <span class="fsep">${I('next')}</span>
+    <button class="fstep ${s2 ? 'on' : ''}" data-act="flow-letter" ${s2 ? '' : 'disabled'}><span class="n">3</span><span><b>List</b><small>${s2 ? 'kliknij, aby wygenerować' : 'po dodaniu zębów'}</small></span></button>
   </div>`;
 }
 function visitTeethList(v) {
@@ -547,6 +558,7 @@ function visitTeethList(v) {
 }
 function afterVisit() {
   const v = curVisit(), n = v.teeth.length;
+  const fl = $('#flow'); if (fl) fl.innerHTML = flowHTML(v);
   $('#actionbar').innerHTML = `<div class="actionbar"><span class="sum">${n ? `<b>${n}</b> ${n === 1 ? 'ząb' : n < 5 ? 'zęby' : 'zębów'}: ${v.teeth.map((t) => t.fdi).join(', ')}` : 'Kliknij ząb na schemacie'}</span>
     <button class="btn" data-act="save-visit">${I('check')} Zapisz wizytę</button>
     <button class="btn btn-primary btn-xl" data-act="gen-letter" ${n ? '' : 'disabled'}>${I('spark')} Generuj list</button></div>`;
@@ -565,14 +577,12 @@ function openTooth(fdi) {
   S.ws = { fdi, isNew: !ex, draft: clone(ex || newToothRec(fdi, v.performer === 'other')), dirty: !ex };
   S.ttab = 'anat';
   const ov = document.createElement('div'); ov.className = 'ws-overlay'; ov.id = 'ws';
-  ov.innerHTML = workspaceHTML();
+  ov.innerHTML = workspaceHTML(); requestAnimationFrame(centerStep);
   $('#modal-root').appendChild(ov);
   mount3D(); renderDx(); refreshVisit();
 }
 function workspaceHTML() {
   const t = S.ws.draft, ti = toothInfo(t.fdi);
-  const counts = { anat: (t.roots || []).reduce((a, r) => a + r.canals.length, 0), work: (t.work || []).length, mat: (t.products || []).length, manual: t.manual ? '✓' : '' };
-  const tabs = [['anat', 'Anatomia', counts.anat], ['dx', 'Badanie i rozpoznanie'], ['endo', 'Endodoncja', t.endo.proc ? '✓' : ''], ['work', 'Inne prace', counts.work || ''], ['mat', 'Materiały i sprzęt', counts.mat || ''], ['manual', 'Opis własny', counts.manual], ['rec', 'Zalecenia', t.rec?.prog ? '✓' : '']];
   return `<div class="ws" role="dialog" aria-modal="true" aria-label="Ząb ${t.fdi}">
     <header class="ws-head"><div class="tp-num">${t.fdi}</div><div class="grow"><div class="ws-title">${esc(ti.name[0].toUpperCase() + ti.name.slice(1))}</div><div class="tp-name" id="ws-sum">${esc(toothSummary(t))}</div></div>
       ${S.ws.isNew ? '' : `<button class="btn btn-ghost btn-sm btn-danger" data-act="rm-tooth">${I('trash')} Usuń ząb</button>`}
@@ -584,16 +594,43 @@ function workspaceHTML() {
         <div class="stage-bar"><label class="switch"><input type="checkbox" id="xray" ${S.xray !== false ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok rentgenowski</label><label class="switch"><input type="checkbox" id="flat2d" ${localStorage.getItem('endolist:no3d') === '1' ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok 2D</label><span class="grow"></span><span class="hint">Przeciągnij, aby obrócić</span></div>
         <div class="stage-legend"><span><i style="background:#ff3b66"></i>miazga / kanał</span><span><i style="background:#14d8c0"></i>wypełnienie kanałowe</span><span><i style="background:#9a86ff"></i>kanał boczny</span></div>
       </div>
-      <div class="ws-right"><div class="tabs" id="ws-tabs">${tabs.map(([k, l, b]) => `<button data-ttab="${k}" class="${S.ttab === k ? 'on' : ''}">${l}${b ? ` <span class="badge">${b}</span>` : ''}</button>`).join('')}</div>
+      <div class="ws-right"><div class="tabs steps" id="ws-tabs">${stepsHTML(t)}</div>
         <div class="tp-body" id="ws-tab">${tabBody(t)}</div></div>
     </div></div>`;
 }
-const tabBody = (t) => ({ anat: tabAnat, dx: tabDx, endo: tabEndo, work: tabWork, mat: tabMat, manual: tabManual, rec: tabRec }[S.ttab])(t);
+// The tooth card is a step-by-step form: numbered steps, a tick when a step has data, "Dalej" to move on.
+const WS_STEPS = [
+  ['anat', 'Anatomia', 'Korzenie i kanały'], ['dx', 'Badanie', 'Badanie i rozpoznanie'], ['endo', 'Leczenie', 'Leczenie endodontyczne'],
+  ['work', 'Inne prace', 'Wypełnienia, odbudowy i inne prace', true], ['mat', 'Materiały', 'Materiały i sprzęt'],
+  ['manual', 'Opis własny', 'Opis własnymi słowami lub dyktowanie', true], ['rec', 'Zalecenia', 'Zalecenia i rokowanie'],
+];
+function stepDone(k, t) {
+  const d = t.dx || {}, ts = d.tests || {};
+  return {
+    anat: !!t.anatOk, dx: !!(d.pulp || d.peri || d.history?.cc || (d.radio || []).length || ts.probe || ['cold', 'heat', 'ept', 'perc', 'palp', 'bite'].some((x) => ts[x] && ts[x] !== 'nt')),
+    endo: !!t.endo?.proc, work: !!(t.work || []).length, mat: !!((t.products || []).length || t.endo?.microBrand),
+    manual: !!t.manual?.trim(), rec: !!(t.rec?.restor || t.rec?.control || t.rec?.prog || t.rec?.note),
+  }[k];
+}
+function stepsHTML(t) {
+  return WS_STEPS.map(([k, l, title, opt], i) => { const done = stepDone(k, t);
+    return `<button data-ttab="${k}" class="step ${S.ttab === k ? 'on' : ''} ${done ? 'done' : ''}" title="${esc(title)}"><span class="n">${done ? I('check') : i + 1}</span><span class="l">${l}${opt ? '<small>opcjonalnie</small>' : ''}</span></button>`; }).join('');
+}
+/** Keep the current step visible in the strip (it scrolls sideways on a phone). */
+function centerStep() { const st = $('#ws-tabs'), on = $('#ws-tabs .step.on'); if (!st || !on || st.scrollWidth <= st.clientWidth) return; const a = st.getBoundingClientRect(), b = on.getBoundingClientRect(); st.scrollLeft += b.left - a.left - (a.width - b.width) / 2; }
+function stepNav() {
+  const i = WS_STEPS.findIndex(([k]) => k === S.ttab), prev = WS_STEPS[i - 1], next = WS_STEPS[i + 1];
+  return `<div class="step-nav">${prev ? `<button class="btn btn-ghost" data-ttab="${prev[0]}">${I('back')} ${esc(prev[1])}</button>` : '<span></span>'}
+    <span class="step-of">Krok ${i + 1} z ${WS_STEPS.length}</span>
+    ${next ? `<button class="btn btn-soft btn-lg" data-ttab="${next[0]}">Dalej: ${esc(next[1])} ${I('next')}</button>` : `<button class="btn btn-primary btn-lg" data-act="ws-save">${I('check')} Zapisz ząb</button>`}</div>`;
+}
+const tabBody = (t) => ({ anat: tabAnat, dx: tabDx, endo: tabEndo, work: tabWork, mat: tabMat, manual: tabManual, rec: tabRec }[S.ttab])(t) + stepNav();
 function refreshWorkspace({ tabs = true, model = false } = {}) {
   if (!S.ws) return;
   const t = S.ws.draft;
   if (tabs) { const y = $('#ws-tab').scrollTop; const nb = document.createElement('div'); nb.innerHTML = workspaceHTML(); $('#ws-tabs').innerHTML = nb.querySelector('#ws-tabs').innerHTML; $('#ws-tab').innerHTML = tabBody(t); $('#ws-tab').scrollTop = y; renderDx(); }
   $('#ws-sum').textContent = toothSummary(t);
+  centerStep();
   if (model) update3D();
 }
 function opts3D(t) { return { done: t.endo.status === 'done' && !!ENDO[t.endo.proc]?.obt, all: true }; }
@@ -1000,10 +1037,10 @@ function viewLetter() {
     <div class="letter-tools">
       <button class="btn btn-ghost btn-sm" data-act="regen">${I('refresh')} Wygeneruj od nowa</button>
       <button class="btn btn-ghost btn-sm" data-act="pdf-preview">${I('doc')} Podgląd PDF</button>
-      <button class="btn btn-ghost btn-sm" data-act="print">${I('print')} Drukuj</button>
       <button class="btn btn-ghost btn-sm" data-act="prodentis">${I('copy')} ProDentis</button>
     </div>
     <div class="letter-main">
+      <button class="btn btn-soft btn-xl" data-act="print">${I('print')} Drukuj</button>
       <button class="btn btn-soft btn-xl" data-act="email">${I('mail')} Wyślij e-mailem</button>
       <button class="btn btn-primary btn-xl" data-act="save-pdf">${I('save')} Zapisz PDF</button>
     </div></div>
@@ -1469,11 +1506,11 @@ document.addEventListener('click', async (e) => {
   const t = e.target;
   const nav = t.closest('[data-nav]'); if (nav && S.session) { S.search = ''; go(nav.dataset.nav); return; }
   const segb = t.closest('.seg[data-seg] button');
-  if (segb) { const sg = segb.parentElement; setBound(sg.dataset.seg, segb.dataset.v); $$('button', sg).forEach((b) => b.classList.toggle('on', b === segb)); if (sg.classList.contains('prog-seg')) { const c = sg.closest('.prog-card'), v = segb.dataset.v; c.className = `prog-card ${v ? 'set p-' + v : ''}`; $('.pc-h small', c).textContent = v ? `w liście: „Rokowanie: ${PROG[v]}”` : 'wybierz — pojawi się w zaleceniach listu'; const tb = $('#ws-tabs [data-ttab=rec]'); if (tb) tb.innerHTML = `Zalecenia${v ? ' <span class="badge">✓</span>' : ''}`; } if (sg.dataset.re || sg.dataset.seg.startsWith('v.')) rerender(sg.dataset.seg); return; }
+  if (segb) { const sg = segb.parentElement; setBound(sg.dataset.seg, segb.dataset.v); $$('button', sg).forEach((b) => b.classList.toggle('on', b === segb)); if (sg.classList.contains('prog-seg')) { const c = sg.closest('.prog-card'), v = segb.dataset.v; c.className = `prog-card ${v ? 'set p-' + v : ''}`; $('.pc-h small', c).textContent = v ? `w liście: „Rokowanie: ${PROG[v]}”` : 'wybierz — pojawi się w zaleceniach listu'; if (S.ws) $('#ws-tabs').innerHTML = stepsHTML(S.ws.draft); } if (sg.dataset.re || sg.dataset.seg.startsWith('v.')) rerender(sg.dataset.seg); return; }
   const mic = t.closest('[data-mic]'); if (mic) { toggleMic(mic); return; }
   const tooth = t.closest('#arch g.tooth'); if (tooth) { openTooth(+tooth.dataset.fdi); return; }
   const tch = t.closest('[data-open-tooth]'); if (tch) { openTooth(+tch.dataset.openTooth); return; }
-  const tt = t.closest('[data-ttab]'); if (tt) { S.ttab = tt.dataset.ttab; refreshWorkspace(); return; }
+  const tt = t.closest('[data-ttab]'); if (tt) { const ch = S.ttab !== tt.dataset.ttab; S.ttab = tt.dataset.ttab; refreshWorkspace(); if (ch) { const b = $('#ws-tab'); if (b) b.scrollTop = 0; } return; }
   const qk = t.closest('[data-quick]'); if (qk && S.ws) { quickToggle(S.ws.draft, qk.dataset.quick); S.ws.dirty = true; refreshWorkspace({ model: true }); return; }
   const row = t.closest('[data-open-patient]'); if (row) { go('patient', { patientId: row.dataset.openPatient }); return; }
   const rv = t.closest('[data-open-visit]'); if (rv && !t.closest('button')) { go('visit', { visitId: rv.dataset.openVisit }); return; }
@@ -1566,6 +1603,8 @@ async function action(act, a) {
       const nv = ensureVisit(); const p = await pickPatient(); if (p) { nv.patientId = p.id; save('visits', nv); renderView(); }
       return;
     }
+    case 'flow-letter': return $('#actionbar [data-act=gen-letter]')?.click();
+    case 'vnotes-open': { S.vNotesOpen = true; renderView(); $('[data-b="v.notes"]')?.focus(); return; }
     case 'new-visit': { const nv = newVisit(v?.patientId || '', v?.referrerId || ''); D().visits.set(nv.id, nv); return go('visit', { visitId: nv.id }); }
     case 'pick-patient': { const p = await pickPatient(); if (p) { v.patientId = p.id; save('visits', v); renderView(); } return; }
     case 'pick-referrer': { const r = await pickReferrer(); if (r) { v.referrerId = r.id; save('visits', v); renderView(); } return; }
@@ -1600,7 +1639,21 @@ async function action(act, a) {
     case 'save-pdf': { const L = D().letters.get(S.letterId); audit('pdf', L.id, L.patientId); return saveLetterPdf(L); }
     case 'email': { const L = D().letters.get(S.letterId); audit('email', L.id, L.patientId); return emailLetter(L); }
     case 'prodentis': { const L = D().letters.get(S.letterId); audit('prodentis', L.id, L.patientId); return prodentisModal(L); }
-    case 'print': { audit('print', S.letterId, D().letters.get(S.letterId)?.patientId); const b = await letterBlob(D().letters.get(S.letterId)); const w = window.open(URL.createObjectURL(b)); if (!w) toast('Zezwól na wyskakujące okna, aby drukować.', 'err'); else setTimeout(() => { try { w.print(); } catch {} }, 800); return; }
+    case 'print': {
+      const L = D().letters.get(S.letterId); audit('print', L.id, L.patientId);
+      // iPhone/iPad: show the PDF in a new tab (print from the share menu); elsewhere print it from a hidden frame once loaded
+      const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const w = ios ? window.open('', '_blank') : null;
+      if (ios && !w) { toast('Zezwól na wyskakujące okna, aby drukować.', 'err'); return; }
+      toast('Przygotowuję list do druku…');
+      const url = URL.createObjectURL(await letterBlob(L));
+      if (ios) { w.location.href = url; return; }
+      $('#print-frame')?.remove();
+      const f = document.createElement('iframe'); f.id = 'print-frame'; f.title = 'Drukowanie listu';
+      f.style.cssText = 'position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none';
+      f.onload = () => setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch { const nw = window.open(url, '_blank'); if (!nw) toast('Nie udało się otworzyć drukowania — użyj „Zapisz PDF” i wydrukuj plik.', 'err'); } }, 400);
+      f.src = url; document.body.appendChild(f); return;
+    }
     case 'regen-ai': { const L = D().letters.get(S.letterId); if ((L.notes || []).length && !(await confirmBox('Napisać list od nowa przez AI?', 'Obecna treść i uwagi zostaną zastąpione.', 'Napisz'))) return; await createLetter({ patientId: L.patientId, referrerId: L.referrerId, visitIds: L.visitIds, existing: L }); return; }
     case 'regen': { const L = D().letters.get(S.letterId); if (!(await confirmBox('Wygenerować list od nowa?', 'Obecna treść i uwagi zostaną zastąpione nową wersją listu.', 'Wygeneruj'))) return; return createLetter({ patientId: L.patientId, referrerId: L.referrerId, visitIds: L.visitIds, existing: L }); }
     case 'pdf-preview': return pdfPreview(D().letters.get(S.letterId));

@@ -74,6 +74,7 @@ const data = (p, store) => p.evaluate((store) => [...window.__endolist.S.data[st
     await m.click('[data-ttab=endo]'); await m.selectOption('[data-b="t.endo.proc"]', 'RCT'); await m.waitForTimeout(200);
     await m.click('[data-quick="apexloc"]');
     await m.click('[data-act=ws-save]'); await m.waitForTimeout(600);
+    if (await m.locator('[data-act=vnotes-open]').count()) await m.click('[data-act=vnotes-open]');
     await m.fill('[data-b="v.notes"]', 'Wpis z iPhone’a'); await m.locator('[data-b="v.notes"]').blur(); await m.waitForTimeout(800);
     await syncNow(m); await syncNow(d); await d.waitForTimeout(500);
     const dv = await data(d, 'visits');

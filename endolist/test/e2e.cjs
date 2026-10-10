@@ -90,6 +90,9 @@ async function mockAI(p, reviseOut) {
   await p.fill('.modal [data-f=clinic]', 'Gabinet Stomatologiczny Uśmiech'); await p.fill('.modal [data-f=address]', 'ul. Kwiatowa 5\n08-110 Siedlce'); await p.fill('.modal [data-f=email]', 'm.nowak@usmiech.example');
   await p.click('.modal footer .btn-primary'); await p.waitForTimeout(300);
   await p.fill('[data-b="v.date"]', '2026-10-08');
+  ok(await p.locator('#flow .fstep.done').count() === 1 && (await p.textContent('#flow .fstep.on')).includes('Zęby'), 'visit guide: step 1 (patient + referrer) done, step 2 (teeth) next');
+  ok(await p.locator('[data-b="v.notes"]').count() === 0 && await p.locator('[data-act=vnotes-open]').count() === 1, 'visit notes tucked behind a button while empty');
+  await p.click('[data-act=vnotes-open]'); ok(await p.locator('[data-b="v.notes"]').isVisible(), 'visit notes open on click');
   await shot(p, '04-visit-empty');
   // ---------- tooth 36 in the enlarged workspace
   await p.click('#arch g.tooth[data-fdi="36"]'); await p.waitForSelector('#ws'); await p.waitForTimeout(1500);
@@ -97,6 +100,10 @@ async function mockAI(p, reviseOut) {
   await p.click('[data-act=cfg][data-i="1"]'); await p.waitForTimeout(300);
   await p.selectOption('[data-b="t.roots.1.lateral"]', 'srodkowa'); await p.waitForTimeout(800);
   await shot(p, '05-ws-anatomy');
+  ok(await p.locator('#ws-tabs .step').count() === 7 && await p.locator('#ws-tabs .step.on.done[data-ttab=anat]').count() === 1 && (await p.textContent('#ws-tabs [data-ttab=dx] .n')) === '2', 'tooth card shows 7 numbered steps; step 1 active and ticked once anatomy is chosen');
+  await p.click('.step-nav [data-ttab=dx]'); await p.waitForTimeout(200);
+  ok(await p.locator('#ws-tabs .step.on[data-ttab=dx]').count() === 1 && (await p.textContent('.step-nav')).includes('Krok 2 z 7'), '"Dalej" moves to step 2 (Badanie)');
+  await p.click('#ws-tabs [data-ttab=anat]'); await p.waitForTimeout(200);
   await p.click('[data-ttab=dx]');
   await p.fill('[data-b="t.dx.history.cc"]', 'ból przy nagryzaniu od dwóch tygodni');
   const seg = (k, v) => p.click(`[data-seg="${k}"] button[data-v="${v}"]`);
@@ -144,6 +151,7 @@ async function mockAI(p, reviseOut) {
   await p.selectOption('[data-b="t.rec.restor"]', 'crown'); await p.waitForTimeout(100); await seg('t.rec.time', '30d'); await seg('t.rec.control', '6-12m'); ok(await p.locator('#ws .prog-card [data-v="fair"].on').count() === 1, 'same prognosis shown in Zalecenia'); await seg('t.rec.prog', 'good');
   await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
   ok(await p.locator('#ws').count() === 0 && (await p.textContent('#vteeth')).includes('36'), 'tooth saved and workspace closed');
+  ok(await p.locator('#flow .fstep.done').count() === 2 && await p.locator('#flow [data-act=flow-letter]:not([disabled])').count() === 1, 'visit guide: teeth done, step 3 (letter) ready');
   // tooth 37: filling with product; tooth 16 just viewed
   await p.click('#arch g.tooth[data-fdi="37"]'); await p.waitForSelector('#ws'); await p.click('[data-ttab=work]');
   await p.click('[data-act=add-work][data-type=FILL]'); await seg('t.work.0.cls', 'II');
@@ -207,6 +215,11 @@ async function mockAI(p, reviseOut) {
   ok(!!pdf, 'PDF saved: ' + pdf);
   fs.writeFileSync(path.join(OUT, 'letter.pdf'), await opfsRead(p, pdf));
   ok(!(await opfsRead(p, 'Kopia zapasowa (nie edytować)/endolist-dane.json')).toString().includes('Kowalska'), 'backup encrypted');
+  // print: big button, opens the letter PDF in a new window and calls print
+  ok(await p.locator('.letter-main [data-act=print].btn-xl').count() === 1, 'big "Drukuj" button next to e-mail and PDF');
+  await p.click('.letter-main [data-act=print]');
+  await p.waitForFunction(() => document.querySelector('#print-frame')?.src.startsWith('blob:'), null, { timeout: 20000 }).catch(() => {});
+  ok(await p.evaluate(() => document.querySelector('#print-frame')?.src.startsWith('blob:')), 'Drukuj loads the letter PDF and opens printing');
   // after the letter: home and next patient
   const letterId = await p.evaluate(() => window.__endolist.S.letterId);
   await p.click('#rside [data-act=go-home]'); await p.waitForSelector('#arch', { timeout: 5000 }); await p.waitForTimeout(300);
