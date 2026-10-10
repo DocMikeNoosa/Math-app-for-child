@@ -25,7 +25,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 ::-webkit-scrollbar-thumb { background: rgba(148, 172, 214, 0.15); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .bg-glow { position: fixed; inset: 0; pointer-events: none; z-index: 0;
-  background: radial-gradient(1000px 600px at 8% -12%, rgba(var(--acc2-rgb), 0.11), transparent 60%), radial-gradient(900px 700px at 105% 110%, rgba(var(--acc-rgb), 0.08), transparent 60%), linear-gradient(180deg, var(--bg-2), var(--bg)); }
+  /* the whole screen takes the home specialty's subdued gradient (endodontics keeps the original EndoList levels) */
+  background: radial-gradient(1100px 680px at 8% -12%, rgba(var(--acc2-rgb), var(--glow1, 0.11)), transparent 62%), radial-gradient(1000px 760px at 105% 110%, rgba(var(--acc-rgb), var(--glow2, 0.08)), transparent 62%), linear-gradient(160deg, rgba(var(--acc2-rgb), var(--tint, 0)), transparent 55%), linear-gradient(180deg, var(--bg-2), var(--bg)); }
 
 /* ---------------------------------------------------------- buttons */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; padding: 0 15px; border-radius: 12px; border: 1px solid var(--line-2);
@@ -325,7 +326,9 @@ select.mini { width: auto; height: 30px; font-size: 12px; }
 
 .ws-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 18px; background: rgba(2, 6, 14, 0.9); animation: fade 0.2s ease; } /* no backdrop blur: it can hide the 3D canvas on some GPUs */
 .ws { width: min(1460px, 100%); height: min(920px, 100%); display: flex; flex-direction: column; border-radius: 26px; overflow: hidden;
-  background: linear-gradient(180deg, rgba(16, 26, 46, 0.97), rgba(8, 14, 27, 0.98)); border: 1px solid var(--line-2); box-shadow: 0 50px 130px -30px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(var(--acc-rgb), 0.06); animation: wsin 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.1); }
+  /* tinted by the specialty being worked on (set from the tooth card) */
+  background: radial-gradient(1000px 620px at 100% 0%, rgba(var(--ws2-rgb, var(--acc2-rgb)), 0.30), transparent 62%), radial-gradient(800px 560px at 40% 110%, rgba(var(--ws-rgb, var(--acc-rgb)), 0.16), transparent 62%), linear-gradient(160deg, rgba(var(--ws-rgb, var(--acc-rgb)), 0.08), transparent 50%), linear-gradient(180deg, rgba(16, 26, 46, 0.97), rgba(8, 14, 27, 0.98));
+  border: 1px solid rgba(var(--ws-rgb, var(--acc-rgb)), 0.22); box-shadow: 0 50px 130px -30px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(var(--ws-rgb, var(--acc-rgb)), 0.08); transition: border-color 0.3s; animation: wsin 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.1); }
 @keyframes wsin { from { transform: scale(0.94) translateY(14px); opacity: 0; } }
 .ws-head { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
 .ws-head .tp-num { font-size: 38px; }
@@ -665,3 +668,14 @@ button.fstep { cursor: pointer; } button.fstep:disabled { cursor: default; opaci
 .scan.add { cursor: pointer; place-content: center; height: 172px; color: var(--accent); border-style: dashed; font-size: 12.5px; font-weight: 600; text-align: center; }
 label.cmp-check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--text); cursor: pointer; }
 label.cmp-check input { accent-color: var(--accent); width: 18px; height: 18px; margin-top: 1px; flex: none; }
+
+/* visit history rows tinted by their main specialty */
+.vh-item[style*="--sp"] { background: linear-gradient(90deg, color-mix(in srgb, var(--sp) 11%, transparent), rgba(255, 255, 255, 0.015) 55%); border-color: color-mix(in srgb, var(--sp) 30%, var(--line-2)); }
+
+/* tooth card header carries the specialty colour too */
+.ws-head { background: linear-gradient(90deg, rgba(var(--ws-rgb, var(--acc-rgb)), 0.16), rgba(var(--ws2-rgb, var(--acc2-rgb)), 0.05) 60%, transparent); border-bottom-color: rgba(var(--ws-rgb, var(--acc-rgb)), 0.25); transition: background 0.3s; }
+.ws-head .tp-num { background: linear-gradient(135deg, rgb(var(--ws-rgb, var(--acc-rgb))), rgb(var(--ws2-rgb, var(--acc2-rgb)))); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* panels and the top bar carry a light wash of the home specialty (0 for endodontics = original look) */
+.panel { background-image: linear-gradient(160deg, rgba(var(--acc2-rgb), var(--panel-tint, 0)), rgba(var(--acc-rgb), calc(var(--panel-tint, 0) * 0.4)) 55%, transparent); }
+.topbar { background-image: linear-gradient(90deg, rgba(var(--acc2-rgb), calc(var(--panel-tint, 0) * 1.3)), transparent 70%); }

@@ -73,7 +73,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.0.1';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -86,6 +86,9 @@ function applyTheme() {
   // endodontics keeps the original EndoList look; other specialties use their own subdued gradient
   const [a, b] = k === 'endo' ? ['#5ee6d6', '#62a9ff'] : [sp.color, sp.color2];
   r.setProperty('--accent', a); r.setProperty('--accent-2', b); r.setProperty('--acc-rgb', hexRgb(a)); r.setProperty('--acc2-rgb', hexRgb(b));
+  // background strength: endodontics = original EndoList look; other specialties a stronger, still subdued tint
+  const strong = k !== 'endo';
+  r.setProperty('--glow1', strong ? '0.24' : '0.11'); r.setProperty('--glow2', strong ? '0.17' : '0.08'); r.setProperty('--tint', strong ? '0.07' : '0'); r.setProperty('--panel-tint', strong ? '0.07' : '0');
   document.documentElement.dataset.spec = k;
 }
 const specStyle = (k) => `--sp:${SPECS[k]?.color || '#888'};--sp2:${SPECS[k]?.color2 || '#666'}`;
@@ -620,7 +623,7 @@ function openTooth(fdi) {
   S.ws = { fdi, isNew: !ex, draft: clone(ex || newToothRec(fdi, v.performer === 'other')), dirty: !ex };
   S.ttab = wsSteps()[0][0];
   const ov = document.createElement('div'); ov.className = 'ws-overlay'; ov.id = 'ws';
-  ov.innerHTML = workspaceHTML(); requestAnimationFrame(centerStep);
+  ov.innerHTML = workspaceHTML(); requestAnimationFrame(() => { centerStep(); if (S.ws) tintWorkspace(S.ws.draft); });
   $('#modal-root').appendChild(ov);
   mount3D(); renderDx(); refreshVisit();
 }
@@ -663,6 +666,15 @@ function stepsHTML(t) {
   return wsSteps().map(([k, l, title, opt], i) => { const done = stepDone(k, t);
     return `<button data-ttab="${k}" class="step ${S.ttab === k ? 'on' : ''} ${done ? 'done' : ''}" title="${esc(title)}"><span class="n">${done ? I('check') : i + 1}</span><span class="l">${l}${opt ? '<small>opcjonalnie</small>' : ''}</span></button>`; }).join('');
 }
+/** The tooth card takes the colour of the specialty being worked on: the chosen procedure group, the endodontic step, or the tooth's last procedure. */
+function tintWorkspace(t) {
+  const el = $('#ws'); if (!el) return;
+  const sp = S.ttab === 'endo' || (S.ttab === 'anat' && home() === 'endo') ? 'endo' : S.ttab === 'work' ? (S.workSpec || (home() === 'endo' ? 'zach' : home())) : (t.work || []).length ? specOf(t.work.at(-1)) : ENDO[t.endo?.proc] ? 'endo' : home();
+  const c = SPECS[sp] || SPECS.zach;
+  el.style.setProperty('--ws-rgb', hexRgb(c.color)); el.style.setProperty('--ws2-rgb', hexRgb(c.color2)); el.dataset.spec = sp;
+  // the 3D view keeps the original navy for endodontics, other specialties tint it
+  try { S.t3d?.setTint?.(sp === 'endo' ? null : c.color2); } catch {}
+}
 /** Keep the current step visible in the strip (it scrolls sideways on a phone). */
 function centerStep() { const st = $('#ws-tabs'), on = $('#ws-tabs .step.on'); if (!st || !on || st.scrollWidth <= st.clientWidth) return; const a = st.getBoundingClientRect(), b = on.getBoundingClientRect(); st.scrollLeft += b.left - a.left - (a.width - b.width) / 2; }
 function stepNav() {
@@ -677,6 +689,7 @@ function refreshWorkspace({ tabs = true, model = false } = {}) {
   const t = S.ws.draft;
   if (tabs) { const y = $('#ws-tab').scrollTop; const nb = document.createElement('div'); nb.innerHTML = workspaceHTML(); $('#ws-tabs').innerHTML = nb.querySelector('#ws-tabs').innerHTML; $('#ws-tab').innerHTML = tabBody(t); $('#ws-tab').scrollTop = y; renderDx(); }
   $('#ws-sum').textContent = toothSummary(t);
+  tintWorkspace(t);
   centerStep();
   if (model) update3D();
 }
@@ -693,7 +706,7 @@ function mount3D() {
   if (localStorage.getItem('dentlist:no3d') === '1' || !webglOk()) return flat(localStorage.getItem('dentlist:no3d') === '1' ? 'turned off' : 'no WebGL 2');
   let retried = false;
   const start = () => {
-    S.t3d = new Tooth3D(el); S.t3d.xray = S.xray !== false; S.t3d.setTooth(S.ws?.draft || t, opts3D(S.ws?.draft || t));
+    S.t3d = new Tooth3D(el); S.t3d.xray = S.xray !== false; S.t3d.setTooth(S.ws?.draft || t, opts3D(S.ws?.draft || t)); if (S.ws) tintWorkspace(S.ws.draft);
     const mine = S.t3d;
     // health check: after opening and after every resize (e.g. maximising the window) the tooth must really be drawn
     const check = () => {
@@ -1341,6 +1354,8 @@ function visitChips(v) {
   for (const w of v.procs || []) out.push({ spec: specOf(w), fdi: 'JU', label: procShort(w) });
   return out;
 }
+/** The specialty with the most entries in a visit (for the row tint). */
+function mainSpec(chips) { const n = {}; for (const c of chips) if (c.spec) n[c.spec] = (n[c.spec] || 0) + 1; return Object.entries(n).sort((a, b) => b[1] - a[1])[0]?.[0] || ''; }
 function visitHistory(vs, { patient = null, readonly = false, doctor = '' } = {}) {
   S.vhLookup ??= new Map(); for (const v of vs) S.vhLookup.set(v.id, { v, patient: patient || D().patients.get(v.patientId) });
   if (!vs.length) return '<div class="empty" style="padding:24px 10px"><b>Brak wizyt</b>Wizyty pojawią się tu po zapisaniu.</div>';
@@ -1352,7 +1367,8 @@ function visitHistory(vs, { patient = null, readonly = false, doctor = '' } = {}
   <div class="vh">${shown.map((v) => {
     const chips = visitChips(v).filter((c) => !f || c.spec === f), open = S.vhOpen?.has(v.id);
     const detail = recordEntry({ visits: [v], patient: patient || D().patients.get(v.patientId) || {}, fmtDate }).split('\n').filter((l) => l && !l.startsWith('Data: '));
-    return `<div class="vh-item ${open ? 'open' : ''}"><button type="button" class="vh-head" data-act="vh-toggle" data-id="${v.id}">
+    const dom = mainSpec(visitChips(v));
+    return `<div class="vh-item ${open ? 'open' : ''}" ${dom ? `style="${specStyle(dom)}"` : ''}><button type="button" class="vh-head" data-act="vh-toggle" data-id="${v.id}">
         <span class="vh-date">${fmtDate(v.date)}<small>${v.performer === 'other' ? esc(v.otherDentist || 'inny lekarz') : doctor ? esc(doctor) : 'moja wizyta'}</small></span>
         <span class="vh-chips">${chips.map(chip).join('') || '<span class="faint small">bez wpisów</span>'}</span>
         <span class="vh-caret">${I('next')}</span></button>

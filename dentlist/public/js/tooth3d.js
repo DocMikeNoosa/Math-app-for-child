@@ -82,10 +82,8 @@ export class Tooth3D {
     r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.25; r.outputColorSpace = THREE.SRGBColorSpace;
     el.appendChild(r.domElement);
     this.scene = new THREE.Scene();
-    { const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
-      const g = x.createRadialGradient(256, 230, 20, 256, 256, 360); g.addColorStop(0, '#1d3a63'); g.addColorStop(0.55, '#0f2140'); g.addColorStop(1, '#070f1e');
-      x.fillStyle = g; x.fillRect(0, 0, 512, 512);
-      const bg = new THREE.CanvasTexture(c); bg.colorSpace = THREE.SRGBColorSpace; this.scene.background = bg; }
+    { const c = document.createElement('canvas'); c.width = c.height = 512; this.bgCanvas = c;
+      const bg = new THREE.CanvasTexture(c); bg.colorSpace = THREE.SRGBColorSpace; this.scene.background = bg; this.bgTex = bg; this.paintBg(null); }
     const pm = new THREE.PMREMGenerator(r);
     this.scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 500);
@@ -109,6 +107,14 @@ export class Tooth3D {
     el.addEventListener('pointerdown', () => { this.controls.autoRotate = false; clearTimeout(this.resume); });
     el.addEventListener('pointerup', () => { this.resume = setTimeout(() => { this.controls.autoRotate = true; }, 5000); });
   }
+  /** Background behind the tooth: the original navy, or navy blended with a specialty colour (subdued). */
+  paintBg(tint) {
+    const mix = (h1, h2, k) => { const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); const a = p(h1), b = p(h2); return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',')})`; };
+    const x = this.bgCanvas.getContext('2d'), g = x.createRadialGradient(256, 230, 20, 256, 256, 360);
+    g.addColorStop(0, tint ? mix('#1d3a63', tint, 0.42) : '#1d3a63'); g.addColorStop(0.55, tint ? mix('#0f2140', tint, 0.22) : '#0f2140'); g.addColorStop(1, '#070f1e');
+    x.fillStyle = g; x.fillRect(0, 0, 512, 512); this.bgTex.needsUpdate = true;
+  }
+  setTint(hex) { if (hex === this.tint) return; this.tint = hex; this.paintBg(hex); }
   setXray(on) { this.xray = on; if (this.rec) this.setTooth(this.rec, this.opts); }
   setTooth(rec, opts = {}) {
     this.rec = rec; this.opts = opts;
