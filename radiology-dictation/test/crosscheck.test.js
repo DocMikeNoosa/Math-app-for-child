@@ -280,3 +280,56 @@ test('user templates: edit a built-in, add a custom one, hide one, invalid input
   assert.equal(T.getTemplate('ct_head_normal').title, 'CT Head normal');
   assert.equal(T.TEMPLATES.length, before);
 });
+
+// ---------------------------------------------------------------- emergency relevance (v0.9)
+test('age-related / chronic findings stay in the body, never in the conclusion', () => {
+  const { report } = merge('ct_head_normal', 'Uogólnione zaniki korowo podkorowe. Zmiany naczyniopochodne w istocie białej obu półkul mózgu. Ognisko lakunarne w lewym jądrze soczewkowatym. Świeży obszar niedokrwienia w płacie ciemieniowym prawym.');
+  assert.match(report.body, /Zmiany naczyniopochodne/);
+  assert.match(report.body, /zaniki korowo podkorowe/i);
+  assert.doesNotMatch(report.conclusion, /naczyniopochodn|zanik|lakunar/i);
+  assert.match(report.conclusion, /Świeży obszar niedokrwienia/);
+  const l = lines(report.body).filter((x) => x.trim());
+  assert.match(l[1], /^Świeży obszar niedokrwienia/, 'the acute finding leads');
+  assert.ok(l.findIndex((x) => /zaniki/.test(x)) < l.findIndex((x) => /^Kości/.test(x)), 'expected findings before the bones');
+});
+
+test('only age-related findings → the normal conclusion', () => {
+  let { report } = merge('ct_head_trauma', 'Zmiany naczyniopochodne w istocie białej. Zaniki korowe odpowiednie do wieku.');
+  assert.equal(report.conclusion, '- Bez wewnątrzczaszkowych zmian pourazowych.');
+  ({ report } = merge('ct_head_normal', 'Poszerzenie przestrzeni płynowych przymózgowych w przebiegu zaników.'));
+  assert.doesNotMatch(report.conclusion, /Poszerzenie/);
+  assert.ok(!/^Poszerzenie/.test(lines(report.body).filter((x) => x.trim())[1]), 'atrophy-related widening is not a leading finding');
+});
+
+test('dictated "wnioski" and dementia studies may keep chronic findings in the conclusion', async () => {
+  const { report } = merge('ct_head_normal', 'zmiany naczyniopochodne w istocie białej kropka wnioski zmiany naczyniopochodne w istocie białej');
+  assert.match(report.conclusion, /naczyniopochodne/);
+  const { conclusionFromFindings } = await import('../public/js/crosscheck.js');
+  const t = { ...getTemplate('ct_head_normal'), header: 'Badanie: TK głowy – diagnostyka otępienia' };
+  const r = { ...reportFromTemplate(t), body: `${t.body}\nUogólnione zaniki korowo-podkorowe.` };
+  assert.ok(conclusionFromFindings(t, r).some((x) => /zaniki/.test(x)));
+});
+
+test('a dictated comparison goes right under the technique line; none is invented', () => {
+  let { report } = merge('ct_head_trauma', 'Krwiak podtwardówkowy nad lewą półkulą 6 mm. Porównano z badaniem z dnia 1 października 2026.');
+  const l = lines(report.body).filter((x) => x.trim());
+  assert.equal(l[0], 'Badanie wykonano w trybie ostrodyżurowym.');
+  assert.match(l[1], /^Porównano z badaniem z dnia/);
+  assert.match(l[2], /^Krwiak podtwardówkowy/);
+  ({ report } = merge('ct_head_trauma', 'Krwiak podtwardówkowy nad lewą półkulą 6 mm.'));
+  assert.doesNotMatch(report.body, /Porówna/);
+});
+
+test('a skull fracture alone stays with the bones', () => {
+  const { report } = merge('ct_head_trauma', 'Linijne złamanie kości ciemieniowej prawej bez przemieszczenia odłamów.');
+  const l = lines(report.body).filter((x) => x.trim());
+  assert.ok(l.findIndex((x) => /złamanie kości ciemieniowej/i.test(x)) > l.findIndex((x) => /^Struktury linii/.test(x)));
+  assert.match(report.conclusion, /złamanie kości ciemieniowej/i);
+});
+
+test('restored (kept) template statements are not removed again', () => {
+  const t = getTemplate('ct_head_trauma');
+  const keep = 'Bez cech złamania kości sklepienia i podstawy czaszki.';
+  const { report } = localMerge(t, reportFromTemplate(t), 'złamanie kości nosa', { ignore: [keep] });
+  assert.ok(report.body.includes(keep));
+});

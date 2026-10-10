@@ -2,7 +2,7 @@
 
 Read this first, then `README.md` (features in detail) and the code. Repository:
 https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-radiology-dictation-e0ov8p`, folder
-`radiology-dictation/`. Version 0.8.1 (see `package.json`).
+`radiology-dictation/`. Version 0.9.0 (see `package.json`).
 
 ## The person and the goal
 - Owner: a Polish radiologist, not technical — explain things in short, simple steps.
@@ -32,7 +32,7 @@ https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-rad
   `polish-text.js` (spoken numbers/units/punctuation), `voice-commands.js`, `style-learning.js`,
   `mic-button.js` (Nuance PowerMic via WebHID + key binding).
 - Windows install: `Zainstaluj RadVox (Windows).bat` → desktop icon (`launcher/RadVox.ps1`, no console).
-- Tests: `npm test` (69 unit tests). UI was tested with Playwright + a mock Claude server (scripts not in
+- Tests: `npm test` (78 unit tests). UI was tested with Playwright + a mock Claude server (scripts not in
   the repo).
 
 ## Report rules the radiologist asked for (keep these)
@@ -52,7 +52,19 @@ https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-rad
    inside the conclusion**; still-true normal template lines last.
 4. A dictated consultation ("Wskazana pilna konsultacja neurochirurgiczna.") never goes in the body: one
    line under the conclusion, **after one empty line, no hyphen**. Only when dictated.
-5. Classifications (Fleischner, Bosniak, TI-RADS, LI-RADS, ASPECTS, Fazekas) only from dictated data;
+5. EMERGENCY RELEVANCE (v0.9): the radiologist is an emergency radiologist.
+   - Body order: technique line; the comparison line, only when dictated; relevant findings with
+     pertinent negatives; normals plus expected / age-related findings; bones last.
+   - The conclusion contains ONLY findings relevant to the patient now. Age-related, chronic or
+     degenerative findings (small-vessel disease, atrophy, old lacunes, degenerative change, cysts,
+     calcifications) never appear in it, except in dementia studies or when dictated as "wnioski".
+   - With nothing relevant, the conclusion is the normal line ("Bez ostrej patologii
+     wewnątrzczaszkowej." / "Bez wewnątrzczaszkowych zmian pourazowych.").
+   - The original template can always be viewed ("Oryginał"), copied from and restored; restored
+     sentences are protected.
+   - The app learns from the radiologist's edits: wording, conclusion lines removed or added,
+     restored sentences, and example final reports per template.
+6. Classifications (Fleischner, Bosniak, TI-RADS, LI-RADS, ASPECTS, Fazekas) only from dictated data;
    otherwise a warning naming what is missing.
 6. Workflow: app opens **blank** (choose a template); stopping dictation does NOT make the report — the
    "Przygotuj opis" button does (background pre-processing during pauses makes it instant); "Nowy opis"

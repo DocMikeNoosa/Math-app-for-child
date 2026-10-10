@@ -65,7 +65,7 @@ const CHRONIC = ['przebyt', 'stary', 'starego', 'starych', 'stare', 'przewlekł'
 
 const ORGANS = {
   head: { stems: ['głow'] },
-  intracranial: { parents: ['head'], stems: ['wewnątrzczaszk', 'śródczaszk', 'mózg', 'mózgow', 'półkul', 'płat', 'płacie', 'płata', 'istota biał', 'istoty biał', 'istocie biał', 'istotę biał', 'istota szar', 'istoty szar', 'istocie szar', 'móżdż', 'pień mózgu', 'pnia mózgu', 'zewnątrzosiow', 'podtward', 'nadtward', 'podpajęczyn', 'jąder podstawy', 'jądrach podstawy', 'wzgórz', 'torebk', 'okołokomor', 'przymózgow', 'zbiorniki podstawy', 'śródmózgow'] },
+  intracranial: { parents: ['head'], stems: ['wewnątrzczaszk', 'śródczaszk', 'mózg', 'mózgow', 'półkul', 'płat', 'płacie', 'płata', 'istota biał', 'istoty biał', 'istocie biał', 'istotę biał', 'istota szar', 'istoty szar', 'istocie szar', 'móżdż', 'pień mózgu', 'pnia mózgu', 'zewnątrzosiow', 'podtward', 'nadtward', 'podpajęczyn', 'jąder podstawy', 'jądrach podstawy', 'wzgórz', 'torebk', 'okołokomor', 'przymózgow', 'zbiorniki podstawy', 'śródmózgow', 'korowo-podkorow', 'korowo podkorow', 'podkorow', 'zaniki korow', 'zaników korow', 'zanik korow', 'soczewkowat', 'ogoniast', 'skorup', 'nadnamiot', 'podnamiot', 'półowaln', 'ciała modzelowat', 'ciele modzelowat'] },
   // not "komórki" (mastoid / ethmoid air cells)
   ventricles: { parents: ['intracranial'], stems: ['komor', 'komór ', 'komór.', 'komór,', 'układ komorow'] },
   midline: { parents: ['intracranial'], stems: ['pośrodkow', 'linii środkowej', 'linia środkowa', 'linii pośrodkowej'] },
@@ -523,20 +523,36 @@ export function shortenFinding(sentence) {
 /** Conclusion lines from the pathological findings in the body, most urgent first. */
 export function conclusionFromFindings(template, report) {
   const tpl = templateSentences(template);
+  const dementia = isDementiaStudy(template, report);
   const items = splitSentences(report.body)
     .filter((s) => !tpl.body.has(s))
     .map(analyseFinding)
-    .filter((f) => f.concepts.size)
+    .filter((f) => f.concepts.size && (dementia || !isIncidental(f)))
     .map((f, order) => ({ f, order }));
   return orderGroup(items)
     .map((x) => shortenFinding(x.f.text))
     .filter(Boolean);
 }
 
+export function isDementiaStudy(template, report) {
+  return DEMENTIA_RE.test(`${template?.header || ''} ${template?.exam || ''} ${report?.header || ''}`);
+}
+
+const HEAD_RE = /głow|mózg|czaszk|head/iu;
+/** The normal conclusion line when nothing clinically relevant is left. */
+export function defaultConclusion(template) {
+  const head = template.section === 'CT Head' || HEAD_RE.test(template.exam || template.header || '');
+  const trauma = template.group === 'Trauma' || /uraz/iu.test(template.exam || template.header || '');
+  if (head) return trauma ? 'Bez wewnątrzczaszkowych zmian pourazowych.' : 'Bez ostrej patologii wewnątrzczaszkowej.';
+  return trauma ? 'Bez cech zmian pourazowych w zakresie badania.' : 'Bez cech ostrej patologii w zakresie badania.';
+}
+
 export function draftConclusion(template, report) {
   return formatConclusion(conclusionFromFindings(template, report), template.bullet);
 }
 
+// A dictated comparison with a previous study.
+const COMPARISON_RE = /^(porówna\p{L}*|w porównaniu|w odniesieniu do|dla porównania|badanie porówn\p{L}*|porównanie|w zestawieniu z|comparison|compared)/iu;
 // Technique / comparison lines that stay above the findings.
 const INTRO_RE = /^(badanie (wykonano|porówn|wykonane)|porównano|w porównaniu|porównanie|sekwencj|protokół|technika|badanie w trybie|dobra wizualizacja|z uwzględnieniem)/iu;
 
@@ -545,14 +561,34 @@ const INTRO_RE = /^(badanie (wykonano|porówn|wykonane)|porównano|w porównaniu
 // in the template — unless they belong to a leading finding (epidural haematoma ← skull
 // fracture, pneumothorax ← rib fracture on the same side), then they follow it at the top.
 const LEAD_CONCEPTS = new Set(['bleed', 'extravasation', 'mass', 'pneumothorax', 'dissection', 'occlusion', 'freeAir', 'ischemia', 'edema', 'stone', 'dilatation', 'inflammation', 'consolidation', 'aneurysm', 'disc', 'collection']);
-const BENIGN_RE = /torbiel|naczyniak|tłuszczak|zwapnie|wysp\p{L}* kostn|cavum|wariant|przebyt|stary|starego|zastarzał/iu;
+const BENIGN_RE = /torbiel|naczyniak|tłuszczak|zwapnie|wysp\p{L}* kostn|cavum|wariant|przebyt|stary|starego|zastarzał|lakun|inwolucyj|starcz/iu;
+// Age-related / chronic / degenerative change: described in the body, never in the conclusion
+// (unless the study is about dementia), never moved to the top.
+const AGE_CONCEPTS = new Set(['atrophy', 'smallVessel', 'degeneration']);
+// Findings that keep a sentence relevant even when it also mentions age-related change.
+const STRONG_CONCEPTS = new Set(['bleed', 'extravasation', 'mass', 'pneumothorax', 'dissection', 'occlusion', 'freeAir', 'edema', 'collection', 'fracture', 'dislocation', 'consolidation', 'inflammation', 'stone', 'aneurysm', 'foreignBody']);
+const ACUTE_WORD_RE = /(?<![\p{L}])(śwież|ostr|aktywn|nowo powstał|świeżo)\p{L}*/iu;
+export const DEMENTIA_RE = /otępien|demencj|alzheimer|zaburze\p{L}* poznawcz|neurodegener|zaburze\p{L}* pamięci|dementia|cognitive/iu;
+
+/** Old, benign, age-related or minor findings — not clinically relevant in the acute setting. */
+export function isIncidental(f) {
+  const acute = ACUTE_WORD_RE.test(f.text);
+  if (f.chronic && !acute) return true;
+  const c = [...f.concepts];
+  const strong = c.some((x) => STRONG_CONCEPTS.has(x)) || (f.concepts.has('ischemia') && !f.chronic);
+  if (BENIGN_RE.test(f.text) && !acute && !strong) return true;
+  const organs = [...f.organs];
+  if (organs.length && organs.every((o) => MINOR_ORGANS.has(o)) && !strong) return true;
+  if (c.some((x) => AGE_CONCEPTS.has(x)) && !strong && !acute) return true;
+  return false;
+}
 const MINOR_ORGANS = new Set(['sinus', 'mastoid', 'scalp', 'soft']);
 
 const isBoneOrgan = (o) => selfAndAncestors(o).has('bone');
 
 /** 'lead' (top of the description) or 'anatomical' (stays with its organ in the template). */
 export function findingRank(f) {
-  if (f.chronic) return 'anatomical';
+  if (f.chronic || isIncidental(f)) return 'anatomical';
   const c = f.concepts;
   const organs = [...f.organs];
   const minorOnly = organs.length > 0 && organs.every((o) => MINOR_ORGANS.has(o));
@@ -589,6 +625,7 @@ const SOLID_ORGANS = ['liver', 'spleen', 'kidney', 'pancreas', 'adrenal'];
 
 /** 'lead' | 'acute' (relevant, secondary) | 'incidental' (old, benign, minor). */
 function relevance(f) {
+  if (isIncidental(f)) return 'incidental';
   if (findingRank(f) === 'lead') return 'lead';
   if (f.chronic || BENIGN_RE.test(f.text)) return 'incidental';
   const organs = [...f.organs];
@@ -686,15 +723,21 @@ export function arrangeFindings(template, report) {
     return f.concepts.size ? { ...f, text: line.trim() } : null;
   };
 
-  // ---- split into intro, preamble (before the first sub-heading) and sections
-  const lines = report.body.split('\n');
+  // ---- a dictated comparison ("Porównano z badaniem z dnia …") goes right under the technique line
+  const comparisons = [];
+  const lines = report.body.split('\n').filter((l) => {
+    const t = l.trim();
+    if (COMPARISON_RE.test(t) && !findingOf(l) && !tpl.body.has(t)) { comparisons.push(t); return false; }
+    return true;
+  });
   let introEnd = 0;
   for (let i = 0; i < lines.length; i++) {
     if (!lines[i].trim()) continue;
     if (INTRO_RE.test(lines[i].trim()) && !findingOf(lines[i])) introEnd = i + 1;
     else break;
   }
-  const intro = tidyLines(lines.slice(0, introEnd));
+  const introLines = lines.slice(0, introEnd).filter((l) => l.trim());
+  const intro = [...introLines, ...comparisons];
   const pre = [];
   const sections = [];
   for (const line of lines.slice(introEnd)) {
@@ -750,7 +793,7 @@ export function arrangeFindings(template, report) {
     if (target !== si) { placeIn[target].push({ ...x, moved: true }); x.gone = true; }
   }));
   if (!items.length) items.push(...preItems.filter((x) => typeof x !== 'string'), ...secLines.flat().filter((x) => typeof x !== 'string'));
-  if (!items.length) return report;
+  if (!items.length && !comparisons.length) return report;
 
   // ---- arrange each section
   const outSections = sections.map((sec, si) => {
@@ -766,7 +809,11 @@ export function arrangeFindings(template, report) {
       const followers = all.filter((x) => !leads.includes(x) && leads.some((l) => follows(x.f, l.f)));
       top = orderGroup([...leads, ...followers]);
     } else {
-      const acute = all.filter((x) => relevance(x.f) === 'acute');
+      // bones of the head stay with the bones (bottom of a head CT) unless linked to a leading
+      // finding (epidural haematoma); facial fractures lead only in a facial-bones section
+      const faceSection = [...sectionOrgans[si].all].some((o) => selfAndAncestors(o).has('face'));
+      const headBone = (f) => inFamily(f.organs, 'skull') || (inFamily(f.organs, 'face') && !faceSection);
+      const acute = all.filter((x) => relevance(x.f) === 'acute' && !headBone(x.f));
       const followers = all.filter((x) => !acute.includes(x) && acute.some((l) => follows(x.f, l.f)));
       top = orderGroup([...acute, ...followers]);
     }
@@ -854,10 +901,10 @@ export const moveFindingsToTop = arrangeFindings;
  * template's remaining, still-true conclusion lines.
  * Returns { report, corrections, warnings }.
  */
-export function enforceConsistency(template, report) {
+export function enforceConsistency(template, report, { ignore = [], dictatedConclusion = false } = {}) {
   const extracted = extractRecommendations(report, template.bullet);
   report = extracted.report;
-  const conflicts = findConflicts(template, report);
+  const conflicts = findConflicts(template, report, { ignore });
   let next = applyConflicts(template, report, conflicts);
   const corrections = conflicts.map((c) => ({
     removed: c.original,
@@ -876,6 +923,18 @@ export function enforceConsistency(template, report) {
     const rest = lines.filter((l) => !analyseFinding(l).concepts.size);
     next = { ...next, conclusion: formatConclusion([...findings, ...rest], template.bullet) };
     warnings.push('Wnioski utworzono automatycznie z opisanych zmian — zweryfikuj je.');
+  }
+  // The conclusion holds only what matters for the patient now: age-related / chronic / benign
+  // findings stay in the description (unless dictated as "wnioski" or a dementia study).
+  if (!dictatedConclusion && !isDementiaStudy(template, next)) {
+    const kept = next.conclusion.split('\n').filter((l) => {
+      const f = analyseFinding(stripBullet(l));
+      return !(f.concepts.size && isIncidental(f));
+    });
+    if (kept.length !== next.conclusion.split('\n').length) next = { ...next, conclusion: renumber(kept.join('\n'), template.bullet) };
+  }
+  if (!next.conclusion.split('\n').some((l) => stripBullet(l))) {
+    next = { ...next, conclusion: formatConclusion([defaultConclusion(template)], template.bullet) };
   }
   next = arrangeFindings(template, next);
   next = { ...next, conclusion: appendRecommendations(layoutConclusion(next.conclusion, template.bullet), extracted.recs) };
@@ -991,7 +1050,15 @@ function insertFinding(body, sentence) {
     if (score > bestScore) { best = i; bestScore = score; }
   });
   if (best < 0) {
-    // no matching organ: add as its own line at the end of the description
+    // no matching organ: before the bone statements (bones come last), else at the end
+    const boneLine = lines.findIndex((line) => {
+      const o = [...organsIn(line)];
+      return o.length > 0 && o.every((x) => selfAndAncestors(x).has('bone'));
+    });
+    if (boneLine > 0) {
+      lines.splice(boneLine, 0, sentence);
+      return lines.join('\n');
+    }
     return `${body.replace(/\s+$/, '')}\n${sentence}`;
   }
   lines.splice(best + 1, 0, sentence);
@@ -1003,7 +1070,7 @@ function insertFinding(body, sentence) {
  * dictated sentences next to the matching organ; then the whole report is cross-checked.
  * Returns { report, warnings, corrections }.
  */
-export function localMerge(template, report, dictation) {
+export function localMerge(template, report, dictation, { ignore = [] } = {}) {
   const sentences = splitSentences(normalizeDictation(dictation));
   const bodyAdd = [];
   const conclusionAdd = [];
@@ -1035,6 +1102,6 @@ export function localMerge(template, report, dictation) {
     conclusion = formatConclusion([...keep, ...conclusionAdd], template.bullet);
   }
 
-  const checked = enforceConsistency(template, { ...report, body, conclusion });
+  const checked = enforceConsistency(template, { ...report, body, conclusion }, { ignore, dictatedConclusion: conclusionAdd.length > 0 });
   return { report: checked.report, warnings: checked.warnings, corrections: checked.corrections };
 }

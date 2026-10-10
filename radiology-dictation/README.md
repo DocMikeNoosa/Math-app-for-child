@@ -113,6 +113,34 @@ for the AI, and set personal style rules under ⚙.
     abbreviations, phrasing), never as content. You can delete single examples or all of them.
 - **Clock**: a small date and time sits in the top bar.
 
+## Emergency relevance (v0.9)
+
+- **Body order**:
+  1. the technique line;
+  2. the comparison line ("Porównano z badaniem z dnia …"), only if you dictate one;
+  3. the clinically relevant findings, with their related normal statements;
+  4. the remaining normal statements together with expected / age-related findings;
+  5. the bones last. A skull fracture stays with the bones unless it belongs to an epidural
+     haematoma.
+- **Conclusion** = only what matters for the patient now. Small-vessel disease, atrophy (and the
+  resulting widening of CSF spaces), old lacunes or infarcts, degenerative change, simple cysts,
+  calcifications and sinus mucosal thickening stay in the description, never in the conclusion.
+  Exceptions: a dementia / cognitive study, or you dictate them as "wnioski …". If nothing relevant
+  is left, the conclusion is the normal line ("Bez ostrej patologii wewnątrzczaszkowej." /
+  "Bez wewnątrzczaszkowych zmian pourazowych." …). Enforced by the rule-based checker
+  (`isIncidental`, `defaultConclusion`) and by the AI prompt.
+- **Oryginał** (`O`): the original template, with every sentence missing from the current report
+  marked. Click a sentence to copy it; **Przywróć** puts it back in its original place. The
+  "Skorygowano szablon" list has **Kopiuj / Przywróć** too. A restored sentence is protected:
+  neither the AI nor the checker removes it again in this report.
+- **Learning from your edits** (when you copy an edited report):
+  - reworded sentences;
+  - lines you deleted from or added to the conclusion;
+  - template sentences you restored;
+  - your finished report as an example of your arrangement (last 2 per template).
+
+  All of it goes to Claude with later requests. ⚙ shows what was learned; "Zapomnij…" clears it.
+
 ## Classifications and consultation line
 
 - **Classifications**: when the dictation gives the data a standard system needs, Claude adds the

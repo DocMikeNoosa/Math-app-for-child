@@ -133,6 +133,9 @@
           <button class="tb-btn" id="acceptBtn" title="Akceptuj zmiany (usuń podświetlenia)" disabled>
             <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Akceptuj</span>
           </button>
+          <button class="tb-btn" id="origBtn" title="Pokaż oryginalny szablon — kopiuj lub przywróć usunięte zdania (O)">
+            <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><circle cx="11.5" cy="14" r="2.5"/><path d="M13.3 15.8L15.5 18"/></svg><span>Oryginał</span>
+          </button>
           <button class="tb-btn" id="resetBtn" title="Przywróć czysty szablon w tym opisie">
             <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span>Szablon</span>
           </button>
@@ -339,9 +342,10 @@
           </label>
           <span class="count-soft" id="styleCount"></span>
         </div>
-        <p class="hint">Gdy poprawisz tekst AI przed skopiowaniem, RadVox zapamiętuje parę „AI → moja wersja” (do 50) i pokazuje ją AI jako przykład stylu. Zapisywane tylko w tej przeglądarce.</p>
+        <p class="hint">Gdy poprawisz opis przed skopiowaniem, RadVox zapamiętuje: zmienione sformułowania, zdania usunięte lub dodane we wnioskach, przywrócone zdania szablonu oraz Twój gotowy opis jako wzór układu (2 ostatnie na szablon). AI dostaje to przy kolejnych opisach. Zapisywane tylko w tej przeglądarce.</p>
+        <p class="hint learn-summary" id="learnSummary"></p>
         <ul class="style-list" id="styleList"></ul>
-        <button class="link-btn" id="clearStyle" hidden>Zapomnij wszystkie przykłady</button>
+        <button class="link-btn" id="clearStyle" hidden>Zapomnij wszystko, czego się nauczył</button>
       </div>
       <div class="field">
         <div class="field-head"><label>Przycisk mikrofonu (np. Nuance PowerMic)</label></div>
@@ -406,6 +410,18 @@
     </div>
   </div>
 
+  <!-- Original template -->
+  <div class="modal" id="origModal" hidden role="dialog" aria-label="Oryginalny szablon">
+    <div class="modal-card orig-card">
+      <div class="drawer-head"><h3 id="origTitle">Oryginalny szablon</h3>
+        <span class="grow"></span>
+        <button class="btn btn-small" id="origCopyAll">Kopiuj cały szablon</button>
+        <button class="icon-btn" id="closeOrig" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="orig-body" id="origBody"></div>
+    </div>
+  </div>
+
   <!-- Shortcuts dialog -->
   <div class="modal" id="helpModal" hidden role="dialog" aria-label="Skróty klawiszowe">
     <div class="modal-card">
@@ -419,6 +435,7 @@
         <dt><kbd>L</kbd></dt><dd>Język dyktowania PL / EN</dd>
         <dt><kbd>Ctrl</kbd> <kbd>↵</kbd></dt><dd>Przygotuj opis</dd>
         <dt><kbd>D</kbd></dt><dd>Dzisiejsze opisy</dd>
+        <dt><kbd>O</kbd></dt><dd>Oryginalny szablon (kopiuj / przywróć zdania)</dd>
         <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>C</kbd></dt><dd>Kopiuj opis do schowka</dd>
         <dt><kbd>Alt</kbd> <kbd>N</kbd></dt><dd>Nowy opis (następny pacjent)</dd>
         <dt><kbd>Ctrl</kbd> <kbd>Z</kbd> / <kbd>Y</kbd></dt><dd>Cofnij / ponów (poza polem tekstu)</dd>

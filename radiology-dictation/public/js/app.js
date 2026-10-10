@@ -1,9 +1,9 @@
 import { TEMPLATES, GROUPS, REGIONS, SNIPPETS, SNIPPET_GROUPS, SECTION_LABELS, getTemplate, regionLabel, templatesByRegion, reportFromTemplate, reportToText, setUserTemplates, isBuiltin, builtinRaw, rawOf, cleanRaw, parseTemplate } from './templates.js';
 import { convertSpokenFor, tidy, scrubIdentifiers, wordDiff } from './polish-text.js';
-import { localMerge, findConflicts, applyConflicts } from './crosscheck.js';
+import { localMerge, findConflicts, applyConflicts, splitSentences } from './crosscheck.js';
 import { Dictation, LevelMeter, speechSupported } from './speech.js';
 import { parseVoiceCommands, dropLastSentence, dropLastWord, COMMAND_LABELS } from './voice-commands.js';
-import { styleExamplesFrom, addStyleExamples } from './style-learning.js';
+import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, addUnique } from './style-learning.js';
 import { MicButton } from './mic-button.js';
 
 const $ = (id) => document.getElementById(id);
@@ -20,7 +20,8 @@ const els = Object.fromEntries(
     'tplDelete', 'tplDuplicate', 'tplCancel', 'tplSave',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
-    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo',
+    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo', 'learnSummary',
+    'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
     'micStatus', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'keyLearn', 'keyClear', 'keyStatus',
@@ -199,7 +200,7 @@ function renderReport() {
 function renderPanels() {
   // corrections (what the cross-check removed / rewrote)
   els.correctionsList.innerHTML = state.corrections
-    .map((c) => `<li><del>${esc(c.removed)}</del>${c.replacement ? `<span class="arrow">→</span><ins>${esc(c.replacement)}</ins>` : '<span class="arrow">→</span><ins><em>usunięto</em></ins>'}${c.reason ? `<span class="why">${esc(c.reason)}</span>` : ''}</li>`)
+    .map((c, i) => `<li><del>${esc(c.removed)}</del>${c.replacement ? `<span class="arrow">→</span><ins>${esc(c.replacement)}</ins>` : '<span class="arrow">→</span><ins><em>usunięto</em></ins>'}${c.reason ? `<span class="why">${esc(c.reason)}</span>` : ''}${present(c.removed) ? '' : `<span class="c-actions"><button class="mini-btn" data-copy-corr="${i}">Kopiuj</button><button class="mini-btn accent" data-restore="${i}" title="Wstaw to zdanie szablonu z powrotem do opisu">Przywróć</button></span>`}</li>`)
     .join('');
   els.corrections.hidden = state.corrections.length === 0;
   els.correctionsTitle.textContent = `Skorygowano szablon (${state.corrections.length})`;
@@ -333,6 +334,75 @@ function onEditBlur() {
   editSnapshot = null;
 }
 
+// ---------------------------------------------------------------- original template: view, copy, restore
+const stripB = (l) => l.replace(/^\s*(?:[-–•]|\d+[.)])\s*/, '').trim();
+const present = (sentence) => state.report.body.includes(sentence) || state.report.conclusion.includes(sentence);
+
+/** Put a template sentence the app removed back where it was in the template. */
+function restoreSentence(sentence, replaced = '') {
+  const t = template();
+  if (!t || !sentence || present(sentence)) return;
+  const r = clone(state.report);
+  const inConclusion = t.conclusion.split('\n').map(stripB).some((l) => l === sentence || splitSentences(l).includes(sentence));
+  if (replaced && (r.body.includes(replaced) || r.conclusion.includes(replaced))) {
+    // the sentence was rewritten: put the original wording back
+    if (r.body.includes(replaced)) r.body = r.body.replace(replaced, sentence);
+    else r.conclusion = r.conclusion.replace(replaced, sentence);
+  } else if (inConclusion) {
+    const [main, ...recs] = r.conclusion.split(/\n\n(?=[^\n]*$)/);
+    const numbered = (main.match(/^\s*\d+[.)]/gm) || []).length;
+    const line = t.bullet === 'number' ? `${numbered + 1}. ${sentence}` : `- ${sentence}`;
+    r.conclusion = [main.trim() ? `${main.replace(/\s+$/, '')}\n${line}` : line, ...recs].join('\n\n');
+  } else {
+    // after the nearest earlier template sentence still in the report (or before the next one)
+    const order = splitSentences(t.body);
+    const at = order.indexOf(sentence);
+    const lines = r.body.split('\n');
+    const lineOf = (s) => lines.findIndex((l) => l.includes(s));
+    let idx = -1;
+    for (let k = at - 1; k >= 0 && idx < 0; k--) { const li = lineOf(order[k]); if (li >= 0) idx = li + 1; }
+    for (let k = at + 1; k < order.length && idx < 0; k++) { const li = lineOf(order[k]); if (li >= 0) idx = li; }
+    if (idx < 0) idx = lines.length;
+    lines.splice(idx, 0, sentence);
+    r.body = lines.join('\n');
+  }
+  if (!state.ignore.includes(sentence)) state.ignore.push(sentence); // the cross-check leaves it alone now
+  learned.restored = addUnique(learned.restored, [sentence], 30);
+  saveStyle();
+  commit(r, { baseline: clone(state.report), warnings: state.warnings, corrections: state.corrections, source: state.source });
+  if (!els.origModal.hidden) renderOriginal();
+  toast('Zdanie szablonu przywrócone — AI nie usunie go ponownie w tym opisie', 'ok', 3200);
+}
+
+function renderOriginal() {
+  const t = template();
+  if (!t) return;
+  els.origTitle.textContent = `Oryginalny szablon — ${t.title}`;
+  const sent = (s) => {
+    const gone = !present(s);
+    return `<span class="o-sent${gone ? ' gone' : ''}" data-copy="${esc(s)}" title="${gone ? 'Usunięte z opisu — kliknij, aby skopiować' : 'Kliknij, aby skopiować'}">${esc(s)}</span>${gone ? `<button class="mini-btn accent o-restore" data-restore-s="${esc(s)}">Przywróć</button>` : ''}`;
+  };
+  const block = (text, isConclusion) => text.split('\n').map((line) => {
+    if (!line.trim()) return '<div class="o-gap"></div>';
+    if (/^[\p{L} ,/-]+:\s*$/u.test(line.trim())) return `<div class="o-head">${esc(line.trim())}</div>`;
+    const bullet = isConclusion ? (line.match(/^\s*(?:[-–•]|\d+[.)])\s*/) || [''])[0] : '';
+    const body = isConclusion ? line.slice(bullet.length) : line;
+    const parts = splitSentences(body);
+    return `<div class="o-line">${esc(bullet)}${(parts.length ? parts : [body.trim()]).map(sent).join(' ')}</div>`;
+  }).join('');
+  const removed = [...splitSentences(t.body), ...t.conclusion.split('\n').map(stripB).filter(Boolean)].filter((x) => !present(x)).length;
+  els.origBody.innerHTML = `
+    <p class="hint">Kliknij zdanie, aby je skopiować. <span class="o-legend">Zaznaczone</span> zdania nie występują w bieżącym opisie (usunięte lub zmienione) — „Przywróć” wstawia je z powrotem w to samo miejsce. ${removed ? `Usuniętych / zmienionych: ${removed}.` : ''}</p>
+    <div class="o-exam">${esc(t.header)}</div>
+    <div class="o-label">Opis</div>${block(t.body, false)}
+    <div class="o-label">Wnioski</div>${block(t.conclusion, true)}`;
+}
+function openOriginal(open = true) {
+  if (open && !template()) { toast('Najpierw wybierz szablon.', 'warn'); return; }
+  if (open) renderOriginal();
+  els.origModal.hidden = !open;
+}
+
 // ---------------------------------------------------------------- AI processing
 /** Everything the server needs for one "prepare report" call. */
 function formatPayload() {
@@ -345,6 +415,8 @@ function formatPayload() {
     instruction: scrubIdentifiers(els.instruction.value.trim()),
     style: els.stylePrefs.value,
     styleExamples: els.learnStyle.checked ? styleExamples.slice(-12).map(({ ai, final }) => ({ ai, final })) : [],
+    learned: els.learnStyle.checked ? learnedFor(t.id) : null,
+    keep: state.ignore.slice(-40),
     inputLang: state.inputLang,
     outputLang: state.outputLang,
     mode: state.aiMode,
@@ -468,7 +540,7 @@ async function process() {
         toast('Polecenia dla AI wymagają połączenia z Claude.', 'warn');
         return;
       }
-      result = localMerge(t, before, dictation);
+      result = localMerge(t, before, dictation, { ignore: state.ignore });
       source = 'Tryb lokalny';
     }
   } finally {
@@ -1156,23 +1228,67 @@ function loadStyle() {
   } catch { styleExamples = []; }
 }
 function saveStyle() {
-  try { localStorage.setItem(STYLE_KEY, JSON.stringify(styleExamples)); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(STYLE_KEY, JSON.stringify(styleExamples));
+    localStorage.setItem(LEARNED_KEY, JSON.stringify(learned));
+  } catch { /* ignore */ }
   renderStyle();
 }
 /** On copy: sentences the radiologist reworded after the AI wrote them become style examples. */
 function learnFromEdits() {
   if (!els.learnStyle.checked || !state.lastAI || state.lastAI.templateId !== state.report.templateId) return;
-  const pairs = styleExamplesFrom(state.lastAI, state.report);
+  const ai = state.lastAI;
+  const final = clone(state.report);
   state.lastAI = clone(state.report); // the same edits are not learned twice
-  if (!pairs.length) return;
-  styleExamples = addStyleExamples(styleExamples, pairs);
+  const pairs = styleExamplesFrom(ai, final);
+  const concl = conclusionChanges(ai, final);
+  const changed = reportChanged(ai, final);
+  if (pairs.length) styleExamples = addStyleExamples(styleExamples, pairs);
+  if (concl.removed.length) learned.conclusionRemoved = addUnique(learned.conclusionRemoved, concl.removed, 40);
+  if (concl.added.length) learned.conclusionAdded = addUnique(learned.conclusionAdded, concl.added, 30);
+  // the finished report itself is the best example of how the radiologist arranges a report
+  if (changed && final.lang === 'pl') {
+    const list = (learned.reports[final.templateId] || []).filter((r) => r.body !== final.body);
+    learned.reports[final.templateId] = [...list, { body: final.body, conclusion: final.conclusion, at: Date.now() }].slice(-2);
+    const ids = Object.keys(learned.reports);
+    const last = (id) => learned.reports[id][learned.reports[id].length - 1]?.at || 0;
+    if (ids.length > 40) delete learned.reports[ids.sort((a, b) => last(a) - last(b))[0]];
+  }
+  if (!pairs.length && !concl.removed.length && !concl.added.length && !changed) return;
   saveStyle();
-  toast(`Zapamiętano ${pairs.length} ${pairs.length === 1 ? 'poprawkę' : 'poprawki'} Twojego stylu`, 'info', 2400);
+  const n = pairs.length + concl.removed.length + concl.added.length;
+  toast(n ? `Zapamiętano ${n} ${n === 1 ? 'Twoją poprawkę' : 'Twoich poprawek'} — AI uwzględni je w następnych opisach` : 'Zapamiętano układ Twojego opisu', 'info', 2600);
+}
+
+// What the app learned, sent to the AI (only for the current template's example reports).
+const LEARNED_KEY = 'radvox.learned.v1';
+let learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {} };
+function loadLearned() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LEARNED_KEY) || 'null');
+    if (saved && typeof saved === 'object') {
+      learned = {
+        conclusionRemoved: Array.isArray(saved.conclusionRemoved) ? saved.conclusionRemoved : [],
+        conclusionAdded: Array.isArray(saved.conclusionAdded) ? saved.conclusionAdded : [],
+        restored: Array.isArray(saved.restored) ? saved.restored : [],
+        reports: saved.reports && typeof saved.reports === 'object' ? saved.reports : {},
+      };
+    }
+  } catch { /* ignore */ }
+}
+function learnedFor(templateId) {
+  const reports = (learned.reports[templateId] || []).map(({ body, conclusion }) => ({ body, conclusion }));
+  return { conclusionRemoved: learned.conclusionRemoved, conclusionAdded: learned.conclusionAdded, restored: learned.restored, exampleReports: reports };
 }
 function renderStyle() {
   const n = styleExamples.length;
-  els.styleCount.textContent = n ? `${n} / 50` : '';
-  els.clearStyle.hidden = !n;
+  const nReports = Object.values(learned.reports).reduce((a, r) => a + r.length, 0);
+  const total = n + learned.conclusionRemoved.length + learned.conclusionAdded.length + learned.restored.length + nReports;
+  els.styleCount.textContent = total ? `${total}` : '';
+  els.clearStyle.hidden = !total;
+  els.learnSummary.textContent = total
+    ? `Poprawki sformułowań: ${n} · usunięte z wniosków: ${learned.conclusionRemoved.length} · dodane do wniosków: ${learned.conclusionAdded.length} · przywrócone zdania szablonu: ${learned.restored.length} · Twoje wzorcowe opisy: ${nReports}`
+    : 'Jeszcze nic — RadVox uczy się, gdy poprawiasz opis przed skopiowaniem.';
   els.styleList.innerHTML = styleExamples.slice().reverse().slice(0, 30).map((p, i) => `<li><del>${esc(p.ai)}</del><ins>${esc(p.final)}</ins><button data-style-del="${n - 1 - i}" title="Zapomnij ten przykład" aria-label="Usuń przykład"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></li>`).join('');
 }
 
@@ -1270,8 +1386,9 @@ function bind() {
   els.bgProcess.addEventListener('change', () => { save(); renderPrepState(); schedulePrefetch(300); });
   els.learnStyle.addEventListener('change', save);
   els.clearStyle.addEventListener('click', () => {
-    if (!window.confirm('Zapomnieć wszystkie zapamiętane przykłady stylu?')) return;
+    if (!window.confirm('Zapomnieć wszystko, czego RadVox nauczył się z Twoich poprawek?')) return;
     styleExamples = [];
+    learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {} };
     saveStyle();
   });
   els.styleList.addEventListener('click', (e) => {
@@ -1279,6 +1396,27 @@ function bind() {
     if (!b) return;
     styleExamples.splice(Number(b.dataset.styleDel), 1);
     saveStyle();
+  });
+
+  // original template
+  els.origBtn.addEventListener('click', () => openOriginal(true));
+  els.closeOrig.addEventListener('click', () => openOriginal(false));
+  els.origCopyAll.addEventListener('click', async () => {
+    const t = template();
+    if (t) toast((await copyText(reportToText(reportFromTemplate(t), t))) ? 'Skopiowano oryginalny szablon' : 'Nie udało się skopiować.', 'ok');
+  });
+  els.origModal.addEventListener('click', async (e) => {
+    if (e.target === els.origModal) return openOriginal(false);
+    const r = e.target.closest('[data-restore-s]');
+    if (r) { restoreSentence(r.dataset.restoreS); return; }
+    const c = e.target.closest('[data-copy]');
+    if (c) toast((await copyText(c.dataset.copy)) ? 'Skopiowano zdanie — wklej je w opisie (Ctrl+V)' : 'Nie udało się skopiować.', 'ok', 2200);
+  });
+  els.correctionsList.addEventListener('click', async (e) => {
+    const r = e.target.closest('[data-restore]');
+    const c = e.target.closest('[data-copy-corr]');
+    if (r) { const x = state.corrections[Number(r.dataset.restore)]; if (x) restoreSentence(x.removed, x.replacement); }
+    if (c) { const x = state.corrections[Number(c.dataset.copyCorr)]; if (x) toast((await copyText(x.removed)) ? 'Skopiowano zdanie szablonu' : 'Nie udało się skopiować.', 'ok', 2000); }
   });
 
   // today's reports
@@ -1442,7 +1580,7 @@ function bind() {
   document.addEventListener('keydown', (e) => {
     if (!els.picker.hidden || !els.tplEditor.hidden) return; // picker / editor handle their own keys
     const typing = isTyping(document.activeElement);
-    if (e.key === 'Escape') { openSettings(false); openHelp(false); openToday(false); toggleSnippets(false); return; }
+    if (e.key === 'Escape') { openSettings(false); openHelp(false); openToday(false); openOriginal(false); toggleSnippets(false); return; }
     if (e.key === 'F2') { e.preventDefault(); toggleRecording(); return; }
     if (e.altKey && (e.key === 'n' || e.key === 'N' || e.code === 'KeyN')) { e.preventDefault(); newReport(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); process(); return; }
@@ -1454,6 +1592,7 @@ function bind() {
     if (e.key === ' ' && document.activeElement !== els.recBtn && !document.activeElement?.closest('button')) { e.preventDefault(); toggleRecording(); return; }
     if (e.key === 't' || e.key === 'T') { e.preventDefault(); openPicker(); return; }
     if (e.key === 'w' || e.key === 'W') { e.preventDefault(); toggleSnippets(); return; }
+    if (e.key === 'o' || e.key === 'O') { e.preventDefault(); openOriginal(els.origModal.hidden); return; }
     if (e.key === 'd' || e.key === 'D') { e.preventDefault(); openToday(els.todayModal.hidden); return; }
     if (e.key === 'l' || e.key === 'L') { e.preventDefault(); setInputLang(state.inputLang === 'pl' ? 'en' : 'pl'); return; }
     if (e.key === '?') openHelp(true);
@@ -1464,6 +1603,7 @@ function bind() {
 // ---------------------------------------------------------------- init
 function init() {
   loadStyle();
+  loadLearned();
   loadToday();
   load();
   renderSnippets();
@@ -1492,4 +1632,4 @@ function init() {
 init();
 
 // Exposed for automated UI tests.
-window.__radvox = { state, process, copyReport, selectTemplate, newReport, runVoiceCommand, onFinal: (t) => dictationEngine.onFinal(t), prefetch, styleExamples: () => styleExamples, today: () => today, mic };
+window.__radvox = { restoreSentence, openOriginal, learned: () => learned, state, process, copyReport, selectTemplate, newReport, runVoiceCommand, onFinal: (t) => dictationEngine.onFinal(t), prefetch, styleExamples: () => styleExamples, today: () => today, mic };

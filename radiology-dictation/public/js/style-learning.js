@@ -57,3 +57,31 @@ export function addStyleExamples(list, pairs, max = 50) {
   const seen = new Set(pairs.map(key));
   return [...list.filter((p) => !seen.has(key(p))), ...pairs.map((p) => ({ ...p, at: p.at || Date.now() }))].slice(-max);
 }
+
+const conclusionLines = (r) => String(r?.conclusion || '').split('\n').map((l) => l.replace(/^\s*(?:[-–•]|\d+[.)])\s*/, '').trim()).filter(Boolean);
+
+/**
+ * Conclusion lines the radiologist deleted from / added to the AI's conclusion. Reworded lines
+ * (still similar) count as neither — those are style, learned by styleExamplesFrom.
+ */
+export function conclusionChanges(aiReport, finalReport) {
+  if (!aiReport || !finalReport || (aiReport.lang || 'pl') !== (finalReport.lang || 'pl')) return { removed: [], added: [] };
+  const before = conclusionLines(aiReport);
+  const after = conclusionLines(finalReport);
+  const close = (a, list) => list.some((b) => b === a || similarity(a, b) >= 0.45);
+  return {
+    removed: before.filter((l) => !close(l, after)),
+    added: after.filter((l) => !close(l, before)),
+  };
+}
+
+/** Did the radiologist change the report at all (wording, order, conclusion)? */
+export function reportChanged(aiReport, finalReport) {
+  return Boolean(aiReport && finalReport) && (aiReport.body.trim() !== finalReport.body.trim() || aiReport.conclusion.trim() !== finalReport.conclusion.trim());
+}
+
+/** Append to a de-duplicated list, newest last, at most `max`. */
+export function addUnique(list, items, max) {
+  const out = list.filter((x) => !items.includes(x));
+  return [...out, ...items].slice(-max);
+}

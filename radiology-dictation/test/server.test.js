@@ -271,3 +271,32 @@ test('format: a consultation the AI left in the body is moved under the conclusi
   assert.doesNotMatch(data.report.body, /konsultacj/);
   assert.equal(data.report.conclusion.split('\n').at(-1), 'Wskazana pilna konsultacja neurochirurgiczna.');
 });
+
+test('format: learned preferences and kept statements reach the AI; prompt has the emergency rules', async () => {
+  const t = getTemplate('ct_head_normal');
+  nextReply = editsReply([], t.conclusion);
+  const keep = ['Kości pokrywy i podstawy czaszki prawidłowe.'];
+  const learned = { conclusionRemoved: ['Zmiany naczyniopochodne w istocie białej.'], exampleReports: [{ body: 'B', conclusion: 'C' }], junk: 1 };
+  const res = await post({ templateId: t.id, report: reportFromTemplate(t), dictation: 'krwiak', learned, keep });
+  assert.equal(res.status, 200);
+  const content = lastRequest.body.messages[0].content;
+  const cached = JSON.parse(content[0].text);
+  assert.deepEqual(cached.learned.conclusion_removed, ['Zmiany naczyniopochodne w istocie białej.']);
+  assert.deepEqual(cached.learned.example_reports, [{ body: 'B', conclusion: 'C' }]);
+  assert.deepEqual(JSON.parse(content[1].text).keep_statements, keep);
+  const system = lastRequest.body.system[0].text;
+  assert.match(system, /NEVER put age-related/);
+  assert.match(system, /comparison line directly under/);
+});
+
+test('format: an AI conclusion with small-vessel disease is cleaned; nothing relevant → normal line', async () => {
+  const t = getTemplate('ct_head_normal');
+  nextReply = editsReply(
+    [{ op: 'insert', target: 'Struktury mózgowia bez zmian ogniskowych, bez cech krwawienia śródczaszkowego, ostrych zmian niedokrwiennych, obrzęku mózgu i bez efektu masy.', text: 'Zmiany naczyniopochodne w istocie białej obu półkul mózgu.', reason: '' }],
+    '- Zmiany naczyniopochodne w istocie białej obu półkul mózgu.',
+  );
+  const res = await post({ templateId: t.id, report: reportFromTemplate(t), dictation: 'zmiany naczyniopochodne w istocie białej' });
+  const data = await res.json();
+  assert.match(data.report.body, /naczyniopochodne/);
+  assert.equal(data.report.conclusion, '- Bez ostrej patologii wewnątrzczaszkowej.');
+});

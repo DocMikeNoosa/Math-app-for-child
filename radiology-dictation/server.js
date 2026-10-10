@@ -84,6 +84,8 @@ async function handleFormat(req, res) {
       instruction,
       style: String(body.style || '').slice(0, 4000),
       styleExamples: cleanStyleExamples(body.styleExamples),
+      learned: cleanLearned(body.learned),
+      keep: strList(body.keep, 40, 600),
       inputLang: lang(body.inputLang),
       outputLang: lang(body.outputLang),
       translate,
@@ -104,6 +106,23 @@ export function cleanStyleExamples(list) {
     .filter((x) => x && typeof x.ai === 'string' && typeof x.final === 'string' && x.ai.trim() && x.final.trim())
     .slice(-20)
     .map((x) => ({ ai: x.ai.trim().slice(0, 600), final: x.final.trim().slice(0, 600) }));
+}
+
+const strList = (v, max, len) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()).slice(-max).map((x) => x.trim().slice(0, len)) : []);
+
+/** What the app learned from the radiologist's edits (all optional, size-limited). */
+export function cleanLearned(l) {
+  if (!l || typeof l !== 'object') return null;
+  const out = {
+    conclusion_removed: strList(l.conclusionRemoved, 30, 300),
+    conclusion_added: strList(l.conclusionAdded, 20, 300),
+    restored: strList(l.restored, 20, 400),
+    example_reports: (Array.isArray(l.exampleReports) ? l.exampleReports : [])
+      .filter((r) => r && typeof r.body === 'string' && typeof r.conclusion === 'string')
+      .slice(-2)
+      .map((r) => ({ body: r.body.slice(0, 6000), conclusion: r.conclusion.slice(0, 2000) })),
+  };
+  return Object.values(out).some((v) => v.length) ? out : null;
 }
 
 async function serveStatic(req, res) {

@@ -148,3 +148,12 @@ test('sinus vs maxilla, mastoid cells vs ventricles', async () => {
   assert.deepEqual([...analyseFinding('Komórki wyrostków sutkowatych powietrzne.').organs], ['mastoid']);
   assert.deepEqual([...analyseFinding('Poszerzenie komór bocznych.').organs], ['ventricles']);
 });
+
+test('learning: conclusion lines removed / added by the radiologist are detected', async () => {
+  const { conclusionChanges } = await import('../public/js/style-learning.js');
+  const ai = { lang: 'pl', body: '', conclusion: '- Krwiak podtwardówkowy nad lewą półkulą (6 mm).\n- Zmiany naczyniopochodne w istocie białej.' };
+  const final = { lang: 'pl', body: '', conclusion: '- Krwiak podtwardówkowy nad lewą półkulą mózgu (6 mm).\n- Bez złamań kości czaszki.' };
+  const c = conclusionChanges(ai, final);
+  assert.deepEqual(c.removed, ['Zmiany naczyniopochodne w istocie białej.']);
+  assert.deepEqual(c.added, ['Bez złamań kości czaszki.']);
+});
