@@ -476,3 +476,44 @@ export function aiPayload({ visits, patient, doctor, referrer, used, repeat, icd
     draft,
   };
 }
+
+/* ------------------------------------------------------------ wpis do dokumentacji (ProDentis) */
+const RESTOR_REC = { crown: 'korona protetyczna', onlay: 'nakład (onlay) z pokryciem guzków', postcrown: 'wkład koronowo-korzeniowy i korona protetyczna', direct: 'odbudowa bezpośrednia (kompozytowa)', access: 'ostateczne zamknięcie dostępu w istniejącej koronie', after: 'ostateczna odbudowa po zakończeniu leczenia kanałowego' };
+const HIST_STATUS = { treated: 'ząb leczony wcześniej kanałowo', initiated: 'leczenie kanałowe rozpoczęte wcześniej' };
+/** Treatment record for the patient's chart (e.g. ProDentis): what was found, done and used — no letter phrasing.
+ *  One block per visit and tooth; impersonal clinical style ("Wykonano…"). */
+export function recordEntry({ visits, patient = {}, doctor = '', fmtDate = (d) => d }) {
+  const P = PT[patient.sex === 'm' ? 'm' : 'f'];
+  const mats = new Map(materialsFor(visits).map((m) => [m.fdi, m.items]));
+  const sorted = [...visits].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const out = [];
+  for (const v of sorted) {
+    const teeth = [...(v.teeth || [])].map(normalized).sort((a, b) => a.fdi - b.fdi);
+    if (!teeth.length) continue;
+    if (out.length) out.push('');
+    out.push(`Data: ${fmtDate(v.date)}${v.performer === 'other' ? ` — leczenie wykonane wcześniej (${v.otherDentist?.trim() || 'inny lekarz'})` : ''}`);
+    for (const rec of teeth) {
+      const dx = rec.dx || {}, h = dx.history || {}, r = rec.rec || {};
+      out.push('', `Ząb ${rec.fdi} — ${toothInfo(rec.fdi).name}`);
+      const hist = [h.cc?.trim(), h.spontaneous && 'ból samoistny', h.night && 'ból nocny', h.deep && 'głęboka próchnica / obnażenie miazgi', HIST_STATUS[h.status]].filter(Boolean);
+      if (hist.length) out.push(`Wywiad: ${hist.join(', ')}.`);
+      const ex = examPhrases(dx).map((x) => x.replace(/^głębokość kieszonek nie przekraczała (.*)$/, 'kieszonki do $1')); if (ex.length) out.push(`Badanie: ${ex.join(', ')}.`);
+      const rad = radioPhrase(dx); if (rad) out.push(`RTG: ${low(rad)}.`);
+      const d = dxPhrase(dx); if (d) out.push(`Rozpoznanie: ${d}.`);
+      const done = [...endoSentences(rec, P), ...(rec.work || []).map(workSentence).filter(Boolean)];
+      if (done.length) out.push(`Leczenie: ${done.join(' ')}`);
+      if (rec.manual?.trim()) out.push(`Opis: ${cap(rec.manual.trim().replace(/([^.])$/, '$1.'))}`);
+      const used = (mats.get(rec.fdi) || []).filter((m) => !done.join(' ').includes(m));
+      if (v.performer !== 'other' && used.length) out.push(`Materiały i sprzęt: ${mats.get(rec.fdi).join(', ')}.`);
+      const rc = [];
+      if (r.restor && r.restor !== 'none' && RESTOR_REC[r.restor]) rc.push(`${RESTOR_REC[r.restor]}${r.restor !== 'after' && RTIME[r.time] ? ' ' + RTIME[r.time] : ''}`);
+      if (r.control) rc.push(`kontrola kliniczna i RTG ${CONTROL[r.control]}`);
+      if (r.note?.trim()) rc.push(low(r.note.trim().replace(/\.$/, '')));
+      if (rc.length) out.push(`Zalecenia: ${rc.join('; ')}.`);
+      if (r.prog && v.performer !== 'other') out.push(`Rokowanie: ${PROG[r.prog]}.`);
+    }
+  }
+  if (sorted.some((v) => v.notes?.trim())) out.push('', `Uwagi: ${sorted.map((v) => v.notes?.trim()).filter(Boolean).join(' ')}`);
+  if (doctor) out.push('', doctor);
+  return out.join('\n');
+}

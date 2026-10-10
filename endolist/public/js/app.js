@@ -8,7 +8,7 @@ import {
 } from './data.js';
 import { suggestDx, finalDx } from './dx.js';
 import { archSVG, toothDetailSVG } from './odontogram.js';
-import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT, materialsFor } from './letter.js';
+import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT, materialsFor, recordEntry } from './letter.js';
 import { generateLetter, reviseLetter, cleanDictation, testKey } from './ai.js';
 import { Pseudonymizer } from './privacy.js';
 import { Clinic, fingerprint } from './org.js';
@@ -17,7 +17,7 @@ import { Dictation, speechSupported } from './speech.js';
 import { letterPaperHTML } from './letterview.js';
 import { buildLetterPDF } from './pdf.js';
 import { SyncClient, loadConfig, enableSync, signInFromServer, normUrl, defaultSyncUrl } from './sync.js';
-import { Folder, fsSupported, names, download, emlDraft, canShareFile, mailto, prodentisText } from './files.js';
+import { Folder, fsSupported, names, download, emlDraft, canShareFile, mailto } from './files.js';
 
 /* ================================================================ utils */
 const $ = (s, r = document) => r.querySelector(s);
@@ -70,7 +70,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '2.4.0';
+export const APP_VERSION = '2.4.1';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -1037,7 +1037,7 @@ function viewLetter() {
     <div class="letter-tools">
       <button class="btn btn-ghost btn-sm" data-act="regen">${I('refresh')} Wygeneruj od nowa</button>
       <button class="btn btn-ghost btn-sm" data-act="pdf-preview">${I('doc')} Podgląd PDF</button>
-      <button class="btn btn-ghost btn-sm" data-act="prodentis">${I('copy')} ProDentis</button>
+      <button class="btn btn-ghost btn-sm" data-act="prodentis" title="Opis leczenia do karty pacjenta w ProDentis">${I('copy')} Wpis do ProDentis</button>
     </div>
     <div class="letter-main">
       <button class="btn btn-soft btn-xl" data-act="print">${I('print')} Drukuj</button>
@@ -1212,17 +1212,20 @@ async function emailLetter(L) {
 function markSent(L, r, to) { L.emailedAt = Date.now(); L.emailedTo = to; save('letters', L); if (r && to && !r.email) { r.email = to; save('referrers', r); } }
 function prodentisModal(L) {
   const p = D().patients.get(L.patientId) || {};
-  const text = prodentisText({ patient: p, letterDate: fmtDate(L.date), content: L.content, glance: L.glance, doctorName: doctorName() });
-  modal({ title: 'Eksport do ProDentis', wide: true, body: `
-    <p class="muted" style="margin-top:0">ProDentis nie udostępnia publicznego interfejsu do importu dokumentów, dlatego eksport działa tak: <b>PDF</b> listu dołączasz do dokumentacji pacjenta w ProDentis, a <b>opis tekstowy</b> wklejasz do opisu wizyty.</p>
-    <textarea readonly rows="10" style="font-family:var(--mono);font-size:12px">${esc(text)}</textarea>`,
+  const visits = (L.visitIds || []).map((id) => D().visits.get(id)).filter(Boolean);
+  const initial = recordEntry({ visits, patient: p, doctor: doctorName(), fmtDate });
+  const m = modal({ title: 'Wpis do dokumentacji (ProDentis)', wide: true, body: `
+    <p class="muted" style="margin-top:0">Opis wykonanego leczenia do karty pacjenta — bez formy listu. Możesz go tu poprawić, potem <b>Kopiuj</b> i wklej w ProDentis do opisu wizyty. PDF listu możesz dołączyć do dokumentacji osobno.</p>
+    <textarea id="pd-text" rows="16" style="font-family:var(--mono);font-size:12.5px;line-height:1.5">${esc(initial)}</textarea>`,
     buttons: [{ label: 'Zamknij', cls: 'btn-ghost' },
-      { label: `${I('copy')} Kopiuj opis`, onClick: async () => { try { await navigator.clipboard.writeText(text); toast('Skopiowano opis — wklej go w ProDentis.', 'ok'); } catch { toast('Nie udało się skopiować.', 'err'); } return false; } },
-      { label: `${I('save')} Zapisz PDF + TXT`, cls: 'btn-primary', onClick: async () => {
+      { label: `${I('save')} Zapisz PDF + TXT`, onClick: async () => {
+        const text = $('#pd-text', m.el).value.replace(/\r?\n/g, '\r\n');
         const { folder, base } = letterFileInfo(L); await saveLetterPdf(L, { quiet: true });
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-        if (S.folder?.ok()) { await S.folder.write(['Listy', folder, `${base} – opis ProDentis.txt`], blob); toast(`Zapisano w folderze Listy/${folder}`, 'ok'); } else { download(blob, `${base} – opis ProDentis.txt`); toast('Pobrano PDF i TXT.', 'ok'); }
-      } }] });
+        if (S.folder?.ok()) { await S.folder.write(['Listy', folder, `${base} – wpis ProDentis.txt`], blob); toast(`Zapisano w folderze Listy/${folder}`, 'ok'); } else { download(blob, `${base} – wpis ProDentis.txt`); toast('Pobrano PDF i TXT.', 'ok'); }
+        return false;
+      } },
+      { label: `${I('copy')} Kopiuj wpis`, cls: 'btn-primary', onClick: async () => { const text = $('#pd-text', m.el).value.replace(/\r?\n/g, '\r\n'); try { await navigator.clipboard.writeText(text); toast('Skopiowano — wklej w ProDentis (Ctrl+V).', 'ok'); } catch { $('#pd-text', m.el).select(); toast('Zaznaczono tekst — skopiuj go Ctrl+C.', 'err'); } return false; } }] });
 }
 
 /* ================================================================ PATIENTS */

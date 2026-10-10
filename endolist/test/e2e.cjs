@@ -215,6 +215,16 @@ async function mockAI(p, reviseOut) {
   ok(!!pdf, 'PDF saved: ' + pdf);
   fs.writeFileSync(path.join(OUT, 'letter.pdf'), await opfsRead(p, pdf));
   ok(!(await opfsRead(p, 'Kopia zapasowa (nie edytować)/endolist-dane.json')).toString().includes('Kowalska'), 'backup encrypted');
+  // ProDentis: a plain treatment record for the chart, not the letter
+  await p.click('[data-act=prodentis]'); await p.waitForSelector('#pd-text');
+  const rec = await p.inputValue('#pd-text'); await p.waitForTimeout(600); await shot(p, '14b-prodentis');
+  console.log('--- PRODENTIS RECORD ---\n' + rec);
+  ok(/Ząb 36 — pierwszy trzonowiec dolny lewy/.test(rec) && /Rozpoznanie: martwica miazgi \(K04\.1\)/.test(rec) && /Leczenie: Wykonano leczenie kanałowe/.test(rec) && /Materiały i sprzęt: .*ProTaper Gold/.test(rec), 'ProDentis entry: per tooth — diagnosis, treatment, materials');
+  ok(!/Szanown|Dziękuj|Przeprowadziłam|Pozdrawiam|Z wyrazami|skierowani/.test(rec), 'ProDentis entry has no letter phrasing (salutation, thanks, first person)');
+  await p.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(URL0).origin });
+  await p.fill('#pd-text', rec + '\nDopisek testowy.'); await p.click('.modal footer .btn-primary'); await p.waitForTimeout(300);
+  ok((await p.evaluate(() => navigator.clipboard.readText())).endsWith('Dopisek testowy.'), 'ProDentis entry can be edited and copied');
+  await p.click('.modal footer .btn-ghost'); await p.waitForTimeout(200);
   // print: big button, opens the letter PDF in a new window and calls print
   ok(await p.locator('.letter-main [data-act=print].btn-xl').count() === 1, 'big "Drukuj" button next to e-mail and PDF');
   await p.click('.letter-main [data-act=print]');
