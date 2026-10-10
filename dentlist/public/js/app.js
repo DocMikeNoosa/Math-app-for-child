@@ -1341,7 +1341,7 @@ function visitChips(v) {
   for (const w of v.procs || []) out.push({ spec: specOf(w), fdi: 'JU', label: procShort(w) });
   return out;
 }
-function visitHistory(vs, { patient = null, readonly = false } = {}) {
+function visitHistory(vs, { patient = null, readonly = false, doctor = '' } = {}) {
   S.vhLookup ??= new Map(); for (const v of vs) S.vhLookup.set(v.id, { v, patient: patient || D().patients.get(v.patientId) });
   if (!vs.length) return '<div class="empty" style="padding:24px 10px"><b>Brak wizyt</b>Wizyty pojawią się tu po zapisaniu.</div>';
   const used = [...new Set(vs.flatMap((v) => visitChips(v).map((c) => c.spec)).filter(Boolean))];
@@ -1353,7 +1353,7 @@ function visitHistory(vs, { patient = null, readonly = false } = {}) {
     const chips = visitChips(v).filter((c) => !f || c.spec === f), open = S.vhOpen?.has(v.id);
     const detail = recordEntry({ visits: [v], patient: patient || D().patients.get(v.patientId) || {}, fmtDate }).split('\n').filter((l) => l && !l.startsWith('Data: '));
     return `<div class="vh-item ${open ? 'open' : ''}"><button type="button" class="vh-head" data-act="vh-toggle" data-id="${v.id}">
-        <span class="vh-date">${fmtDate(v.date)}<small>${v.performer === 'other' ? esc(v.otherDentist || 'inny lekarz') : 'moja wizyta'}</small></span>
+        <span class="vh-date">${fmtDate(v.date)}<small>${v.performer === 'other' ? esc(v.otherDentist || 'inny lekarz') : doctor ? esc(doctor) : 'moja wizyta'}</small></span>
         <span class="vh-chips">${chips.map(chip).join('') || '<span class="faint small">bez wpisów</span>'}</span>
         <span class="vh-caret">${I('next')}</span></button>
       <div class="vh-body">${open ? detail.map((l) => /^Ząb \d|^Jama ustna$/.test(l) ? `<h6>${esc(l)}</h6>` : `<p>${esc(l)}</p>`).join('') : ''}
@@ -1499,14 +1499,16 @@ async function fillClinic() {
   let list; try { list = await clinicPatients(); } catch (e) { el.innerHTML = `<div class="banner warn"><span class="grow small">${esc(e.message)}</span></div>`; return; }
   if (!$('#clinic-list')) return;
   const q = (S.clinicQ || '').toLowerCase(), shown = list.filter((e) => !q || `${patientName(e.patient)} ${e.patient.pesel || ''} ${e.doctor}`.toLowerCase().includes(q));
-  $('#clinic-count').textContent = `${list.length} pacjentów · ${new Set(list.map((e) => e.acct)).size} lekarzy`;
+  // masculine personal nouns: 1 pacjent / lekarz, otherwise pacjentów / lekarzy
+  const nd = S.clinicCache?.docs.length || 0;
+  $('#clinic-count').textContent = `${list.length} ${list.length === 1 ? 'pacjent' : 'pacjentów'} · ${nd} ${nd === 1 ? 'lekarz' : 'lekarzy'}`;
   const chip = (x) => `<span class="vh-chip" style="${specStyle(x.spec || 'hig')}"><b>${x.fdi}</b>${esc(x.label)}</span>`;
   el.innerHTML = shown.length ? `<div class="vh">${shown.map((e) => { const open = S.clinicOpen === e.key, last = e.visits[0];
     return `<div class="vh-item ${open ? 'open' : ''}"><button type="button" class="vh-head" data-act="clinic-open" data-key="${esc(e.key)}">
       <span class="vh-date" style="min-width:190px">${esc(patientName(e.patient))}<small>${e.patient.dob ? 'ur. ' + fmtDate(e.patient.dob) + ' · ' : ''}${esc(e.doctor)}${e.removed ? ' (usunięty z gabinetu)' : ''}</small></span>
       <span class="vh-chips">${last ? `<span class="tiny faint" style="align-self:center;margin-right:4px">${fmtDate(last.date)}</span>${visitChips(last).map(chip).join('')}` : '<span class="faint small">brak wizyt</span>'}</span>
       <span class="vh-caret">${I('next')}</span></button>
-      <div class="vh-body" style="padding-left:16px">${open ? `${visitHistory(e.visits, { patient: e.patient, readonly: !e.self })}${canComplaints() ? `<div class="vh-acts"><button class="btn btn-sm" data-act="complaint-from-clinic" data-key="${esc(e.key)}">${I('doc')} Skarga dotycząca tego pacjenta</button></div>` : ''}` : ''}</div></div>`; }).join('')}</div>`
+      <div class="vh-body" style="padding-left:16px">${open ? `${visitHistory(e.visits, { patient: e.patient, readonly: !e.self, doctor: e.self ? '' : e.doctor })}${canComplaints() ? `<div class="vh-acts"><button class="btn btn-sm" data-act="complaint-from-clinic" data-key="${esc(e.key)}">${I('doc')} Skarga dotycząca tego pacjenta</button></div>` : ''}` : ''}</div></div>`; }).join('')}</div>`
     : `<div class="empty"><b>${q ? 'Brak wyników' : 'Brak pacjentów'}</b></div>`;
   for (const e of shown.filter((x) => x.key === S.clinicOpen)) for (const v of e.visits) { const lk = S.vhLookup?.get(v.id); if (lk) lk.doctor = e.doctor; }
 }
