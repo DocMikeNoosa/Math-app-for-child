@@ -157,3 +157,8 @@ test('learning: conclusion lines removed / added by the radiologist are detected
   assert.deepEqual(c.removed, ['Zmiany naczyniopochodne w istocie białej.']);
   assert.deepEqual(c.added, ['Bez złamań kości czaszki.']);
 });
+
+test('voice: "dane kliniczne …" fills the clinical-details field', () => {
+  assert.deepEqual(parseVoiceCommands('dane kliniczne ból brzucha od dwóch dni'), [{ cmd: 'clinical', text: 'ból brzucha od dwóch dni' }]);
+  assert.deepEqual(parseVoiceCommands('Wskazanie: uraz głowy'), [{ cmd: 'clinical', text: 'uraz głowy' }]);
+});

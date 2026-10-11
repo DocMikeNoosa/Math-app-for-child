@@ -500,6 +500,13 @@ select:focus { border-color: rgba(89, 212, 255, 0.5); }
 .tpl-current.empty .tpl-current-title { color: var(--accent); }
 .no-template .report-foot { visibility: hidden; }
 
+/* clinical details */
+.clinical-box { display: flex; align-items: flex-start; gap: 8px; border: 1px solid var(--line-2); border-radius: 12px; padding: 9px 12px; background: rgba(255, 255, 255, 0.02); transition: border-color 0.15s, box-shadow 0.15s; }
+.clinical-box:focus-within { border-color: rgba(89, 212, 255, 0.5); box-shadow: 0 0 0 3px rgba(89, 212, 255, 0.08); }
+.clinical-box svg { width: 16px; height: 16px; color: var(--rec); margin-top: 2px; opacity: 0.85; }
+.dict-fields .clinical-box textarea { flex: 1; border: 0 !important; box-shadow: none !important; border-radius: 0; background: transparent !important; resize: none; color: var(--text); font: inherit; font-size: 13.5px; line-height: 1.45; padding: 0 !important; min-height: 20px; max-height: 96px; overflow-y: auto; outline: none; }
+.clinical-box.filled { border-color: rgba(255, 77, 97, 0.35); }
+
 /* original template viewer */
 .orig-card { width: min(860px, calc(100vw - 32px)); max-height: min(86vh, 900px); display: flex; flex-direction: column; }
 .orig-card .drawer-head { gap: 10px; }

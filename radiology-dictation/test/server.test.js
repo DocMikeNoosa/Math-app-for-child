@@ -300,3 +300,15 @@ test('format: an AI conclusion with small-vessel disease is cleaned; nothing rel
   assert.match(data.report.body, /naczyniopochodne/);
   assert.equal(data.report.conclusion, '- Bez ostrej patologii wewnątrzczaszkowej.');
 });
+
+test('format: clinical details reach the AI (variable block); prompt has the emergency tiers', async () => {
+  const t = getTemplate('ct_head_normal');
+  nextReply = editsReply([], t.conclusion);
+  await post({ templateId: t.id, report: reportFromTemplate(t), dictation: 'krwiak', clinical: 'Uraz głowy, GCS 13' });
+  const content = lastRequest.body.messages[0].content;
+  assert.equal(JSON.parse(content[1].text).clinical_details, 'Uraz głowy, GCS 13');
+  assert.equal(JSON.parse(content[0].text).clinical_details, undefined, 'not in the cached block');
+  const system = lastRequest.body.system[0].text;
+  assert.match(system, /TIER 1/);
+  assert.match(system, /metastases/);
+});

@@ -18,6 +18,8 @@ const COMMANDS = [
 
 // Editing commands for the finished report: the rest of the chunk goes to the AI instruction.
 const INSTRUCTION_RE = /^(?:polecenie|instrukcja|instruction|command)[\s:,]+(.+)$/iu;
+// "Dane kliniczne …" / "Wskazanie …" fills the clinical-details field.
+const CLINICAL_RE = /^(?:dane kliniczne|wskazanie(?: kliniczne)?|informacje kliniczne|clinical (?:details|information|history)|indication)[\s:,]+(.+)$/iu;
 const EDIT_RE = /^((?:zmień|popraw|dodaj do wniosków|dodaj do opisu|usuń z opisu|usuń z wniosków|skróć|przenieś|change|add to (?:the )?conclusion|remove from (?:the )?report|shorten)(?![\p{L}\d]).*)$/iu;
 
 /**
@@ -27,6 +29,8 @@ const EDIT_RE = /^((?:zmień|popraw|dodaj do wniosków|dodaj do opisu|usuń z op
 export function parseVoiceCommands(raw) {
   const text = String(raw || '').trim();
   if (!text) return [];
+  const clin = text.match(CLINICAL_RE);
+  if (clin) return [{ cmd: 'clinical', text: clin[1].trim() }];
   const instr = text.match(INSTRUCTION_RE);
   if (instr) return [{ cmd: 'instruction', text: instr[1].trim() }];
   const parts = [];
@@ -77,4 +81,5 @@ export const COMMAND_LABELS = {
   copy: 'Kopiuję opis…',
   stop: 'Zatrzymano dyktowanie',
   instruction: 'Polecenie dla AI',
+  clinical: 'Dane kliniczne',
 };

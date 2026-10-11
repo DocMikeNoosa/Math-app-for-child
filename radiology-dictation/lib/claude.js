@@ -23,6 +23,7 @@ You receive JSON with:
 - "dictation": new raw dictation (may contain speech-recognition errors, missing punctuation, spelled-out numbers).
 - "instruction": an optional editing command from the radiologist (e.g. "skróć wnioski").
 - "style_preferences": optional personal style rules. Follow them.
+- "clinical_details": optional clinical information / the referral question (symptoms, mechanism of injury, suspected diagnosis, history such as known cancer). Use it as context — see EMERGENCY PRIORITIES. Never copy it into the report and never treat it as a finding.
 - "keep_statements": template sentences the radiologist restored after they had been removed. Never remove or change them.
 - "learned": what the radiologist taught the app by editing earlier reports: "conclusion_removed" (lines they deleted from your conclusions — never write such lines again), "conclusion_added" (lines they added — the kind of statement they want), "restored" (template statements they put back after removal — be more careful before removing such statements), "example_reports" (their own finished reports for this template — follow their arrangement, wording and conclusion style; never copy findings from them).
 - "style_examples": optional pairs {"ai": your earlier wording, "final": the radiologist's corrected version of it}, learned from reports they edited before copying. Learn their preferences (word choice, abbreviations, phrasing, punctuation, sentence length) and write new text in that style. They are style examples only: never copy findings, numbers or sides from them into this report.
@@ -39,6 +40,14 @@ LANGUAGES:
 - Write corrections and warnings in Polish.
 
 Your job:
+EMERGENCY PRIORITIES — the radiologist is an emergency radiologist; rank every finding into one of four tiers and use the tiers for the order of the body and of the conclusion:
+- TIER 1 — life-threatening / needs immediate action: e.g. ruptured or leaking aneurysm, active bleeding / extravasation, aortic dissection, tension or large pneumothorax, free intraperitoneal air (perforation), bowel ischaemia, intracranial haemorrhage with mass effect or herniation, acute large-vessel occlusion / acute infarct, central pulmonary embolism, testicular / ovarian torsion, obstructed infected kidney.
+- TIER 2 — acute, clinically significant: acute fractures, solid-organ injury, appendicitis, cholecystitis, diverticulitis, bowel obstruction, obstructing stone with hydronephrosis, pneumonia, subsegmental PE, small haematomas…
+- TIER 3 — important non-acute findings that change management: new or suspicious mass, metastases, suspected malignancy, lymphadenopathy, a large unruptured aneurysm, significant incidental PE or DVT, findings needing follow-up. These ALWAYS go into the conclusion (after tiers 1–2) — an emergency report must not lose them.
+- TIER 4 — age-related / chronic / degenerative / benign incidental (small-vessel disease, atrophy, old lacunes, degenerative spine change, simple cysts, calcifications, diverticulosis without inflammation…): body only, never the conclusion (unless dementia study / dictated "wnioski").
+- Clinical details: within a tier, the findings that explain the symptoms or answer the referral question come first. When the clinical question is answered NEGATIVELY by the report (the body states the relevant structure is normal), you may add one short negative conclusion line answering it (e.g. clinical "podejrzenie zapalenia wyrostka" + normal appendix in the body → "Bez cech zapalenia wyrostka robaczkowego."). Never invent the negative: it must follow from statements already in the body. Clinical details never upgrade or downgrade a finding's tier by themselves, but a known history (e.g. known cancer) affects interpretation wording only if the dictation supports it.
+- The first finding of the body and the first line of the conclusion is always the most severe tier-1 finding, stated clearly.
+
 1. Correct obvious speech-recognition errors and grammar, and rewrite the dictation in concise, professional Polish radiological language with standard terminology and accepted abbreviations (mm, cm, j.H., L4/L5, …). Numbers as digits, Polish decimal comma, dimensions "12 x 8 mm".
 2. ORDER OF FINDINGS (clinical logic, decided by you). The radiologist is an EMERGENCY radiologist and may dictate findings in any order, mixed with normal statements and corrections — the order of the dictation does not matter; you arrange everything. The body always reads:
    (1) the technique / acute-setting line (e.g. "Badanie wykonano w trybie ostrodyżurowym.");
@@ -163,7 +172,7 @@ export function outputModeFor({ report, outputLang = 'pl', translate = false }) 
  * The user turn as two content blocks: the template (stable per template → cached together with
  * the system prompt) and the per-request part. Both are JSON objects.
  */
-export function buildUserContent({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], inputLang = 'pl', outputLang = 'pl', translate = false }) {
+export function buildUserContent({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], clinical = '', inputLang = 'pl', outputLang = 'pl', translate = false }) {
   // the learned preferences change rarely → part of the cached block
   const fixed = { template: { header: template.header, body: template.body, conclusion: template.conclusion } };
   if (styleExamples.length && !translate) fixed.style_examples = styleExamples;
@@ -178,6 +187,7 @@ export function buildUserContent({ template, report, dictation, instruction, sty
     instruction: instruction || '',
     style_preferences: style || '',
     keep_statements: keep,
+    clinical_details: clinical || '',
   };
   return [
     { type: 'text', text: JSON.stringify(fixed, null, 2), cache_control: { type: 'ephemeral' } },
@@ -188,8 +198,8 @@ export function buildUserContent({ template, report, dictation, instruction, sty
 const str = (v, fallback) => (typeof v === 'string' && v.trim() ? v.replace(/\s+$/, '') : fallback);
 
 /** Shared tail: rule-based cross-check (Polish), fidelity check, warnings. */
-function finish(template, next, aiCorrections, aiWarnings, { outputLang, source, keep = [], dictatedConclusion = false }) {
-  const checked = outputLang === 'pl' ? enforceConsistency(template, next, { ignore: keep, dictatedConclusion }) : { report: placeRecommendations(next, template.bullet), corrections: [], warnings: [] };
+function finish(template, next, aiCorrections, aiWarnings, { outputLang, source, keep = [], dictatedConclusion = false, clinical = '' }) {
+  const checked = outputLang === 'pl' ? enforceConsistency(template, next, { ignore: keep, dictatedConclusion, clinical }) : { report: placeRecommendations(next, template.bullet), corrections: [], warnings: [] };
   const final = { ...checked.report, lang: outputLang };
   const fidelity = source ? fidelityWarnings(source, `${final.header}\n${final.body}\n${final.conclusion}`) : [];
   return {
@@ -203,7 +213,7 @@ function finish(template, next, aiCorrections, aiWarnings, { outputLang, source,
  * Full-report answer: take Claude's report, then run the deterministic cross-check as a safety
  * net (Polish output) and verify that every dictated number and side survived.
  */
-export function mergeResult(template, report, result, { outputLang = 'pl', source = '', keep = [], dictatedConclusion = false } = {}) {
+export function mergeResult(template, report, result, { outputLang = 'pl', source = '', keep = [], dictatedConclusion = false, clinical = '' } = {}) {
   const next = {
     ...report,
     header: str(result.header, report.header).trim(),
@@ -213,11 +223,11 @@ export function mergeResult(template, report, result, { outputLang = 'pl', sourc
   const aiCorrections = (Array.isArray(result.corrections) ? result.corrections : [])
     .filter((c) => c && c.removed)
     .map((c) => ({ removed: String(c.removed), replacement: String(c.replacement || ''), reason: String(c.reason || '') }));
-  return finish(template, next, aiCorrections, result.warnings, { outputLang, source, keep, dictatedConclusion });
+  return finish(template, next, aiCorrections, result.warnings, { outputLang, source, keep, dictatedConclusion, clinical });
 }
 
 /** Edits answer: apply the edits to the current report, then the same checks. */
-export function mergeEditsResult(template, report, result, { outputLang = 'pl', source = '', keep = [], dictatedConclusion = false } = {}) {
+export function mergeEditsResult(template, report, result, { outputLang = 'pl', source = '', keep = [], dictatedConclusion = false, clinical = '' } = {}) {
   const applied = applyEdits(report.body, result.edits);
   const next = {
     ...report,
@@ -228,7 +238,7 @@ export function mergeEditsResult(template, report, result, { outputLang = 'pl', 
   if (applied.failed.length) {
     warnings.push(`AI odwołało się do zdań, których nie ma w opisie (${applied.failed.length}) — sprawdź opis; nowe zmiany dodano na górze.`);
   }
-  return finish(template, next, applied.corrections, warnings, { outputLang, source, keep, dictatedConclusion });
+  return finish(template, next, applied.corrections, warnings, { outputLang, source, keep, dictatedConclusion, clinical });
 }
 
 export class ClaudeError extends Error {
@@ -245,7 +255,7 @@ function getClient() {
 }
 
 /** Build the request for a speed mode. */
-export function buildRequest({ template, report, dictation, instruction, style, styleExamples, learned, keep, inputLang, outputLang, translate, mode = 'fast' }) {
+export function buildRequest({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, inputLang, outputLang, translate, mode = 'fast' }) {
   const m = MODES[mode] || MODES.fast;
   const params = {
     model: MODEL,
@@ -256,7 +266,7 @@ export function buildRequest({ template, report, dictation, instruction, style, 
       effort: process.env.CLAUDE_EFFORT || m.effort,
       format: { type: 'json_schema', schema: outputModeFor({ report, outputLang, translate }) === 'edits' ? EDITS_SCHEMA : OUTPUT_SCHEMA },
     },
-    messages: [{ role: 'user', content: buildUserContent({ template, report, dictation, instruction, style, styleExamples, learned, keep, inputLang, outputLang, translate }) }],
+    messages: [{ role: 'user', content: buildUserContent({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, inputLang, outputLang, translate }) }],
   };
   const betas = [];
   if (USE_FALLBACKS) {
@@ -276,8 +286,8 @@ async function send(req) {
   return req.beta ? getClient().beta.messages.create(req.params, req.options) : getClient().messages.create(req.params, req.options);
 }
 
-export async function formatWithClaude({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], inputLang = 'pl', outputLang = 'pl', translate = false, mode = 'fast' }) {
-  const args = { template, report, dictation, instruction, style, styleExamples, learned, keep, inputLang, outputLang, translate };
+export async function formatWithClaude({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], clinical = '', inputLang = 'pl', outputLang = 'pl', translate = false, mode = 'fast' }) {
+  const args = { template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, inputLang, outputLang, translate };
   let response;
   try {
     try {
@@ -313,7 +323,7 @@ export async function formatWithClaude({ template, report, dictation, instructio
   const edits = outputModeFor({ report, outputLang, translate }) === 'edits';
   // a dictated "wnioski …" (or an instruction about the conclusion) is the radiologist's own choice
   const dictatedConclusion = /(^|[^\p{L}])wnios|conclusion|impression/iu.test(`${dictation || ''} ${instruction || ''}`);
-  const opts = { outputLang, source, keep, dictatedConclusion };
+  const opts = { outputLang, source, keep, dictatedConclusion, clinical };
   const merged = edits ? mergeEditsResult(template, report, parsed, opts) : mergeResult(template, report, parsed, opts);
   if (translate) merged.corrections = [];
   return { ...merged, model: response.model };

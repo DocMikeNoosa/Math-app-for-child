@@ -74,6 +74,12 @@
       </div>
 
       <div class="dict-fields">
+        <div class="field clinical-field">
+          <div class="clinical-box">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v4h4v6h-4v4H9v-4H5V7h4z" transform="translate(0 2)"/></svg>
+            <textarea id="clinical" rows="1" spellcheck="true" lang="pl" placeholder="Dane kliniczne / wskazanie (opcjonalnie) — np. ból brzucha, hipotonia; znany nowotwór" aria-label="Dane kliniczne"></textarea>
+          </div>
+        </div>
         <div class="field">
           <div class="field-head">
             <label for="dictation">Dyktat</label>
@@ -389,6 +395,7 @@
           <span>„zakończ dyktowanie”</span><span>stop</span>
           <span>„zmień… / popraw… / dodaj do wniosków… / usuń z opisu…”</span><span>→ polecenie dla AI</span>
           <span>„polecenie …”</span><span>→ polecenie dla AI</span>
+          <span>„dane kliniczne …” / „wskazanie …”</span><span>→ dane kliniczne</span>
         </div>
         <p class="hint">Po angielsku: “delete last sentence”, “scratch that”, “prepare report”, “copy report”.</p>
       </div>

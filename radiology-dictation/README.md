@@ -141,6 +141,27 @@ for the AI, and set personal style rules under ⚙.
 
   All of it goes to Claude with later requests. ⚙ shows what was learned; "Zapomnij…" clears it.
 
+## Clinical details and emergency tiers (v0.10)
+
+- **Dane kliniczne** (optional box above the dictation, red cross icon): symptoms, mechanism of
+  injury, the referral question, known history (e.g. known cancer). Type it, or say
+  "dane kliniczne …" / "wskazanie …". It is context for the AI and the checker, never copied into
+  the report. It stays with the report until "Nowy opis".
+- **Every finding is put into an emergency tier**, and the tiers decide the order of the
+  description and of the conclusion:
+  1. **Life-threatening**: ruptured aneurysm, active bleeding, dissection, free air, tension
+     pneumothorax, haemorrhage with mass effect, acute infarct / occlusion, bowel ischaemia…
+     Always first in the body and the first line of the conclusion.
+  2. **Acute**: fractures, organ injury, appendicitis, obstruction, obstructing stone…
+  3. **Important non-acute**: new mass, metastases, suspected malignancy, large unruptured
+     aneurysm. Always in the conclusion, after the acute findings.
+  4. **Age-related / chronic / benign incidental**: body only.
+- **Clinical context**: within a tier, the finding that explains the symptoms or answers the
+  referral question comes first. It never pushes a less severe finding above a life-threatening
+  one. When the question is answered negatively by the report, the AI may add one short negative
+  line (e.g. "Bez cech zapalenia wyrostka robaczkowego."), but only if the body supports it.
+  Memory / dementia clinical details make atrophy relevant.
+
 ## Classifications and consultation line
 
 - **Classifications**: when the dictation gives the data a standard system needs, Claude adds the

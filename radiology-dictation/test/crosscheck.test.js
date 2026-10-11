@@ -333,3 +333,36 @@ test('restored (kept) template statements are not removed again', () => {
   const { report } = localMerge(t, reportFromTemplate(t), 'złamanie kości nosa', { ignore: [keep] });
   assert.ok(report.body.includes(keep));
 });
+
+// ---------------------------------------------------------------- emergency tiers + clinical details (v0.10)
+test('ruptured AAA first; liver metastases also in the conclusion; incidental ones not', () => {
+  const { report } = merge('ct_abdo_pel_contrast_normal', 'Liczne zmiany ogniskowe w wątrobie o charakterze przerzutów, największa 3 cm w segmencie VII. Torbiel prosta nerki lewej 2 cm. Pęknięty tętniak aorty brzusznej o średnicy 7 cm z rozległym krwiakiem zaotrzewnowym po stronie lewej. Zmiany zwyrodnieniowe kręgosłupa lędźwiowego.');
+  const body = lines(report.body).filter((x) => x.trim());
+  assert.match(body[0], /^Pęknięty tętniak aorty/);
+  const c = lines(report.conclusion);
+  assert.match(c[0], /Pęknięty tętniak aorty/);
+  assert.match(c[1], /przerzutów/);
+  assert.doesNotMatch(report.conclusion, /Torbiel|zwyrodnieniowe/);
+});
+
+test('clinical details: the finding that answers the referral question comes first within its tier', () => {
+  const t = getTemplate('ct_abdo_pel_contrast_normal');
+  const d = 'Liczne złogi w pęcherzyku żółciowym bez cech zapalenia. Pogrubiały wyrostek robaczkowy średnicy 11 mm z naciekiem zapalnym tkanki tłuszczowej, obraz zapalenia wyrostka robaczkowego.';
+  const without = localMerge(t, reportFromTemplate(t), d).report;
+  const withCtx = localMerge(t, reportFromTemplate(t), d, { clinical: 'Ból w prawym dole biodrowym, podejrzenie zapalenia wyrostka robaczkowego.' }).report;
+  assert.match(lines(withCtx.conclusion)[0], /wyrostk/);
+  assert.match(lines(withCtx.body).filter((x) => x.trim())[0], /wyrostek robaczkowy/);
+  assert.ok(without.conclusion.length > 0);
+});
+
+test('clinical details never outrank a life-threatening finding', () => {
+  const t = getTemplate('ct_abdo_pel_contrast_normal');
+  const { report } = localMerge(t, reportFromTemplate(t), 'Pogrubiały wyrostek robaczkowy z naciekiem zapalnym, obraz zapalenia wyrostka. Wolne powietrze w jamie otrzewnej.', { clinical: 'podejrzenie zapalenia wyrostka robaczkowego' });
+  assert.match(lines(report.conclusion)[0], /Wolne powietrze/);
+});
+
+test('clinical details about memory problems make atrophy relevant (dementia work-up)', () => {
+  const t = getTemplate('ct_head_normal');
+  const { report } = localMerge(t, reportFromTemplate(t), 'Uogólnione zaniki korowo-podkorowe, wyraźniej zaznaczone w płatach skroniowych.', { clinical: 'Postępujące zaburzenia pamięci, diagnostyka otępienia.' });
+  assert.match(report.conclusion, /zaniki/i);
+});

@@ -86,6 +86,7 @@ async function handleFormat(req, res) {
       styleExamples: cleanStyleExamples(body.styleExamples),
       learned: cleanLearned(body.learned),
       keep: strList(body.keep, 40, 600),
+      clinical: String(body.clinical || '').slice(0, 2000),
       inputLang: lang(body.inputLang),
       outputLang: lang(body.outputLang),
       translate,

@@ -504,10 +504,33 @@ function renumber(conclusion, style) {
 
 // Clinical urgency used to order conclusion lines.
 const URGENCY = ['bleed', 'extravasation', 'mass', 'pneumothorax', 'dissection', 'occlusion', 'freeAir', 'ischemia', 'edema', 'fracture', 'dislocation', 'injury', 'aneurysm', 'consolidation', 'fluid', 'stone', 'dilatation', 'inflammation', 'focal', 'nodes', 'disc', 'enlargement'];
+// Emergency tiers: 0 = life-threatening, 1 = other leading findings (incl. new mass / metastases),
+// 2 = secondary (fractures…), 3 = old / incidental. Within a tier, findings that answer the
+// clinical question come first, then the URGENCY order.
+const CRITICAL_CONCEPTS = new Set(['bleed', 'extravasation', 'dissection', 'freeAir', 'pneumothorax', 'mass', 'occlusion', 'ischemia', 'edema']);
+let clinicalCtx = null; // { organs, concepts } of the clinical details, set during enforceConsistency
+
+/** Clinical details → what they are about (organs, finding types). */
+export function clinicalContext(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  const concepts = new Set([...analyse(t).concepts, ...findingConcepts(t)]);
+  concepts.delete('normal');
+  concepts.delete('injury'); // "uraz" alone says little about which finding matters
+  return { text: t, organs: organsIn(t), concepts, trauma: /uraz|wypadek|upad|pobic|trauma|injur/iu.test(t) };
+}
+function answersClinicalQuestion(f) {
+  if (!clinicalCtx) return false;
+  const organMatch = [...f.organs].some((fo) => [...clinicalCtx.organs].some((co) => selfAndAncestors(fo).has(co) || selfAndAncestors(co).has(fo)));
+  const conceptMatch = [...f.concepts].some((c) => c !== 'injury' && clinicalCtx.concepts.has(c));
+  return organMatch || conceptMatch;
+}
 function urgency(f) {
   const ranks = [...f.concepts].map((c) => URGENCY.indexOf(c)).filter((i) => i >= 0);
-  // leading findings (organ rupture, bleed…) before secondary ones (fractures…), old ones last
-  return (ranks.length ? Math.min(...ranks) : URGENCY.length) + (findingRank(f) === 'lead' ? 0 : 50) + (f.chronic ? 100 : 0);
+  const lead = findingRank(f) === 'lead';
+  const critical = lead && !f.chronic && [...f.concepts].some((c) => CRITICAL_CONCEPTS.has(c));
+  const tier = f.chronic ? 3 : critical ? 0 : lead ? 1 : 2;
+  return tier * 100 + (answersClinicalQuestion(f) ? 0 : 40) + (ranks.length ? Math.min(...ranks) : URGENCY.length);
 }
 
 /** Short conclusion form of a finding sentence. */
@@ -535,7 +558,7 @@ export function conclusionFromFindings(template, report) {
 }
 
 export function isDementiaStudy(template, report) {
-  return DEMENTIA_RE.test(`${template?.header || ''} ${template?.exam || ''} ${report?.header || ''}`);
+  return DEMENTIA_RE.test(`${template?.header || ''} ${template?.exam || ''} ${report?.header || ''} ${clinicalCtx?.text || ''}`);
 }
 
 const HEAD_RE = /głow|mózg|czaszk|head/iu;
@@ -901,7 +924,16 @@ export const moveFindingsToTop = arrangeFindings;
  * template's remaining, still-true conclusion lines.
  * Returns { report, corrections, warnings }.
  */
-export function enforceConsistency(template, report, { ignore = [], dictatedConclusion = false } = {}) {
+export function enforceConsistency(template, report, { ignore = [], dictatedConclusion = false, clinical = '' } = {}) {
+  clinicalCtx = clinicalContext(clinical);
+  try {
+    return enforce(template, report, { ignore, dictatedConclusion });
+  } finally {
+    clinicalCtx = null;
+  }
+}
+
+function enforce(template, report, { ignore, dictatedConclusion }) {
   const extracted = extractRecommendations(report, template.bullet);
   report = extracted.report;
   const conflicts = findConflicts(template, report, { ignore });
@@ -1070,7 +1102,7 @@ function insertFinding(body, sentence) {
  * dictated sentences next to the matching organ; then the whole report is cross-checked.
  * Returns { report, warnings, corrections }.
  */
-export function localMerge(template, report, dictation, { ignore = [] } = {}) {
+export function localMerge(template, report, dictation, { ignore = [], clinical = '' } = {}) {
   const sentences = splitSentences(normalizeDictation(dictation));
   const bodyAdd = [];
   const conclusionAdd = [];
@@ -1102,6 +1134,6 @@ export function localMerge(template, report, dictation, { ignore = [] } = {}) {
     conclusion = formatConclusion([...keep, ...conclusionAdd], template.bullet);
   }
 
-  const checked = enforceConsistency(template, { ...report, body, conclusion }, { ignore, dictatedConclusion: conclusionAdd.length > 0 });
+  const checked = enforceConsistency(template, { ...report, body, conclusion }, { ignore, dictatedConclusion: conclusionAdd.length > 0, clinical });
   return { report: checked.report, warnings: checked.warnings, corrections: checked.corrections };
 }

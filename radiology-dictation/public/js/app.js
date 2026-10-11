@@ -20,7 +20,7 @@ const els = Object.fromEntries(
     'tplDelete', 'tplDuplicate', 'tplCancel', 'tplSave',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
-    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo', 'learnSummary',
+    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo', 'learnSummary', 'clinical',
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
@@ -99,6 +99,7 @@ function load() {
     state.outputLang = saved.outputLang === 'en' ? 'en' : 'pl';
     state.aiMode = ['fast', 'accurate', 'turbo'].includes(saved.aiMode) ? saved.aiMode : 'fast';
     els.stylePrefs.value = saved.style || '';
+    els.clinical.value = saved.clinical || '';
     els.bgProcess.checked = saved.bgProcess !== false;
     els.learnStyle.checked = saved.learnStyle !== false;
     state.recordKey = typeof saved.recordKey === 'string' ? saved.recordKey : null;
@@ -113,7 +114,7 @@ function save() {
   saveTimer = setTimeout(() => {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify({
-        report: state.report, dictation: els.dictation.value, style: els.stylePrefs.value,
+        report: state.report, dictation: els.dictation.value, style: els.stylePrefs.value, clinical: els.clinical.value,
         bgProcess: els.bgProcess.checked, learnStyle: els.learnStyle.checked, recordKey: state.recordKey, reportId: state.reportId,
         recent: state.recent, ignore: state.ignore,
         inputLang: state.inputLang, outputLang: state.outputLang, aiMode: state.aiMode,
@@ -334,6 +335,14 @@ function onEditBlur() {
   editSnapshot = null;
 }
 
+/** The clinical-details box grows with its text and is marked when filled. */
+function renderClinical() {
+  const el = els.clinical;
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
+  el.closest('.clinical-box').classList.toggle('filled', Boolean(el.value.trim()));
+}
+
 // ---------------------------------------------------------------- original template: view, copy, restore
 const stripB = (l) => l.replace(/^\s*(?:[-–•]|\d+[.)])\s*/, '').trim();
 const present = (sentence) => state.report.body.includes(sentence) || state.report.conclusion.includes(sentence);
@@ -413,6 +422,7 @@ function formatPayload() {
     report: clone(state.report),
     dictation: scrubIdentifiers(els.dictation.value.trim()),
     instruction: scrubIdentifiers(els.instruction.value.trim()),
+    clinical: scrubIdentifiers(els.clinical.value.trim()),
     style: els.stylePrefs.value,
     styleExamples: els.learnStyle.checked ? styleExamples.slice(-12).map(({ ai, final }) => ({ ai, final })) : [],
     learned: els.learnStyle.checked ? learnedFor(t.id) : null,
@@ -540,7 +550,7 @@ async function process() {
         toast('Polecenia dla AI wymagają połączenia z Claude.', 'warn');
         return;
       }
-      result = localMerge(t, before, dictation, { ignore: state.ignore });
+      result = localMerge(t, before, dictation, { ignore: state.ignore, clinical: payload.clinical });
       source = 'Tryb lokalny';
     }
   } finally {
@@ -579,6 +589,8 @@ async function newReport() {
   if (!pristine) archiveCurrent();
   els.dictation.value = '';
   els.instruction.value = '';
+  els.clinical.value = '';
+  renderClinical();
   els.interim.textContent = '';
   chunkStack.length = 0;
   state.ignore = [];
@@ -1024,6 +1036,13 @@ function runVoiceCommand(part) {
     case 'deleteWord': setDictation(dropLastWord(v)); break;
     case 'undoChunk': setDictation(chunkStack.length ? chunkStack[chunkStack.length - 1] : ''); break;
     case 'clear': setDictation(''); chunkStack.length = 0; break;
+    case 'clinical': {
+      const cur = els.clinical.value.trim();
+      els.clinical.value = cur ? `${cur}; ${part.text}` : part.text;
+      renderClinical();
+      toast(`Dane kliniczne: „${part.text}”`, 'info', 3000);
+      return;
+    }
     case 'instruction': {
       const cur = els.instruction.value.trim();
       els.instruction.value = cur ? `${cur}; ${part.text}` : part.text;
@@ -1382,6 +1401,8 @@ function bind() {
   els.clearDictation.addEventListener('click', () => { els.dictation.value = ''; save(); els.dictation.focus(); });
   els.dictation.addEventListener('input', () => { chunkStack.length = 0; onDictationChanged(); });
   els.instruction.addEventListener('input', onDictationChanged);
+  els.clinical.addEventListener('input', () => { renderClinical(); onDictationChanged(); });
+  els.clinical.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) { e.preventDefault(); els.dictation.focus(); } });
   els.stylePrefs.addEventListener('input', save);
   els.bgProcess.addEventListener('change', () => { save(); renderPrepState(); schedulePrefetch(300); });
   els.learnStyle.addEventListener('change', save);
@@ -1617,6 +1638,7 @@ function init() {
   renderMic();
   mic.restore();
   renderPrepState();
+  renderClinical();
   if (!speechSupported) {
     els.speechBadge.hidden = false;
     els.speechInfo.textContent = 'Ta przeglądarka nie obsługuje rozpoznawania mowy (Web Speech API). Użyj Chrome lub Edge, albo wpisuj tekst ręcznie.';
