@@ -6,10 +6,27 @@ Nothing you type or say leaves your machine.
 
 ## Quick start
 
-1. Install **Docker Desktop** (Windows/Mac) or Docker Engine (Linux): https://docs.docker.com/get-docker/
+### Windows (one line)
+
+Open **PowerShell** (Start menu > type "PowerShell") and paste:
+
+```powershell
+irm https://raw.githubusercontent.com/DocMikeNoosa/Math-app-for-child/claude/dazzling-bohr-1gdahq/open-webui/install.ps1 | iex
+```
+
+- If Docker Desktop isn't installed, it installs it and asks you to restart Windows. Open Docker Desktop once,
+  then paste the same line again.
+- It downloads everything to `C:\Users\<you>\LocalAI`, picks models for your hardware, and opens
+  **http://localhost:3000** when ready.
+- Later, from that folder: `.\setup.cmd` (start), `.\setup.cmd -Down` (stop), `.\setup.cmd -DryRun` (show plan),
+  `.\setup.cmd -Tier large` (force a tier).
+- An NVIDIA GPU is used automatically. Docker Desktop only needs an up-to-date NVIDIA driver.
+
+### Mac / Linux
+
+1. Install **Docker Desktop** (Mac) or Docker Engine (Linux): https://docs.docker.com/get-docker/
    - **Mac:** also install **Ollama for Mac**: https://ollama.com/download. It uses the Apple GPU, which Docker can't.
-   - **Windows:** run the script from **WSL2** (Ubuntu) or Git Bash.
-   - **NVIDIA GPU (Linux/WSL2):** install the NVIDIA Container Toolkit so Docker can use the GPU.
+   - **NVIDIA GPU on Linux:** install the NVIDIA Container Toolkit so Docker can use the GPU.
 2. Run:
    ```bash
    cd open-webui
