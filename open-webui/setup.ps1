@@ -130,6 +130,21 @@ if ($Images -or $Video) {
         )
         $wf += 'video_wan2_2_5B_ti2v|2_-_Make_a_video'
     }
+    # Pick the ComfyUI build that matches the graphics card (from the image maintainer's table):
+    # cu130 = RTX 20/30/40/50 series and needs NVIDIA driver 580+; cu126 = older cards (GTX 10 series etc.).
+    if ($gpu -and -not $env:COMFY_TAG_GPU) {
+        $info = (& nvidia-smi --query-gpu=compute_cap,driver_version --format=csv,noheader 2>$null | Select-Object -First 1)
+        $cap = 0.0; $drv = 0
+        if ($info) {
+            $parts = $info -split ','
+            [void][double]::TryParse($parts[0].Trim(), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$cap)
+            [void][int]::TryParse(($parts[1].Trim() -split '\.')[0], [ref]$drv)
+        }
+        if ($cap -ge 7.5 -and $drv -ge 580) { $env:COMFY_TAG_GPU = 'cu130-slim' }
+        elseif ($cap -ge 12) { Fail "Your graphics card needs a newer NVIDIA driver (you have $drv, need 580 or newer). Update it with the NVIDIA App or from nvidia.com/drivers, restart, then run this again." }
+        elseif ($cap -gt 0) { $env:COMFY_TAG_GPU = 'cu126-slim' }
+        Write-Host "Graphics card compute capability $cap, driver $drv -> ComfyUI build $env:COMFY_TAG_GPU"
+    }
     $env:COMFY_DOWNLOADS = $dl -join ' '
     $env:COMFY_WORKFLOWS = $wf -join ' '
 

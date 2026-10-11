@@ -121,6 +121,15 @@ else
       COMFY_DOWNLOADS+=" vae|$hf/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan2.2_vae.safetensors"
       COMFY_WORKFLOWS+=" video_wan2_2_5B_ti2v|2_-_Make_a_video"
     fi
+    # cu130 = RTX 20/30/40/50 series (driver 580+); cu126 = older cards.
+    if [[ $gpu -eq 1 && -z "${COMFY_TAG_GPU:-}" ]]; then
+      IFS=', ' read -r cap drv < <(nvidia-smi --query-gpu=compute_cap,driver_version --format=csv,noheader | head -1)
+      capx=$(awk -v c="$cap" 'BEGIN{print int(c*10)}'); drvx=${drv%%.*}
+      if (( capx >= 75 && drvx >= 580 )); then export COMFY_TAG_GPU=cu130-slim
+      elif (( capx >= 120 )); then die "your graphics card needs NVIDIA driver 580 or newer (you have $drv)."
+      else export COMFY_TAG_GPU=cu126-slim; fi
+      echo "Graphics card compute capability $cap, driver $drv -> ComfyUI build $COMFY_TAG_GPU"
+    fi
     export COMFY_DOWNLOADS COMFY_WORKFLOWS
     # Free the GPU: unload chat models sitting in memory.
     for m in $(docker exec ollama ollama ps 2>/dev/null | tail -n +2 | awk '{print $1}'); do docker exec ollama ollama stop "$m" >/dev/null 2>&1 || true; done
