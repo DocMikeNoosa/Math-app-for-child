@@ -46,7 +46,7 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.click('[data-act=ob-create]'); await p.waitForSelector('[data-act=ob-finish]', { timeout: 20000 });
   await p.click('[data-act=ob-finish]'); await p.waitForSelector('#arch', { timeout: 20000 });
   await p.click('.banner [data-act=folder-pick]'); await p.waitForTimeout(800);
-  ok((await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim())) === '#8fa2ff' && (await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())) === '#06071c', 'accent and background colour follow the home specialty (zachowawcza: indigo)');
+  ok((await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim())) === '#8fa2ff' && (await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())) === '#040416', 'accent and background colour follow the home specialty (zachowawcza: indigo)');
   // ---------- adult patient + referrer
   await p.click('[data-act=pick-patient]'); await p.fill('.modal [data-f=first]', 'Tomasz'); await p.fill('.modal [data-f=last]', 'Nowicki'); await p.fill('.modal [data-f=dob]', '1975-05-20'); await p.selectOption('.modal [data-f=sex]', 'm');
   await p.click('.modal footer .btn-primary'); await p.waitForTimeout(300);
@@ -82,11 +82,23 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   // tooth 26: crown seated (protetyka) + tooth 37: filling (zachowawcza)
   await p.click('#arch g.tooth[data-fdi="26"]'); await p.waitForSelector('#ws'); await p.click('#ws-tabs [data-ttab=work]');
   await p.click('[data-act=work-spec][data-spec=prot]'); await p.click('[data-act=add-work][data-type=CROWN]'); await p.waitForTimeout(200);
-  await seg('t.work.0.stage', 'seat'); await p.fill('[data-b="t.work.0.mat"]', 'cyrkon monolityczny'); await p.fill('[data-b="t.work.0.cement"]', 'RelyX Universal');
+  await seg('t.work.0.stage', 'seat'); await p.waitForTimeout(200);
+  ok((await p.textContent('#stage-legend')).includes('korona'), '3D: crown drawn on the tooth');
+  await p.waitForTimeout(600); await shot(p, '01c-ws-crown');
+  await p.fill('[data-b="t.work.0.mat"]', 'cyrkon monolityczny'); await p.fill('[data-b="t.work.0.cement"]', 'RelyX Universal');
   await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
   await p.click('#arch g.tooth[data-fdi="37"]'); await p.waitForSelector('#ws'); await p.click('#ws-tabs [data-ttab=work]');
   await p.click('[data-act=work-spec][data-spec=zach]'); await p.click('[data-act=add-work][data-type=FILL]'); await seg('t.work.0.cls', 'II'); await chip('t.work.0.surf', 'O'); await chip('t.work.0.surf', 'D');
   await p.selectOption('[data-b="t.work.0.mat"]', 'kompozyt'); await p.fill('[data-b="t.work.0.product"]', 'Filtek One Bulk Fill');
+  await p.waitForTimeout(300);
+  ok((await p.textContent('#stage-legend')).includes('wypełnienie (OD)'), '3D: filling drawn on the recorded surfaces (OD)');
+  await shot(p, '01d-ws-fill');
+  ok((await p.locator('#sp-rail .rail-b').count()) === 10 && (await p.locator('#sp-rail .rail-b.has[data-spec=zach]').count()) === 1, 'side rail lists all 10 specialties, marks the ones used on this tooth');
+  await p.click('#sp-rail [data-spec=perio]'); await p.waitForTimeout(300);
+  ok((await p.locator('#ws-tabs .step.on[data-ttab=work]').count()) === 1 && (await p.locator('.spchip.on[data-spec=perio]').count()) >= 1, 'side rail: Periodontologia opens Zabiegi with periodontal procedures');
+  await p.click('[data-ttab=mat]'); await p.waitForTimeout(200);
+  ok((await p.locator('[data-act=mat-spec].on[data-spec=perio]').count()) === 1 && (await p.locator('.cat-chips .chip').first().textContent()).length > 2 && !(await p.locator('.micro-card').count()), 'Materiały: specialty-specific categories (perio), no microscope card outside endodontics');
+  await p.click('#ws-tabs [data-ttab=work]'); await p.waitForTimeout(200);
   await p.click('#ws-tab [data-ttab=endo]'); await p.waitForTimeout(300);
   ok((await p.locator('#ws-tabs .step.on[data-ttab=endo]').count()) === 1 && (await p.locator('#ws-tabs [data-ttab=anat]').count()) === 1 && (await p.textContent('#stage-legend')).includes('kanał'), 'endodontics still available: Zabiegi › Endodoncja adds the root-canal steps and shows the canals');
   await p.click('#ws-tabs [data-ttab=work]'); await p.waitForTimeout(200);
@@ -199,6 +211,27 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.click('[data-nav=complaints]'); await p.waitForTimeout(300);
   ok((await p.textContent('#view table.list')).includes('Tomasz Nowicki') && (await p.textContent('#view table.list')).includes('w opracowaniu'), 'complaints list with status');
   await shot(p, '09-complaints');
+  // complaint about a patient treated outside the app: patient data, description, documents → draft
+  await p.click('[data-act=complaint-new]'); await p.waitForSelector('.cmp');
+  await p.click('[data-cseg=mode] button[data-v=outside]'); await p.waitForSelector('[data-co=last]');
+  await p.fill('[data-co=first]', 'Barbara'); await p.fill('[data-co=last]', 'Wiśniewska'); await p.fill('[data-co=dates]', '03.2025');
+  await p.fill('[data-co=treatment]', '12.03.2025 ząb 46: leczenie kanałowe w znieczuleniu, koferdam, trzy kanały, wypełnienie metodą fali ciągłej, RTG kontrolne prawidłowe.\n\n02.04.2025: odbudowa kompozytowa zęba 46.');
+  await p.fill('[data-c=summary]', 'Pacjentka zarzuca ból zęba 46 po leczeniu.');
+  await p.selectOption('#doc-kind', 'plan'); await p.setInputFiles('#doc-input', path.join(OUT, 'pismo.png')); await p.waitForSelector('.scan img');
+  ok((await p.textContent('.cmp')).includes('Plan leczenia'), 'outside patient: treatment plan photo attached as documentation');
+  await p.click('[data-act=complaint-draft]'); await p.waitForFunction(() => document.querySelector('[data-cr=body]')?.value.includes('zgodnie z zasadami') || document.querySelector('[data-cr=body]')?.value.length > 50, null, { timeout: 15000 });
+  const c3 = calls.at(-1), txt3 = JSON.stringify(c3?.messages || '');
+  ok(c3 && txt3.includes('treated_outside_app') && txt3.includes('fali ciągłej') && !/Wiśniewsk|Barbara/.test(txt3) && typeof c3.messages[0].content === 'string', 'outside patient (AI MOCK): description sent, name pseudonymised, documents only with consent');
+  await p.click('label.cmp-check:has([data-cchk=allowDocsAI])'); await p.waitForTimeout(200);
+  await p.click('[data-act=complaint-draft]'); await p.waitForTimeout(1500);
+  const c4 = calls.at(-1);
+  ok(Array.isArray(c4.messages[0].content) && c4.messages[0].content.some((x) => x.type === 'image'), 'outside patient (AI MOCK): documentation image attached after consent');
+  await shot(p, '09b-complaint-outside', { fullPage: true });
+  await p.evaluate(() => { const st = window.__dentlist.settings(); st.ai.key = ''; window.__dentlist.save('settings', st); });
+  await p.click('[data-act=complaint-draft]'); await p.waitForTimeout(800);
+  const d5 = await p.inputValue('[data-cr=body]');
+  ok(/wynika następujący przebieg leczenia/.test(d5) && /fali ciągłej/.test(d5) && /plan leczenia/.test(d5), 'outside patient: built-in draft uses the description and lists the documents');
+  await p.evaluate(() => { const st = window.__dentlist.settings(); st.ai.key = 'sk-ant-test'; window.__dentlist.save('settings', st); });
   // ---------- assistant: typed / spoken commands → the right place in the app
   const ask = async (text) => { if (!(await p.locator('#asst').count())) { await p.keyboard.press('Control+k'); await p.waitForSelector('#asst-input'); } await p.fill('#asst-input', text); await p.press('#asst-input', 'Enter'); await p.waitForTimeout(700); };
   await p.click('[data-nav=visit]'); await p.waitForTimeout(300);

@@ -12,7 +12,7 @@ import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT, mate
 import { SPECS, SPEC_ORDER, SPEC_TITLE, PROCS, procsFor, procShort, procSentence, specOf, optLabel, SPEC_CATS, DX_OTHER } from './specs.js';
 import { generateLetter, reviseLetter, cleanDictation, testKey, draftComplaint, assistCommand } from './ai.js';
 import { parseLocal, assistCatalog, norm, SECTION_HEAD } from './assistant.js';
-import { SOURCES, STATUS, TONES, REBUTTALS, newComplaint, builtinComplaintDraft, complaintPayload, salutationFor } from './complaints.js';
+import { SOURCES, STATUS, TONES, REBUTTALS, DOC_KINDS, newOutside, newComplaint, builtinComplaintDraft, complaintPayload, salutationFor } from './complaints.js';
 import { buildPlainLetterPDF } from './pdf.js';
 import { Pseudonymizer } from './privacy.js';
 import { Clinic, fingerprint } from './org.js';
@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.4';
+export const APP_VERSION = '1.0.5';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -84,7 +84,7 @@ const home = () => (S.data && settings()?.doctor?.home) || 'zach';
 const mixHex = (a, b, k) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - k) + parseInt(b.slice(i, i + 2), 16) * k).toString(16).padStart(2, '0')).join('');
 const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(', ');
 const rgba = (h, al) => `rgba(${hexRgb(h)}, ${al})`;
-const THEME_VARS = ['--bg', '--bg-2', '--panel-solid', '--panel', '--panel-2', '--line', '--line-2', '--line-3', '--tooth-1', '--tooth-2'];
+const THEME_VARS = ['--bg', '--bg-2', '--panel-solid', '--panel', '--panel-2', '--line', '--line-2', '--line-3', '--dim', '--faint', '--tooth-1', '--tooth-2'];
 function applyTheme() {
   const k = home(), sp = SPECS[k] || SPECS.zach, r = document.documentElement.style;
   // endodontics keeps the original EndoList navy and aqua; every other specialty has its own defined colour and dark background
@@ -93,8 +93,10 @@ function applyTheme() {
   r.setProperty('--glow1', '0.11'); r.setProperty('--glow2', '0.08'); r.setProperty('--tint', '0'); r.setProperty('--panel-tint', '0');
   const own = k !== 'endo' && sp.bg;
   if (own) {
-    const [bg, bg2, pn] = sp.bg, ln = mixHex(a, '#a7b0c0', 0.45);
-    const v = { '--bg': bg, '--bg-2': bg2, '--panel-solid': pn, '--panel': rgba(pn, 0.78), '--panel-2': rgba(mixHex(pn, '#ffffff', 0.06), 0.6), '--line': rgba(ln, 0.11), '--line-2': rgba(ln, 0.19), '--line-3': rgba(ln, 0.3), '--tooth-1': mixHex(pn, '#ffffff', 0.09), '--tooth-2': mixHex(pn, bg, 0.3) };
+    // built like the original navy: a deep, saturated hue (no grey), lines and secondary text tinted with the same hue
+    const [bg, bg2, pn] = sp.bg, ln = mixHex(bg2, '#ffffff', 0.62);
+    const v = { '--bg': bg, '--bg-2': bg2, '--panel-solid': pn, '--panel': rgba(pn, 0.74), '--panel-2': rgba(mixHex(pn, '#ffffff', 0.05), 0.6), '--line': rgba(ln, 0.1), '--line-2': rgba(ln, 0.17), '--line-3': rgba(ln, 0.28),
+      '--dim': mixHex(bg2, '#ffffff', 0.58), '--faint': mixHex(bg2, '#ffffff', 0.34), '--tooth-1': mixHex(pn, '#ffffff', 0.07), '--tooth-2': mixHex(pn, bg, 0.25) };
     for (const [n, x] of Object.entries(v)) r.setProperty(n, x);
   } else for (const n of THEME_VARS) r.removeProperty(n);
   const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = own ? sp.bg[0] : '#050a14';
@@ -631,7 +633,7 @@ function refreshVisit() {
 function openTooth(fdi) {
   const v = curVisit(), ex = v.teeth.find((t) => t.fdi === fdi);
   S.ws = { fdi, isNew: !ex, draft: clone(ex || newToothRec(fdi, v.performer === 'other')), dirty: !ex };
-  S.ttab = null; S.ttab = wsSteps()[0][0]; S.ws.modelKey = JSON.stringify([toothMode(S.ws.draft), opts3D(S.ws.draft).crown]);
+  S.ttab = null; S.matSpec = null; S.matCat = null; S.ttab = wsSteps()[0][0]; S.ws.modelKey = JSON.stringify([toothMode(S.ws.draft), opts3D(S.ws.draft).crown, toothExtras(S.ws.draft)]);
   const ov = document.createElement('div'); ov.className = 'ws-overlay'; ov.id = 'ws';
   ov.innerHTML = workspaceHTML(); requestAnimationFrame(() => { centerStep(); if (S.ws) tintWorkspace(S.ws.draft); });
   $('#modal-root').appendChild(ov);
@@ -651,7 +653,8 @@ function workspaceHTML() {
         <div class="stage-bar"><label class="switch" id="xray-sw" ${toothMode(t) === 'endo' ? '' : 'hidden'}><input type="checkbox" id="xray" ${S.xray !== false ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok rentgenowski</label><label class="switch"><input type="checkbox" id="flat2d" ${localStorage.getItem('dentlist:no3d') === '1' ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok 2D</label><span class="grow"></span><span class="hint">Przeciągnij, aby obrócić</span></div>
         <div class="stage-legend" id="stage-legend">${stageLegend(t)}</div>
       </div>
-      <div class="ws-right"><div class="tabs steps" id="ws-tabs">${stepsHTML(t)}</div>
+      <nav class="sp-rail" id="sp-rail" aria-label="Specjalności">${railHTML(t)}</nav>
+      <div class="ws-right"><div class="tabs steps" id="ws-tabs" style="--n:${wsSteps(t).length}">${stepsHTML(t)}</div>
         <div class="tp-body" id="ws-tab">${tabBody(t)}</div></div>
     </div></div>`;
 }
@@ -702,32 +705,50 @@ function refreshWorkspace({ tabs = true, model = false } = {}) {
   const t = S.ws.draft;
   if (['endo', 'anat'].includes(S.ttab)) S.ws.endoOn = true;
   // the model follows what is done to the tooth (implant, extraction, canals) — redraw when that changes
-  const mk = JSON.stringify([toothMode(t), opts3D(t).crown]);
+  const mk = JSON.stringify([toothMode(t), opts3D(t).crown, toothExtras(t)]);
   if (mk !== S.ws.modelKey) { S.ws.modelKey = mk; model = true; const lg = $('#stage-legend'); if (lg) lg.innerHTML = stageLegend(t); const xs = $('#xray-sw'); if (xs && !xs.dataset.flat) xs.hidden = toothMode(t) !== 'endo'; }
   if (tabs) { const y = $('#ws-tab').scrollTop; const nb = document.createElement('div'); nb.innerHTML = workspaceHTML(); $('#ws-tabs').innerHTML = nb.querySelector('#ws-tabs').innerHTML; $('#ws-tab').innerHTML = tabBody(t); $('#ws-tab').scrollTop = y; renderDx(); }
   $('#ws-sum').textContent = toothSummary(t);
+  const rl = $('#sp-rail'); if (rl) rl.innerHTML = railHTML(t);
+  $('#ws-tabs')?.style.setProperty('--n', wsSteps(t).length);
   tintWorkspace(t);
   centerStep();
   if (model) update3D();
 }
 /** Root canals belong to endodontics: shown for an endodontist, or when this tooth has endodontic work. */
-function endoOn(t) { const noRoots = (t?.work || []).some((x) => IMPLANT_WORK.includes(x.type) || x.type === 'EXT' || x.type === 'IMPACT'); return (home() === 'endo' && !noRoots) || !!S.ws?.endoOn || ['endo', 'anat'].includes(S.ttab) || !!(t && (ENDO[t.endo?.proc] || t.anatOk)); }
+function endoOn(t) { const noRoots = (t?.work || []).some((x) => IMPLANT_WORK.includes(x.type) || ['EXT', 'IMPACT', 'EXT_P'].includes(x.type)); return (home() === 'endo' && !noRoots) || !!S.ws?.endoOn || ['endo', 'anat'].includes(S.ttab) || !!(t && (ENDO[t.endo?.proc] || t.anatOk)); }
 const IMPLANT_WORK = ['IMPLANT', 'UNCOVER', 'ABUT', 'IMPL_PROS', 'PERIIMPL'], CROWN_WORK = ['IMPL_PROS', 'CROWN', 'TEMPCROWN'];
 /** What the model shows: an implant, a removed tooth, a tooth with its canal system, or a plain tooth. */
 function toothMode(t) {
   const w = (t?.work || []).map((x) => x.type);
   if (w.some((x) => IMPLANT_WORK.includes(x))) return 'implant';
-  if (w.includes('EXT') || w.includes('IMPACT')) return 'gone';
+  if (w.some((x) => ['EXT', 'IMPACT', 'EXT_P'].includes(x))) return 'gone';
   return endoOn(t) ? 'endo' : 'solid';
 }
+/** Work of the other specialties drawn on the model (filling surfaces, crown type, post, gingiva, sealant…). */
+function toothExtras(t) {
+  const w = t?.work || [], has = (...k) => w.some((x) => k.includes(x.type)), fill = new Set();
+  for (const x of w) {
+    if (['FILL', 'REFILL'].includes(x.type)) (x.surf || []).forEach((f) => fill.add(f));
+    if (x.type === 'BUILDUP') fill.add('O');
+    if (['BONDING', 'VENEER_D', 'ICON'].includes(x.type)) fill.add('V');
+  }
+  if (has('FILL', 'REFILL') && !fill.size) fill.add('O');
+  return { fill: [...fill], tempFill: has('TEMPFILL'), seal: has('SEAL'), sdf: has('SDF'), post: has('POST'), pulpotomy: has('PULPOT_P', 'PULPECT_P'), apico: has('APICO_S'),
+    crown: has('SSC') ? 'steel' : has('TEMPCROWN') ? 'temp' : has('CROWN', 'BRIDGE') ? 'ceramic' : has('VENEER') ? 'veneer' : has('INLAY') ? 'inlay' : '',
+    gum: has('RECESSION') ? 'recession' : has('SRP', 'FLAP', 'REGEN', 'GINGIVECT', 'CROWNLEN') ? 'gum' : '' };
+}
 function stageLegend(t) {
-  const m = toothMode(t);
-  if (m === 'endo') return '<span><i style="background:#ff3b66"></i>miazga / kanał</span><span><i style="background:#14d8c0"></i>wypełnienie kanałowe</span><span><i style="background:#9a86ff"></i>kanał boczny</span>';
+  const m = toothMode(t), x = toothExtras(t), it = (c, l) => `<span><i style="background:${c}"></i>${l}</span>`;
+  const more = m === 'implant' || m === 'gone' ? '' : [x.fill.length && it('#9fb2ff', `wypełnienie (${x.fill.join('')})`), x.tempFill && it('#f1e9d2', 'opatrunek'), x.seal && it('#ffd2b0', 'lak'), x.sdf && it('#222', 'SDF'),
+    x.crown && it(x.crown === 'steel' ? '#c9ced6' : '#fdfdf9', { steel: 'korona stalowa', temp: 'korona tymczasowa', ceramic: 'korona', veneer: 'licówka', inlay: 'wkład koronowy (inlay/onlay)' }[x.crown]),
+    x.post && it('#b9c0c9', 'wkład koronowo-korzeniowy'), x.pulpotomy && it('#f5efe3', 'pulpotomia / pulpektomia'), x.apico && it('#f4f1e8', 'resekcja z wypełnieniem wstecznym'), x.gum && it('#e0707f', x.gum === 'recession' ? 'dziąsło (recesja)' : 'dziąsło')].filter(Boolean).join('');
+  if (m === 'endo') return '<span><i style="background:#ff3b66"></i>miazga / kanał</span><span><i style="background:#14d8c0"></i>wypełnienie kanałowe</span><span><i style="background:#9a86ff"></i>kanał boczny</span>' + more;
   if (m === 'implant') return `<span><i style="background:#b8c0c8"></i>implant${(t.work || []).some((x) => CROWN_WORK.includes(x.type)) ? ' z koroną' : ' ze śrubą gojącą'}</span>`;
   if (m === 'gone') return '<span><i style="background:#c9d2de;opacity:.5"></i>ząb usunięty (zarys)</span>';
-  return '';
+  return more;
 }
-function opts3D(t) { const mode = toothMode(t); return { done: t.endo.status === 'done' && !!ENDO[t.endo.proc]?.obt, all: true, mode, crown: (t.work || []).some((x) => CROWN_WORK.includes(x.type)) }; }
+function opts3D(t) { const mode = toothMode(t); return { done: t.endo.status === 'done' && !!ENDO[t.endo.proc]?.obt, all: true, mode, crown: (t.work || []).some((x) => CROWN_WORK.includes(x.type)), extras: toothExtras(t) }; }
 const opts2D = (t) => { const o = opts3D(t); return { ...o, done: o.done ? 'all' : false }; };
 function mount3D() {
   const el = $('#stage'), t = S.ws.draft;
@@ -920,8 +941,19 @@ function tabWork(t) {
 }
 
 const custom = (cat) => (settings().customProducts || {})[cat] || [];
+/** Specialties of the work recorded on this tooth (endodontics first), in catalogue order. */
+function specsOn(t) { const set = new Set([...(ENDO[t?.endo?.proc] ? ['endo'] : []), ...(t?.work || []).map((w) => specOf(w))]); return SPEC_ORDER.filter((k) => set.has(k)); }
+const matSpecOf = (t) => (S.matSpec && SPECS[S.matSpec] ? S.matSpec : specsOn(t)[0] || home());
+const matCatOf = (t) => (S.matCat && PRODUCTS[S.matCat] ? S.matCat : SPEC_CATS[matSpecOf(t)][0]);
+/** Side rail: every specialty is one tap away from the tooth card, whatever the doctor's own specialty. */
+function railActive() { return ['endo', 'anat'].includes(S.ttab) ? 'endo' : S.ttab === 'work' ? (S.workSpec || (home() === 'endo' ? 'zach' : home())) : S.ttab === 'mat' ? matSpecOf(S.ws?.draft) : ''; }
+function railHTML(t) {
+  const on = specsOn(t), act = railActive();
+  return `<span class="rail-h">Specjalność</span>${SPEC_ORDER.map((k) => { const n = k === 'endo' ? (ENDO[t.endo?.proc] ? 1 : 0) : (t.work || []).filter((w) => specOf(w) === k).length;
+    return `<button type="button" class="rail-b ${act === k ? 'on' : ''} ${on.includes(k) ? 'has' : ''}" style="${specStyle(k)}" data-act="rail-spec" data-spec="${k}" title="${esc(SPECS[k].label)}${n ? ` — ${n} ${n === 1 ? 'wpis' : 'wpisy'} przy tym zębie` : ''}"><i></i><span>${esc(SPECS[k].short)}</span>${n ? `<b>${n}</b>` : ''}</button>`; }).join('')}`;
+}
 function tabMat(t) {
-  const cat = S.matCat || SPEC_CATS[home()][0];
+  const ms = matSpecOf(t), cat = matCatOf(t), on = specsOn(t);
   const all = [...PRODUCTS[cat], ...custom(cat)];
   const chosen = t.products || [];
   const e = t.endo || {}, microList = [...PRODUCTS.micro.filter((x) => !/lupy/.test(x)), ...custom('micro')];
@@ -929,7 +961,9 @@ function tabMat(t) {
       <label class="micro-toggle"><input type="checkbox" data-b="t.endo.micro" data-re="1" ${e.micro ? 'checked' : ''}><span class="mi">${I('microscope')}</span><span class="grow"><b>Mikroskop zabiegowy</b><small>${e.micro ? 'użyty podczas zabiegu — pojawi się w liście' : 'kliknij, jeśli zabieg był wykonany pod mikroskopem'}</small></span><span class="tick">${e.micro ? I('check') : ''}</span></label>
       ${e.micro ? `<label class="f" style="margin-top:10px"><span>Marka / model mikroskopu (opcjonalnie)</span><input type="text" data-b="t.endo.microBrand" list="dl-micro" value="${esc(e.microBrand || '')}" placeholder="np. Zeiss Extaro 300 — można pominąć"></label><datalist id="dl-micro">${microList.map((x) => `<option>${esc(x)}</option>`).join('')}</datalist>` : ''}
     </div>`;
-  return `${micro}<div class="label">Użyte materiały i sprzęt</div>
+  const specRow = `<div class="label" style="margin-top:0">Materiały i sprzęt — specjalność</div><div class="spchips">${SPEC_ORDER.map((k) => `<button type="button" class="spchip ${ms === k ? 'on' : ''} ${on.includes(k) ? 'has' : ''}" style="${specStyle(k)}" data-act="mat-spec" data-spec="${k}">${specDot(k)}${esc(SPECS[k].short)}</button>`).join('')}</div>
+    <div class="chips cat-chips">${[...SPEC_CATS[ms], ...SPEC_CATS.all.filter((x) => !SPEC_CATS[ms].includes(x))].map((k) => `<button type="button" class="chip ${cat === k ? 'on' : ''}" data-act="mat-cat" data-cat="${k}">${esc(PRODUCT_CATS[k])}</button>`).join('')}</div>`;
+  return `${specRow}${ms === 'endo' || e.micro ? micro : ''}<div class="label">Użyte materiały i sprzęt</div>
     <div class="chips">${chosen.length ? chosen.map((x, i) => `<span class="chip on prod">${esc(x.name)}<small>${esc(PRODUCT_CATS[x.cat] || '')}</small><button data-act="rm-prod" data-i="${i}">×</button></span>`).join('') : '<span class="hint">Nic jeszcze nie dodano.</span>'}</div>
     <div class="label">Dodaj</div>
     <div class="grid g2"><label class="f"><span>Kategoria</span><select id="mat-cat">${[home(), ...SPEC_ORDER.filter((k) => k !== home()), 'all'].map((sp) => `<optgroup label="${esc(sp === 'all' ? 'Wspólne (znieczulenie, diagnostyka, sprzęt)' : SPECS[sp].label)}">${SPEC_CATS[sp].filter((k) => PRODUCT_CATS[k]).map((k) => `<option value="${k}" ${k === cat ? 'selected' : ''}>${esc(PRODUCT_CATS[k])}</option>`).join('')}</optgroup>`).join('')}</select></label>
@@ -1548,19 +1582,36 @@ function viewComplaints() {
   <section class="panel">${list.length ? `<table class="list"><thead><tr><th>Wpłynęła</th><th>Pacjent</th><th>Od</th><th>Status</th><th>Termin</th></tr></thead><tbody>${list.map((c) => { const p = complaintPatient(c); const late = c.deadline && c.deadline < today() && !['sent', 'closed'].includes(c.status);
     return `<tr class="click" data-act="complaint-open" data-id="${c.id}"><td>${fmtDate(c.received)}</td><td><b style="color:var(--strong)">${esc(patientName(p) || '—')}</b></td><td>${esc(SOURCES[c.source])}${c.sender ? `<div class="tiny faint">${esc(c.sender)}</div>` : ''}</td><td><span class="tag ${c.status === 'closed' ? '' : c.status === 'sent' ? 'g' : 'o'}">${esc(STATUS[c.status])}</span></td><td ${late ? 'style="color:var(--danger)"' : ''}>${c.deadline ? fmtDate(c.deadline) : '—'}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty"><b>Brak skarg</b>Kliknij „Nowa skarga", gdy wpłynie pismo.</div>'}</section>`;
 }
+/** Treatment documented outside DentList (paper chart, other software): patient data, description and documents. */
+function outsideForm(c) {
+  const o = (c.outside ??= newOutside());
+  const f = (k, label, type = 'text', ph = '') => `<label class="f"><span>${label}</span><input type="${type}" data-co="${k}" value="${esc(o[k] || '')}" placeholder="${esc(ph)}"></label>`;
+  return `<div class="hint" style="margin:10px 0 4px">Pacjent nie był prowadzony w aplikacji (np. dokumentacja papierowa lub z innego programu): wpisz dane, opisz leczenie i dołącz zdjęcia lub skany dokumentacji — odpowiedź powstanie tak samo jak dla pacjentów z aplikacji.</div>
+    <div class="grid g2">${f('first', 'Imię')}${f('last', 'Nazwisko')}
+      <label class="f"><span>Płeć</span><select data-co="sex"><option value="f" ${o.sex !== 'm' ? 'selected' : ''}>kobieta</option><option value="m" ${o.sex === 'm' ? 'selected' : ''}>mężczyzna</option></select></label>${f('dob', 'Data urodzenia', 'date')}
+      ${f('dates', 'Data / okres leczenia', 'text', 'np. 12.03–02.04.2025')}<label class="f"><span>Lekarz prowadzący leczenie</span><input type="text" data-c="doctor" value="${esc(c.doctor)}" placeholder="np. lek. dent. Anna Nowak"></label></div>
+    <div class="row nowrap" style="margin-top:10px;align-items:flex-end"><label class="f" style="flex:1"><span>Przebieg leczenia (z dokumentacji) — wpisz lub podyktuj</span><textarea id="co-treatment" data-co="treatment" rows="7" placeholder="np. 12.03.2025 ząb 36: rozpoznano martwicę miazgi, leczenie kanałowe w znieczuleniu, koferdam, 3 kanały do długości roboczej, wypełnienie metodą fali ciągłej, RTG kontrolne…">${esc(o.treatment)}</textarea></label>${micBtn('#co-treatment', true)}</div>
+    <div class="interim" id="interim-#co-treatment"></div>
+    <div class="label">Dokumentacja: zdjęcia, skany, plan leczenia, RTG</div>
+    <div class="scans">${o.docs.map((x, i) => `<div class="scan">${x.type.startsWith('image/') ? `<img src="${x.data}" alt="">` : `<div class="scan-pdf">${I('doc')}PDF</div>`}<span class="tiny"><b>${esc(DOC_KINDS[x.kind] || DOC_KINDS.other)}</b><br>${esc(x.name)}</span><button class="btn btn-ghost btn-sm" data-act="doc-rm" data-i="${i}">${I('x')}</button></div>`).join('')}
+      <div class="scan add doc-add"><select id="doc-kind">${Object.entries(DOC_KINDS).map(([k, l]) => `<option value="${k}" ${(S.docKind || 'record') === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select><label class="btn btn-soft btn-sm"><input type="file" id="doc-input" accept="image/*,application/pdf" multiple hidden>${I('plus')} Dodaj plik / zdjęcie</label></div></div>
+    <label class="cmp-check" style="margin-top:10px"><input type="checkbox" data-cchk="allowDocsAI" ${c.allowDocsAI ? 'checked' : ''}> <span>Pozwól AI odczytać dołączoną dokumentację <span class="faint">(dokumenty zawierają dane osobowe, których w obrazie nie da się zanonimizować — bez zaznaczenia AI dostaje tylko opis przebiegu leczenia)</span></span></label>`;
+}
 function viewComplaint() {
   const c = curComplaint(); if (!c) return '<div class="empty">Nie znaleziono skargi.</div>';
   const p = complaintPatient(c), vs = complaintVisits(c);
   const chip = (x) => `<span class="vh-chip" style="${specStyle(x.spec || 'hig')}"><b>${x.fdi}</b>${esc(x.label)}</span>`;
-  const r = c.response || {}, hasDraft = (r.paragraphs || []).length;
+  const r = c.response || {}, hasDraft = (r.paragraphs || []).length, out = c.mode === 'outside';
+  const doctorField = `<label class="f" style="flex:1;min-width:220px"><span>Lekarz prowadzący leczenie</span><input type="text" data-c="doctor" value="${esc(c.doctor)}" placeholder="np. lek. dent. Anna Nowak"></label>`;
   return `<div class="pagehead"><button class="btn btn-ghost" data-nav="complaints">${I('back')} Skargi</button><div><h2>Skarga — ${esc(patientName(p) || 'wybierz pacjenta')}</h2><div class="small muted">wpłynęła ${fmtDate(c.received)} · ${esc(SOURCES[c.source])}</div></div><span class="grow"></span>
     <button class="btn btn-ghost btn-danger" data-act="complaint-delete">${I('trash')}</button></div>
   <div class="cmp">
    <div class="cmp-col">
     <section class="panel"><header><h3>1. Pacjent i leczenie, którego dotyczy</h3></header><div class="body">
-      <div class="row" style="gap:10px;flex-wrap:wrap"><button class="who ${p ? '' : 'empty'}" data-act="complaint-patient"><span class="av">${p ? esc(initials(p.first, p.last).toUpperCase()) : I('user')}</span><span><small>Pacjent${c.ext ? ` · leczenie: ${esc(c.ext.doctor)}` : ''}</small><b>${p ? esc(patientName(p)) : 'Wybierz pacjenta'}</b></span></button>
-      <label class="f" style="flex:1;min-width:220px"><span>Lekarz prowadzący leczenie</span><input type="text" data-c="doctor" value="${esc(c.doctor)}" placeholder="np. lek. dent. Anna Nowak"></label></div>
-      ${p ? `<div class="label">Wizyty / zabiegi, których dotyczy skarga</div>${vs.length ? `<div class="cmp-visits">${vs.map((v) => `<label class="cmp-visit ${c.visitIds.includes(v.id) ? 'on' : ''}"><input type="checkbox" data-cvisit="${v.id}" ${c.visitIds.includes(v.id) ? 'checked' : ''}><span class="vh-date">${fmtDate(v.date)}</span><span class="vh-chips">${visitChips(v).map(chip).join('') || '<span class="faint small">bez wpisów</span>'}</span></label>`).join('')}</div>` : '<div class="hint">Ten pacjent nie ma zapisanych wizyt.</div>'}` : ''}
+      <div class="seg cmp-mode" data-cseg="mode"><button type="button" data-v="app" class="${out ? '' : 'on'}">Leczony w DentList</button><button type="button" data-v="outside" class="${out ? 'on' : ''}">Leczony poza aplikacją</button></div>
+      ${out ? outsideForm(c) : `<div class="row" style="gap:10px;flex-wrap:wrap;margin-top:12px"><button class="who ${p ? '' : 'empty'}" data-act="complaint-patient"><span class="av">${p ? esc(initials(p.first, p.last).toUpperCase()) : I('user')}</span><span><small>Pacjent${c.ext ? ` · leczenie: ${esc(c.ext.doctor)}` : ''}</small><b>${p ? esc(patientName(p)) : 'Wybierz pacjenta'}</b></span></button>
+      ${doctorField}</div>
+      ${p ? `<div class="label">Wizyty / zabiegi, których dotyczy skarga</div>${vs.length ? `<div class="cmp-visits">${vs.map((v) => `<label class="cmp-visit ${c.visitIds.includes(v.id) ? 'on' : ''}"><input type="checkbox" data-cvisit="${v.id}" ${c.visitIds.includes(v.id) ? 'checked' : ''}><span class="vh-date">${fmtDate(v.date)}</span><span class="vh-chips">${visitChips(v).map(chip).join('') || '<span class="faint small">bez wpisów</span>'}</span></label>`).join('')}</div>` : '<div class="hint">Ten pacjent nie ma zapisanych wizyt.</div>'}` : ''}`}
     </div></section>
     <section class="panel"><header><h3>2. Skarga / pismo</h3></header><div class="body"><div class="grid g2">
       <label class="f"><span>Data wpływu</span><input type="date" data-c="received" value="${esc(c.received)}"></label>
@@ -1600,7 +1651,8 @@ function viewComplaint() {
 }
 async function complaintDraft() {
   const c = curComplaint(), patient = complaintPatient(c);
-  if (!patient) { toast('Najpierw wybierz pacjenta.', 'err'); return; }
+  if (!patient) { toast(c.mode === 'outside' ? 'Wpisz imię i nazwisko pacjenta.' : 'Najpierw wybierz pacjenta.', 'err'); return; }
+  if (c.mode === 'outside' && !c.outside.treatment.trim() && !c.outside.docs.length) { toast('Opisz przebieg leczenia lub dołącz dokumentację.', 'err'); return; }
   const all = complaintVisits(c), visits = c.visitIds.map((id) => all.find((v) => v.id === id)).filter(Boolean);
   let out = builtinComplaintDraft(c, { patient, visits }), aiErr = '';
   if (aiKey() && settings().ai.enabled !== false && aiAllowed()) {
@@ -1608,8 +1660,9 @@ async function complaintDraft() {
     try {
       const pseudo = pseudoFor(patient, null, visits);
       // the sender, their address and the treating doctor are hidden from the AI as well
-      for (const x of [c.sender, c.doctor, ...(c.senderAddress || '').split('\n')].map((v) => (v || '').trim()).filter((v) => v.length > 3)) pseudo.rules.push({ re: new RegExp(x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), tok: '[DANE]' });
-      const attachments = c.allowScanAI ? c.scans.map((x) => ({ type: x.type.startsWith('image/') ? 'image' : 'document', source: { type: 'base64', media_type: x.type, data: x.data.split(',')[1] } })) : [];
+      for (const x of [c.sender, c.doctor, ...(c.senderAddress || '').split('\n'), ...(c.mode === 'outside' ? [c.outside.where] : [])].map((v) => (v || '').trim()).filter((v) => v.length > 3)) pseudo.rules.push({ re: new RegExp(x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), tok: '[DANE]' });
+      const att = (x) => ({ type: x.type.startsWith('image/') ? 'image' : 'document', source: { type: 'base64', media_type: x.type, data: x.data.split(',')[1] } });
+      const attachments = [...(c.allowScanAI ? c.scans.map(att) : []), ...(c.mode === 'outside' && c.allowDocsAI ? c.outside.docs.map(att) : [])];
       const ai = await draftComplaint(aiKey(), complaintPayload(c, { patient, visits, doctor: settings().doctor }), { effort: settings().ai.effort, pseudo, attachments });
       out = { subject: ai.subject, salutation: salutationFor(c), paragraphs: ai.paragraphs, warnings: ai.warnings || [], source: 'ai' };
       audit('ai', 'projekt odpowiedzi na skargę (dane zanonimizowane' + (attachments.length ? '; skan wysłany za zgodą' : '') + ')', patient.id);
@@ -1624,7 +1677,7 @@ function complaintLetter(c) {
   return { doctor: settings().doctor, letterDate: today(), to: { name: c.sender, address: c.senderAddress }, subject: r.subject, salutation: r.salutation || salutationFor(c), paragraphs: r.paragraphs || [], signoff: 'Z poważaniem,', role: c.role ?? 'Dyrektor medyczny' };
 }
 /** Scans are kept inside the encrypted record: photos are downscaled (max 1600 px, JPEG), PDFs up to 1.5 MB. */
-async function addScans(files) {
+async function addScans(files, kind = '') {
   const c = curComplaint(); if (!c) return;
   for (const f of files) {
     let data, type = f.type;
@@ -1635,9 +1688,10 @@ async function addScans(files) {
       const k = Math.min(1, 1600 / Math.max(im.width, im.height)), cv = document.createElement('canvas'); cv.width = Math.round(im.width * k); cv.height = Math.round(im.height * k);
       cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); data = cv.toDataURL('image/jpeg', 0.82); type = 'image/jpeg';
     } else { toast(`${f.name}: obsługiwane są zdjęcia i PDF.`, 'err'); continue; }
-    c.scans.push({ id: V.uid(), name: f.name, type, data, addedAt: Date.now() });
+    const item = { id: V.uid(), name: f.name, type, data, addedAt: Date.now() };
+    if (kind) { c.outside ??= newOutside(); c.outside.docs.push({ ...item, kind }); } else c.scans.push(item);
   }
-  save('complaints', c); audit('complaint', 'dodano skan pisma', c.patientId); renderView();
+  save('complaints', c); audit('complaint', kind ? 'dodano dokumentację leczenia' : 'dodano skan pisma', c.patientId); renderView();
 }
 
 /* ================================================================ CLINIC OVERVIEW (administrators / medical director) */
@@ -1702,8 +1756,8 @@ function setComplaintPatient(c, e) {
   c.visitIds = []; c.doctor = e.doctor;
   if (e.self) { c.patientId = e.patient.id; c.ext = null; } else { c.patientId = ''; c.ext = { acct: e.acct, doctor: e.doctor, patient: e.patient, visits: e.visits, at: Date.now() }; }
 }
-const complaintPatient = (c) => D().patients.get(c.patientId) || c.ext?.patient || null;
-const complaintVisits = (c) => (c.patientId && D().patients.get(c.patientId) ? visitsOf(c.patientId) : c.ext?.visits || []);
+const complaintPatient = (c) => (c.mode === 'outside' ? ((c.outside?.last || c.outside?.first) ? { ...c.outside, id: '' } : null) : D().patients.get(c.patientId) || c.ext?.patient || null);
+const complaintVisits = (c) => c.mode === 'outside' ? [] : (c.patientId && D().patients.get(c.patientId) ? visitsOf(c.patientId) : c.ext?.visits || []);
 
 /* ================================================================ REFERRERS */
 function viewReferrers() {
@@ -1967,7 +2021,7 @@ document.addEventListener('click', async (e) => {
   const t = e.target;
   const nav = t.closest('[data-nav]'); if (nav && S.session) { S.search = ''; go(nav.dataset.nav); return; }
   const csg = t.closest('[data-cseg] button');
-  if (csg) { const c = curComplaint(); c[csg.parentElement.dataset.cseg] = csg.dataset.v; save('complaints', c); $$('button', csg.parentElement).forEach((b) => b.classList.toggle('on', b === csg)); return; }
+  if (csg) { const c = curComplaint(), k = csg.parentElement.dataset.cseg; c[k] = csg.dataset.v; if (k === 'mode') c.outside ??= newOutside(); save('complaints', c); if (k === 'mode') return renderView(); $$('button', csg.parentElement).forEach((b) => b.classList.toggle('on', b === csg)); return; }
   const segb = t.closest('.seg[data-seg] button');
   if (segb) { const sg = segb.parentElement; setBound(sg.dataset.seg, segb.dataset.v); $$('button', sg).forEach((b) => b.classList.toggle('on', b === segb)); if (sg.classList.contains('prog-seg')) { const c = sg.closest('.prog-card'), v = segb.dataset.v; c.className = `prog-card ${v ? 'set p-' + v : ''}`; $('.pc-h small', c).textContent = v ? `w liście: „Rokowanie: ${PROG[v]}”` : 'wybierz — pojawi się w zaleceniach listu'; if (S.ws) $('#ws-tabs').innerHTML = stepsHTML(S.ws.draft); } if (sg.dataset.re || sg.dataset.seg.startsWith('v.')) rerender(sg.dataset.seg); return; }
   const mic = t.closest('[data-mic]'); if (mic) { toggleMic(mic); return; }
@@ -2085,6 +2139,7 @@ async function action(act, a) {
     case 'complaint-from-clinic': { const e = (await clinicPatients()).find((x) => x.key === a.dataset.key); if (!e) return; const c = newComplaint(); const d = new Date(); d.setDate(d.getDate() + 30); c.deadline = d.toISOString().slice(0, 10); setComplaintPatient(c, e); D().complaints.set(c.id, c); save('complaints', c); audit('complaint', `nowa skarga (pacjent lekarza: ${e.doctor})`, e.self ? e.patient.id : ''); return go('complaint', { complaintId: c.id }); }
     case 'complaint-delete': { if (!(await confirmBox('Usunąć skargę?', 'Skarga, skany i projekt odpowiedzi zostaną usunięte z aplikacji.', 'Usuń'))) return; const c = curComplaint(); audit('complaint', 'usunięto skargę', c.patientId); await remove('complaints', c.id); return go('complaints'); }
     case 'scan-rm': { const c = curComplaint(); c.scans.splice(+a.dataset.i, 1); save('complaints', c); return renderView(); }
+    case 'doc-rm': { const c = curComplaint(); c.outside.docs.splice(+a.dataset.i, 1); save('complaints', c); return renderView(); }
     case 'complaint-draft': return complaintDraft();
     case 'complaint-pdf': case 'complaint-print': {
       const c = curComplaint(), p = complaintPatient(c) || {};
@@ -2113,9 +2168,12 @@ async function action(act, a) {
     case 'rm-canal': rec.roots[+a.dataset.r].canals.splice(+a.dataset.c, 1); rec.config = -1; rec.anatOk = true; S.ws.dirty = true; return refreshWorkspace({ model: true });
     case 'add-work': rec.work.push(newProc(a.dataset.type, a.dataset.spec)); S.ws.dirty = true; return refreshWorkspace();
     case 'work-spec': S.workSpec = a.dataset.spec; return refreshWorkspace();
+    case 'mat-spec': S.matSpec = a.dataset.spec; S.matCat = null; return refreshWorkspace();
+    case 'mat-cat': S.matCat = a.dataset.cat; return refreshWorkspace();
+    case 'rail-spec': { const k = a.dataset.spec; S.matSpec = k; S.matCat = null; if (k === 'endo') { S.ws.endoOn = true; S.ttab = 'endo'; } else { S.workSpec = k; S.ttab = 'work'; } refreshWorkspace(); const b = $('#ws-tab'); if (b) b.scrollTop = 0; return; }
     case 'rm-work': rec.work.splice(+a.dataset.i, 1); S.ws.dirty = true; return refreshWorkspace();
     case 'add-prod': case 'pick-prod': {
-      const cat = S.matCat || SPEC_CATS[home()][0], name = (act === 'pick-prod' ? a.dataset.name : $('#mat-name').value).trim(); if (!name) return;
+      const cat = matCatOf(rec), name = (act === 'pick-prod' ? a.dataset.name : $('#mat-name').value).trim(); if (!name) return;
       rec.products ??= [];
       const i = rec.products.findIndex((x) => x.name === name);
       if (i >= 0 && act === 'pick-prod') rec.products.splice(i, 1); else if (i < 0) rec.products.push({ cat, name });
@@ -2201,6 +2259,8 @@ function setBound(path, value) {
     if (p === 'endo.proc' && ENDO[value]?.consult) t.endo.status = 'done';
     renderDx(); $('#ws-sum').textContent = toothSummary(t);
     if (p.startsWith('roots.') || p.startsWith('endo.status') || p.startsWith('endo.proc')) update3D();
+    // procedure details (filling surfaces, crown type…) change what the model shows
+    else if (p.startsWith('work.')) { const mk = JSON.stringify([toothMode(t), opts3D(t).crown, toothExtras(t)]); if (mk !== S.ws.modelKey) { S.ws.modelKey = mk; update3D(); const lg = $('#stage-legend'); if (lg) lg.innerHTML = stageLegend(t); } }
     return;
   }
   const v = curVisit(); if (!v) return;
@@ -2208,6 +2268,7 @@ function setBound(path, value) {
 }
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.dataset.co && el.tagName !== 'SELECT') { const c = curComplaint(); if (!c) return; (c.outside ??= newOutside())[el.dataset.co] = el.value; save('complaints', c); return; }
   if ((el.dataset.c || el.dataset.cr) && el.tagName !== 'SELECT') { const c = curComplaint(); if (!c) return; if (el.dataset.c) c[el.dataset.c] = el.value; else if (el.dataset.cr === 'subject') c.response.subject = el.value; else c.response.paragraphs = el.value.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean); save('complaints', c); return; }
   if (el.id === 'clinic-q') { S.clinicQ = el.value; fillClinic(); return; }
   if (el.id === 'search') { S.search = el.value; const pos = el.selectionStart; renderView(); const s = $('#search'); s.focus(); s.setSelectionRange(pos, pos); return; }
@@ -2221,6 +2282,9 @@ document.addEventListener('mouseup', (e) => { if (e.target.closest && e.target.c
 document.addEventListener('change', (e) => {
   const el = e.target;
   if (el.id === 'scan-input') { addScans([...el.files]); return; }
+  if (el.id === 'doc-input') { addScans([...el.files], $('#doc-kind')?.value || 'record'); return; }
+  if (el.id === 'doc-kind') { S.docKind = el.value; return; }
+  if (el.dataset.co && el.tagName === 'SELECT') { const c = curComplaint(); if (!c) return; (c.outside ??= newOutside())[el.dataset.co] = el.value; save('complaints', c); return; }
   if (el.dataset.cvisit || el.dataset.crb || el.dataset.cchk || (el.dataset.c && el.tagName === 'SELECT')) {
     const c = curComplaint(); if (!c) return;
     const tog = (arr, v, on) => { const i = arr.indexOf(v); if (on && i < 0) arr.push(v); if (!on && i >= 0) arr.splice(i, 1); };
@@ -2232,7 +2296,7 @@ document.addEventListener('change', (e) => {
   }
   if (el.id === 'xray') { S.xray = el.checked; if (S.t3d) S.t3d.setXray(el.checked); return; }
   if (el.id === 'flat2d') { try { localStorage.setItem('dentlist:no3d', el.checked ? '1' : '0'); } catch {} if (S.t3d) { S.t3d.dispose(); S.t3d = null; } const st = $('#stage'); if (st) { st.innerHTML = ''; st.classList.remove('flat'); const xr = $('#xray-sw'); if (xr) { delete xr.dataset.flat; xr.hidden = toothMode(S.ws.draft) !== 'endo'; } mount3D(); } return; }
-  if (el.id === 'mat-cat') { S.matCat = el.value; return refreshWorkspace(); }
+  if (el.id === 'mat-cat') { S.matCat = el.value; const sp = SPEC_ORDER.find((k) => SPEC_CATS[k].includes(el.value)); if (sp && !SPEC_CATS[matSpecOf(S.ws?.draft)].includes(el.value)) S.matSpec = sp; return refreshWorkspace(); }
   if (el.id === 'manual-edit') { S.manualEdit = el.checked; return renderView(); }
   if (el.id === 'gen-edit') { const L = D().letters.get(S.letterId); L.genEdit = el.checked; save('letters', L); $('#gen-box').hidden = !el.checked; if (el.checked) $('#gen-text').focus(); return; }
   if (el.dataset.noteDone) { const L = D().letters.get(S.letterId); const n = L.notes.find((x) => x.id === el.dataset.noteDone); if (n) { n.done = el.checked; save('letters', L); rerenderLetter(); } return; }

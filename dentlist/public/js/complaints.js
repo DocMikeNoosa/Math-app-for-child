@@ -26,11 +26,16 @@ export const REBUTTALS = {
   goodwill: { label: 'Gest dobrej woli (bez uznania roszczenia)', text: 'Bez uznania zasadności roszczenia, w geście dobrej woli, jesteśmy gotowi zaproponować rozwiązanie opisane poniżej.' },
 };
 
+export const DOC_KINDS = { record: 'Dokumentacja leczenia', plan: 'Plan leczenia', xray: 'RTG / zdjęcie', consent: 'Zgoda pacjenta', other: 'Inny dokument' };
+export const newOutside = () => ({ first: '', last: '', sex: 'f', dob: '', where: '', dates: '', treatment: '', docs: [] });
+
 export function newComplaint() {
   return {
     id: crypto.randomUUID(), createdAt: Date.now(), received: new Date().toISOString().slice(0, 10), deadline: '',
     patientId: '', visitIds: [], doctor: '', source: 'patient', sender: '', senderAddress: '', summary: '', scans: [],
-    rebuttals: [], position: '', offer: '', tone: 'factual', status: 'new', allowScanAI: false,
+    rebuttals: [], position: '', offer: '', tone: 'factual', status: 'new', allowScanAI: false, allowDocsAI: false,
+    // 'app' = patient and treatment recorded in DentList; 'outside' = treatment documented elsewhere (paper chart, other software)
+    mode: 'app', outside: newOutside(),
     response: { subject: '', paragraphs: [], source: '', warnings: [] },
   };
 }
@@ -57,6 +62,12 @@ export function builtinComplaintDraft(c, { patient = {}, visits = [] }) {
     paras.push('Z dokumentacji medycznej wynika następujący przebieg leczenia:');
     for (const b of blocks.filter((x) => x.lines.length)) paras.push(`${b.head[0].toUpperCase() + b.head.slice(1)}: ${b.lines.join(' ')}`);
   }
+  const out = c.mode === 'outside' ? c.outside || newOutside() : null;
+  if (out && out.treatment.trim()) {
+    paras.push(`Z dokumentacji medycznej${out.dates.trim() ? ` dotyczącej leczenia (${out.dates.trim()})` : ''} wynika następujący przebieg leczenia:`);
+    for (const x of out.treatment.split(/\n\s*\n/).map((y) => y.trim()).filter(Boolean)) paras.push(x.replace(/\s*\n\s*/g, ' ').replace(/([^.!?])$/, '$1.'));
+  }
+  if (out && out.docs.length) paras.push(`Stanowisko przygotowano na podstawie dokumentacji: ${[...new Set(out.docs.map((d) => DOC_KINDS[d.kind] || DOC_KINDS.other))].join(', ').toLowerCase()}.`);
   for (const k of c.rebuttals) if (REBUTTALS[k]) paras.push(REBUTTALS[k].text.replace(/\bPacjent\b/g, P.nom).replace(/\bPacjentowi\b/g, P.nom === 'Pacjentka' ? 'Pacjentce' : 'Pacjentowi'));
   if (c.position.trim()) paras.push(c.position.trim().replace(/([^.!?])$/, '$1.'));
   if (c.offer.trim()) paras.push(c.offer.trim().replace(/([^.!?])$/, '$1.'));
@@ -72,7 +83,9 @@ export function complaintPayload(c, { patient = {}, visits = [], doctor = {} }) 
     patient: { grammatical_gender: patient.sex === 'm' ? 'male' : 'female' },
     letter_from: SOURCES[c.source], received: c.received,
     complaint_summary: c.summary, treating_doctor: c.doctor,
-    treatment_record: recordEntry({ visits, patient, fmtDate }),
+    treatment_record: c.mode === 'outside' ? (c.outside?.treatment || '') : recordEntry({ visits, patient, fmtDate }),
+    treated_outside_app: c.mode === 'outside',
+    ...(c.mode === 'outside' ? { treatment_dates: c.outside?.dates || '', treatment_documents: (c.outside?.docs || []).map((d) => DOC_KINDS[d.kind] || DOC_KINDS.other), documents_attached: !!(c.allowDocsAI && c.outside?.docs?.length) } : {}),
     selected_arguments: c.rebuttals.map((k) => REBUTTALS[k]?.text).filter(Boolean),
     director_position: c.position, offer: c.offer, tone: TONES[c.tone],
     scan_attached: !!(c.allowScanAI && c.scans.length),
