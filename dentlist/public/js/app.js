@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.8';
+export const APP_VERSION = '1.0.9';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -766,7 +766,7 @@ function stageLegend(t) {
   const more = m === 'implant' || m === 'gone' ? '' : [x.fill.length && it('#9fb2ff', `wypełnienie (${x.fill.join('')})`), x.tempFill && it('#f1e9d2', 'opatrunek'), x.seal && it('#ffd2b0', 'lak'), x.sdf && it('#222', 'SDF'),
     x.crown && it(x.crown === 'steel' ? '#c9ced6' : '#fdfdf9', { steel: 'korona stalowa', temp: 'korona tymczasowa', ceramic: 'korona', veneer: 'licówka', inlay: 'wkład koronowy (inlay/onlay)' }[x.crown]),
     x.post && it('#b9c0c9', 'wkład koronowo-korzeniowy'), x.pulpotomy && it('#f5efe3', 'pulpotomia / pulpektomia'), x.apico && it('#f4f1e8', 'resekcja z wypełnieniem wstecznym'), x.gum && it('#e0707f', x.gum === 'recession' ? 'dziąsło (recesja)' : 'dziąsło'),
-    x.ortho && it(x.ortho === 'ceram' ? '#f3efe6' : x.ortho === 'attach' ? '#9fb2ff' : '#c9ced6', { metal: 'zamek metalowy i łuk', ceram: 'zamek ceramiczny i łuk', sl: 'zamek samoligaturujący i łuk', ling: 'zamek lingwalny', tube: 'rurka policzkowa', button: 'guzik ortodontyczny', band: 'pierścień', attach: 'attachment' }[x.ortho]),
+    x.ortho && it(x.ortho === 'ceram' ? '#c9d8ea' : x.ortho === 'attach' ? '#9fb2ff' : '#c9ced6', { metal: 'zamek metalowy i łuk', ceram: 'zamek ceramiczny i łuk', sl: 'zamek samoligaturujący i łuk', ling: 'zamek lingwalny', tube: 'rurka policzkowa', button: 'guzik ortodontyczny', band: 'pierścień', attach: 'attachment' }[x.ortho]),
     x.ipr.length && it('#ffd27a', `stripping (${x.ipr.join(', ')})`)].filter(Boolean).join('');
   if (m === 'endo') return '<span><i style="background:#ff3b66"></i>miazga / kanał</span><span><i style="background:#14d8c0"></i>wypełnienie kanałowe</span><span><i style="background:#9a86ff"></i>kanał boczny</span>' + more;
   if (m === 'implant') return `<span><i style="background:#b8c0c8"></i>implant${(t.work || []).some((x) => CROWN_WORK.includes(x.type)) ? ' z koroną' : ' ze śrubą gojącą'}</span>`;
