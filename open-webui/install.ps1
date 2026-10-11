@@ -10,6 +10,15 @@ $Repo   = 'DocMikeNoosa/Math-app-for-child'
 $Branch = 'claude/dazzling-bohr-1gdahq'
 $Target = Join-Path $env:USERPROFILE 'LocalAI'
 
+# Windows PowerShell 5.1 turns a native program's stderr output into a fatal error when it is
+# redirected while ErrorActionPreference is 'Stop'. Run such commands through this instead;
+# it returns stdout, drops stderr, and leaves $LASTEXITCODE for the caller to check.
+function Invoke-Native([scriptblock]$Command) {
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Command 2>$null } finally { $ErrorActionPreference = $old }
+}
+
 function Say([string]$msg) { Write-Host ">>> $msg" -ForegroundColor Cyan }
 
 # ---------- 1. Docker Desktop ----------
@@ -28,7 +37,7 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     return
 }
 
-docker info *> $null
+Invoke-Native { docker info } | Out-Null
 if ($LASTEXITCODE -ne 0) {
     $exe = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
     if (Test-Path $exe) {
@@ -36,11 +45,11 @@ if ($LASTEXITCODE -ne 0) {
         Start-Process $exe
         for ($i = 0; $i -lt 90; $i++) {
             Start-Sleep -Seconds 2
-            docker info *> $null
+            Invoke-Native { docker info } | Out-Null
             if ($LASTEXITCODE -eq 0) { break }
         }
     }
-    docker info *> $null
+    Invoke-Native { docker info } | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Host 'Docker Desktop is not running yet. Open it from the Start menu, wait for "Engine running", then paste the install line again.' -ForegroundColor Yellow
         return

@@ -18,6 +18,15 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 
+# Windows PowerShell 5.1 turns a native program's stderr output into a fatal error when it is
+# redirected while ErrorActionPreference is 'Stop'. Run such commands through this instead;
+# it returns stdout, drops stderr, and leaves $LASTEXITCODE for the caller to check.
+function Invoke-Native([scriptblock]$Command) {
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Command 2>$null } finally { $ErrorActionPreference = $old }
+}
+
 function Fail([string]$msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 
 function Get-EnvValue([string]$name) {
@@ -42,7 +51,7 @@ $memGB = 0
 $where = ''
 $hasNvidia = $false
 if (-not $Cpu -and (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) {
-    $vram = & nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null
+    $vram = Invoke-Native { nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits }
     if ($LASTEXITCODE -eq 0 -and $vram) { $hasNvidia = $true }
 }
 if ($hasNvidia) {
@@ -97,9 +106,9 @@ if ($DryRun) { exit 0 }
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Fail 'Docker Desktop is not installed. Install it with:  winget install Docker.DockerDesktop  (then restart Windows and open Docker Desktop once).'
 }
-docker compose version *> $null
+Invoke-Native { docker compose version } | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail 'Docker Compose v2 is required. Update Docker Desktop.' }
-docker info *> $null
+Invoke-Native { docker info } | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail 'Docker Desktop is not running. Start it from the Start menu, wait until it says "Engine running", then try again.' }
 
 $files = @('-f', 'docker-compose.yml')
@@ -133,7 +142,7 @@ if ($Images -or $Video) {
     # Pick the ComfyUI build that matches the graphics card (from the image maintainer's table):
     # cu130 = RTX 20/30/40/50 series and needs NVIDIA driver 580+; cu126 = older cards (GTX 10 series etc.).
     if ($gpu -and -not $env:COMFY_TAG_GPU) {
-        $info = (& nvidia-smi --query-gpu=compute_cap,driver_version --format=csv,noheader 2>$null | Select-Object -First 1)
+        $info = (Invoke-Native { nvidia-smi --query-gpu=compute_cap,driver_version --format=csv,noheader } | Select-Object -First 1)
         $cap = 0.0; $drv = 0
         if ($info) {
             $parts = $info -split ','
@@ -149,8 +158,8 @@ if ($Images -or $Video) {
     $env:COMFY_WORKFLOWS = $wf -join ' '
 
     # Free the graphics card: unload chat models that are sitting in memory.
-    $loaded = docker exec ollama ollama ps 2>$null | Select-Object -Skip 1 | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ }
-    foreach ($m in $loaded) { docker exec ollama ollama stop $m *> $null }
+    $loaded = Invoke-Native { docker exec ollama ollama ps } | Select-Object -Skip 1 | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ }
+    foreach ($m in $loaded) { Invoke-Native { docker exec ollama ollama stop $m } | Out-Null }
 
     docker compose @files --profile images up -d comfyui
     if ($LASTEXITCODE -ne 0) { Fail 'Could not start ComfyUI - see the messages above.' }
