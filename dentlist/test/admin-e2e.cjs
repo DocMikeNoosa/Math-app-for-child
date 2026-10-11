@@ -41,6 +41,8 @@ const PA = 'Haslo-admina-2026', PM = 'Haslo-lekarza-2026', PM2 = 'Nowe-haslo-lek
     await navTo(a, 'settings'); await a.click('[data-act=clinic-create]');
     await a.click('.modal footer .btn-primary'); await a.waitForSelector('#adm-members .member', { timeout: 30000 });
     ok(await a.locator('[data-nav=admin]').count() === 1 && (await a.textContent('#adm-members')).includes('administrator'), 'clinic created: creator is the administrator, admin tab shown');
+    await a.waitForFunction(() => document.querySelector('#adm-members')?.textContent.includes('dyrektor medyczny'), null, { timeout: 15000 }).catch(() => {});
+    ok((await a.textContent('#adm-members')).includes('dyrektor medyczny') && (await a.textContent('#view')).includes('Zaproś dyrektora medycznego'), 'creator marked as medical director; director invite available');
     await a.click('[data-act=clinic-invite][data-role=member]'); await a.waitForSelector('#inv-code');
     const code = (await a.textContent('#inv-code')).trim();
     ok(/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code), 'invite code generated: ' + code);
@@ -103,6 +105,9 @@ const PA = 'Haslo-admina-2026', PM = 'Haslo-lekarza-2026', PM2 = 'Nowe-haslo-lek
     ok(await S(m, () => window.__dentlist.S.clinic.isAdmin()), 'promoted doctor received the clinic key (now an admin)');
     await m.click('[data-nav=admin]'); await m.waitForFunction(() => document.querySelectorAll('#adm-members .member').length === 2, null, { timeout: 20000 });
     ok((await m.textContent('#adm-members')).includes('Katarzyna Zielińska'), 'second admin sees the whole team on the iPhone');
+    await m.click('.member:has-text("Jan Wiśniewski") [data-act=m-director]'); await m.click('.modal footer .btn-primary, .modal footer .btn-danger'); await m.waitForTimeout(1500);
+    await m.waitForFunction(() => document.querySelector('.member:has(.tag.g)')?.textContent.includes('Jan Wiśniewski'), null, { timeout: 15000 }).catch(() => {});
+    ok((await m.textContent('.member:has(.tag.g)')).includes('Jan Wiśniewski'), 'additional administrator can appoint another medical director (all-powerful accounts)');
     await shot(m, 'm2-admin-iphone', { fullPage: true });
     await a.reload(); await a.fill('[name=password]', PA); await a.click('#login button'); await a.waitForSelector('#arch'); await a.waitForTimeout(800);
     await navTo(a, 'admin'); await a.waitForFunction(() => document.querySelectorAll('#adm-members .member').length === 2, null, { timeout: 20000 });

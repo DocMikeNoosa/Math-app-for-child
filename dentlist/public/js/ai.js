@@ -155,12 +155,14 @@ Zasady:
 - Zabieg przy zębie → add_procedure z "type" i "fdi"; zabieg całej jamy ustnej/łuku → add_mouth_procedure. Leczenie kanałowe zęba → open_tooth z "step": "endo".
 - Nazwisko pacjenta przepisz do "params.query" dokładnie tak, jak jest w poleceniu (także znacznik [OSOBA-n]).
 - Pytanie „jak/gdzie…" → najlepiej akcja prowadząca do właściwego miejsca (np. settings z sekcją) i w "reply" krótka wskazówka; gdy żadna akcja nie pasuje → "answer".
+- Zmiana specjalności / profilu („chcę być na profilu chirurgicznym", „przełącz na ortodoncję", „jestem protetykiem") → set_specialty z "spec" (klucz z "app.specialties"); "section": "home", gdy chodzi o profil lekarza.
+- Zrozum intencję, nawet jeśli polecenie jest nieprecyzyjne, potoczne lub z literówkami: wybierz akcję, która najlepiej realizuje to, co lekarz chce osiągnąć. Jeśli prośba wymaga kilku kroków, wykonaj pierwszy i w "reply" powiedz, co zrobić dalej.
 - Gdy polecenie jest niezrozumiałe lub nie dotyczy aplikacji → "answer" z krótką prośbą o doprecyzowanie.`;
 const ASSIST_SCHEMA = {
   type: 'object',
   properties: {
-    action: { type: 'string', enum: ['go', 'open_patient', 'new_patient', 'new_visit', 'open_tooth', 'add_procedure', 'add_mouth_procedure', 'generate_letter', 'letter_action', 'settings', 'new_complaint', 'answer'] },
-    params: { type: 'object', properties: { view: { type: 'string' }, query: { type: 'string' }, fdi: { type: 'string' }, step: { type: 'string' }, type: { type: 'string' }, section: { type: 'string' }, what: { type: 'string' } }, required: ['view', 'query', 'fdi', 'step', 'type', 'section', 'what'], additionalProperties: false },
+    action: { type: 'string', enum: ['go', 'open_patient', 'new_patient', 'new_visit', 'open_tooth', 'add_procedure', 'add_mouth_procedure', 'generate_letter', 'letter_action', 'settings', 'new_complaint', 'set_specialty', 'lock', 'answer'] },
+    params: { type: 'object', properties: { view: { type: 'string' }, query: { type: 'string' }, fdi: { type: 'string' }, step: { type: 'string' }, type: { type: 'string' }, section: { type: 'string' }, what: { type: 'string' }, spec: { type: 'string' } }, required: ['view', 'query', 'fdi', 'step', 'type', 'section', 'what', 'spec'], additionalProperties: false },
     reply: { type: 'string' },
   },
   required: ['action', 'params', 'reply'], additionalProperties: false,

@@ -126,6 +126,12 @@ export const PROCS = {
   TAD: { spec: 'orto', scope: 'b', label: 'Miniimplant ortodontyczny (TAD)', short: 'Miniimplant', v: V('wprowadził', 'Wprowadzono'), acc: 'miniimplant ortodontyczny', fields: [T('site', 'Lokalizacja', 'lokalizacja: {v}', 'np. między 15 a 16'), T('product', 'System', '{v}', '', 'tad'), N('len', 'Długość', 'mm', 'długość {v} mm'), NOTE] },
   DEBOND: { spec: 'orto', scope: 'm', label: 'Zdjęcie aparatu stałego', short: 'Zdjęcie aparatu', v: VI('zdjęłam', 'zdjąłem', 'Zdjęto'), acc: 'aparat stały', fields: [S('arch', 'Łuk', { up: ['górny', 'z łuku górnego'], lo: ['dolny', 'z łuku dolnego'], both: ['oba', 'z obu łuków'] }, '{v}'), M('extra', 'Dodatkowo', { polish: 'usunięcie resztek kleju i polerowanie', fluor: 'fluoryzacja' }, '{v}'), NOTE] },
   RETAIN: { spec: 'orto', scope: 'm', label: 'Retencja', short: 'Retencja', v: PUT, acc: '{kind}', fields: [S('kind', 'Rodzaj', { fixed: ['retainer stały', 'retainer stały'], essix: ['szyna retencyjna', 'szynę retencyjną'], hawley: ['płytka Hawleya', 'płytkę retencyjną (Hawleya)'] }), ARCH_F, T('product', 'Materiał', '{v}', '', 'retainer'), NOTE] },
+  BRACKET: { spec: 'orto', scope: 't', label: 'Naklejenie zamka / elementu ortodontycznego', short: 'Zamek', v: VI('nakleiłam', 'nakleiłem', 'Naklejono'), acc: '{kind}', fields: [S('kind', 'Element', { metal: ['zamek metalowy', 'zamek metalowy'], ceram: ['zamek ceramiczny', 'zamek ceramiczny'], sl: ['zamek samoligaturujący', 'zamek samoligaturujący'], ling: ['zamek lingwalny', 'zamek lingwalny'], tube: ['rurka policzkowa', 'rurkę policzkową'], button: ['guzik / zaczep', 'guzik ortodontyczny'] }), S('reason', 'Rodzaj', { '': '—', first: ['pierwotne', 'pierwotnie'], rebond: ['ponowne (po odklejeniu)', 'ponownie, po odklejeniu'], repos: ['przeklejenie (repozycja)', 'w nowej pozycji (repozycja)'] }, '{v}'), S('rx', 'Preskrypcja', { '': '—', mbt: 'MBT', roth: 'Roth', damon: 'Damon', other: 'inna' }, 'preskrypcja {v}'), S('slot', 'Slot', { '': '—', s18: '0,018″', s22: '0,022″' }, 'slot {v}'), T('system', 'System', '{v}', 'np. 3M Victory', 'brackets'), T('adh', 'Klej', 'klej: {v}', 'np. Transbond XT', 'orthoadh'), NOTE] },
+  BAND: { spec: 'orto', scope: 't', label: 'Pierścień ortodontyczny', short: 'Pierścień', v: SEAT, acc: 'pierścień ortodontyczny', fields: [S('purpose', 'Przeznaczenie', { '': '—', fixed: ['aparat stały', 'do aparatu stałego'], rme: ['ekspander', 'do ekspandera'], space: ['utrzymywacz przestrzeni', 'do utrzymywacza przestrzeni'] }, '{v}'), CEMENT_F, NOTE] },
+  ATTACH: { spec: 'orto', scope: 't', label: 'Attachment (nakładki ortodontyczne)', short: 'Attachment', v: DO, acc: 'attachment kompozytowy', fields: [S('kind', 'Kształt', { '': '—', opt: ['optymalizowany', 'optymalizowany'], rect: ['prostokątny', 'prostokątny'], ellip: ['eliptyczny', 'eliptyczny'], bev: ['skośny (bevel)', 'skośny'] }, '{v}'), T('product', 'Materiał', '{v}', 'np. Filtek Supreme', 'composite'), NOTE] },
+  IPR: { spec: 'orto', scope: 't', label: 'Redukcja szkliwa (stripping / IPR)', short: 'IPR', v: RUN, acc: 'międzyzębową redukcję szkliwa', fields: [M('side', 'Powierzchnie', { M: 'mezjalna', D: 'dystalna' }, 'powierzchnia {v}'), N('mm', 'Ilość', 'mm', '{v} mm'), S('tool', 'Narzędzie', { '': '—', strip: ['paski', 'paskami'], disc: ['krążki', 'krążkami'], bur: ['wiertła', 'wiertłami'] }, '{v}'), NOTE] },
+  TRACTION: { spec: 'orto', scope: 't', label: 'Trakcja zęba zatrzymanego', short: 'Trakcja', v: PUT, acc: 'trakcję ortodontyczną zęba zatrzymanego', fields: [S('kind', 'Sposób', { chain: ['łańcuszek elastyczny', 'łańcuszkiem elastycznym'], spring: ['sprężyna', 'sprężyną'], tad: ['z miniimplantu', 'z zakotwieniem na miniimplancie'] }, '{v}'), NOTE] },
+  DEBOND_T: { spec: 'orto', scope: 't', label: 'Zdjęcie zamka i oczyszczenie szkliwa', short: 'Zdjęcie zamka', v: REMOVE, acc: 'zamek ortodontyczny', fields: [M('steps', 'Przebieg', { clean: 'usunięcie resztek kleju', polish: 'polerowanie szkliwa', fluor: 'lakier fluorkowy' }, '{v}'), NOTE] },
   SEPAR: { spec: 'orto', scope: 'b', label: 'Separacja zębów', short: 'Separacja', v: PUT, acc: 'separatory', fields: [T('teeth', 'Zęby', 'zęby {v}', 'np. 16, 26'), NOTE] },
 
   /* --- stomatologia dziecięca */
@@ -163,12 +169,83 @@ export const SPEC_PROCS = {
   impl: ['IMPLANT', 'SINUS', 'GBR', 'BLOCK', 'SOCKET', 'UNCOVER', 'ABUT', 'PERIIMPL', 'IMPL_PROS'],
   perio: ['PERIO_DX', 'SRP', 'FLAP', 'REGEN', 'RECESSION', 'GINGIVECT', 'CROWNLEN', 'SPLINT', 'PERIO_MAINT'],
   prot: ['CROWN', 'BRIDGE', 'VENEER', 'INLAY', 'POST', 'TEMPCROWN', 'IMPL_PROS', 'DENTURE', 'DENT_FIX', 'SPLINT_OCC', 'IMPRESSION', 'TMD'],
-  orto: ['ORTHO_DX', 'FIXED', 'ORTHO_CTRL', 'ALIGNERS', 'REMOVABLE', 'EXPANSION', 'TAD', 'SEPAR', 'DEBOND', 'RETAIN', 'EXPOSE'],
+  orto: ['BRACKET', 'BAND', 'ATTACH', 'IPR', 'TRACTION', 'DEBOND_T', 'TAD', 'SEPAR', 'EXPOSE', 'ORTHO_DX', 'FIXED', 'ORTHO_CTRL', 'ALIGNERS', 'REMOVABLE', 'EXPANSION', 'DEBOND', 'RETAIN'],
   ped: ['SEAL', 'FILL', 'PULPOT_P', 'PULPECT_P', 'SSC', 'EXT_P', 'SPACE', 'SDF', 'TRAUMA', 'FLUOR', 'ADAPT'],
   mfs: ['FRACTURE', 'OSTEOTOMY', 'LESION', 'TMJ_PROC', 'BIOPSY', 'INCISION', 'CYST'],
-  hig: ['SCALE', 'AIRFLOW', 'POLISH', 'GBT', 'FLUOR', 'OHI', 'SEAL'],
+  hig: ['SCALE', 'AIRFLOW', 'POLISH', 'GBT', 'FLUOR', 'OHI', 'SEAL', 'DESENS'],
 };
 export const procsFor = (spec, scope) => (SPEC_PROCS[spec] || []).filter((k) => PROCS[k] && (scope === 't' ? PROCS[k].scope !== 'm' : PROCS[k].scope !== 't'));
+
+/* ------------------------------------------------------------------ badanie zęba wg specjalności */
+// The tooth card's "Badanie" step shows the examination of the chosen specialty (endodontics, conservative
+// dentistry and paediatrics keep the pulp tests). Stored per tooth in rec.sx[spec].
+export const SPEC_EXAM = {
+  orto: { title: 'Badanie ortodontyczne', fields: [
+    M('pos', 'Położenie zęba', { rot: 'rotacja', tip: ['nachylenie (tipping)', 'nachylenie'], torq: 'nieprawidłowy tork', intr: 'intruzja', extr: 'ekstruzja', ect: 'położenie ektopowe', imp: 'zatrzymanie', crowd: 'stłoczenie', gap: 'diastema / szpara' }, '{v}'),
+    N('rot', 'Rotacja', '°', 'rotacja o {v}°'),
+    S('contact', 'Punkt styczny', { '': '—', ok: 'prawidłowy', open: 'otwarty', tight: 'ciasny' }, 'punkt styczny {v}'),
+    S('enamel', 'Szkliwo przed naklejeniem', { '': '—', ok: 'bez zmian', wsl: 'odwapnienia (white spot)', fluor: 'fluoroza', rest: 'wypełnienie / uzupełnienie' }, 'szkliwo: {v}'),
+    M('root', 'RTG korzenia', { res: 'resorpcja korzenia', short: 'krótki korzeń', dil: 'zagięcie korzenia', ok: 'bez zmian' }, 'RTG: {v}'),
+    S('appl', 'Aparat na zębie', { '': '—', none: 'brak', bracket: 'zamek', band: 'pierścień', aligner: 'nakładka', ret: 'retainer' }, 'na zębie: {v}') ] },
+  perio: { title: 'Badanie periodontologiczne', fields: [
+    T('ppd', 'Głębokość kieszonek — 6 miejsc (mm)', 'kieszonki {v} mm', 'np. 3 2 4 / 5 3 4'),
+    N('cal', 'Utrata przyczepu (CAL)', 'mm', 'CAL {v} mm'), N('rec', 'Recesja', 'mm', 'recesja {v} mm'),
+    S('recClass', 'Recesja — klasyfikacja Cairo', { '': '—', RT1: 'RT1', RT2: 'RT2', RT3: 'RT3' }, 'recesja {v}'),
+    S('bop', 'Krwawienie (BOP)', { '': '—', no: 'nie', yes: 'tak' }, 'krwawienie przy zgłębnikowaniu: {v}'),
+    S('furc', 'Zmiana w furkacji', { '': '—', I: 'I°', II: 'II°', III: 'III°' }, 'furkacja {v}'),
+    S('mob', 'Ruchomość', { '': '—', 0: 'fizjologiczna', I: 'I°', II: 'II°', III: 'III°' }, 'ruchomość {v}'),
+    S('bone', 'Utrata kości (RTG)', { '': '—', hor: 'pozioma', vert: 'pionowa (ubytek śródkostny)' }, 'utrata kości {v}'),
+    N('kt', 'Dziąsło skeratynizowane', 'mm', 'dziąsło skeratynizowane {v} mm') ] },
+  chir: { title: 'Badanie chirurgiczne', fields: [
+    M('ind', 'Wskazania', { caries: 'zniszczenie próchnicowe', perio: 'choroba przyzębia', ortho: 'wskazania ortodontyczne', imp: 'zatrzymanie', peric: 'zapalenie okołokoronowe', fract: 'złamanie korony / korzenia', endo: 'niepowodzenie leczenia endodontycznego' }, 'wskazania: {v}'),
+    S('winter', 'Ułożenie (Winter)', { '': '—', vert: 'pionowe', mesio: 'mezjoangularne', disto: 'dystoangularne', horiz: 'poziome' }, 'ułożenie {v}'),
+    S('pell', 'Pell–Gregory', { '': '—', IA: 'I A', IB: 'I B', IIA: 'II A', IIB: 'II B', IIIB: 'II/III B', IIIC: 'III C' }, 'klasa {v} wg Pella i Gregory’ego'),
+    S('nerve', 'Relacja do kanału nerwu zębodołowego dolnego', { '': '—', far: 'w oddaleniu', close: 'bliska', contact: 'kontakt / nakładanie' }, 'relacja do kanału żuchwy: {v}'),
+    S('sinus', 'Relacja do zatoki szczękowej', { '': '—', far: 'w oddaleniu', close: 'bliska', inside: 'wierzchołki w zatoce' }, 'relacja do zatoki: {v}'),
+    M('local', 'Stan miejscowy', { swell: 'obrzęk', pus: 'wysięk ropny', trism: 'szczękościsk', lymph: 'powiększone węzły chłonne' }, '{v}'),
+    S('img', 'Obrazowanie', { '': '—', opg: 'pantomogram', cbct: 'CBCT', pa: 'RTG wewnątrzustne' }, 'na podstawie: {v}') ] },
+  impl: { title: 'Badanie przedimplantacyjne', fields: [
+    N('w', 'Szerokość kości', 'mm', 'szerokość kości {v} mm'), N('h', 'Wysokość kości', 'mm', 'wysokość kości {v} mm'),
+    S('dens', 'Jakość kości (Lekholm–Zarb)', { '': '—', D1: 'D1', D2: 'D2', D3: 'D3', D4: 'D4' }, 'jakość kości {v}'),
+    N('kt', 'Dziąsło skeratynizowane', 'mm', 'dziąsło skeratynizowane {v} mm'),
+    S('pheno', 'Fenotyp dziąsła', { '': '—', thin: 'cienki', thick: 'gruby' }, 'fenotyp dziąsła {v}'),
+    N('md', 'Przestrzeń mezjalno-dystalna', 'mm', 'przestrzeń {v} mm'),
+    S('antag', 'Antagonista', { '': '—', nat: 'ząb własny', pros: 'uzupełnienie', none: 'brak' }, 'antagonista: {v}'),
+    M('plan', 'Planowanie', { cbct: 'na podstawie CBCT', guide: 'szablon chirurgiczny', digital: 'planowanie cyfrowe' }, '{v}') ] },
+  prot: { title: 'Badanie protetyczne', fields: [
+    S('struct', 'Tkanki zęba', { '': '—', ok: 'zachowane', part: 'częściowo zniszczone', severe: 'znacznie zniszczone' }, 'tkanki zęba {v}'),
+    S('ferrule', 'Efekt obręczy (ferrule)', { '': '—', ok: '≥ 2 mm', no: '< 2 mm' }, 'ferrule {v}'),
+    S('exist', 'Obecne uzupełnienie', { '': '—', none: 'brak', fill: 'wypełnienie', crown: 'korona', bridge: 'most' }, 'obecne uzupełnienie: {v}'),
+    S('endo', 'Stan endodontyczny', { '': '—', vital: 'ząb żywy', ok: 'leczony kanałowo — prawidłowo', redo: 'leczony kanałowo — do powtórzenia' }, '{v}'),
+    S('abut', 'Wartość jako filar', { '': '—', good: 'dobra', fair: 'wątpliwa', poor: 'zła' }, 'wartość jako filar: {v}'),
+    M('occl', 'Zwarcie i parafunkcje', { brux: 'bruksizm', wear: 'starcie', para: 'parafunkcje' }, '{v}'),
+    T('shade', 'Kolor', 'kolor {v}', 'np. A2') ] },
+  ped: { title: 'Badanie pedodontyczne', fields: [
+    S('icdas', 'Próchnica (ICDAS)', { '': '—', 0: '0', 1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6' }, 'ICDAS {v}'),
+    S('resorp', 'Resorpcja korzeni (ząb mleczny)', { '': '—', none: 'brak', third: 'do 1/3', twothirds: '1/3–2/3', more: 'ponad 2/3' }, 'resorpcja korzeni {v}'),
+    S('apex', 'Rozwój korzenia (ząb stały)', { '': '—', open: 'wierzchołek otwarty', closed: 'wierzchołek uformowany' }, '{v}'),
+    S('frankl', 'Współpraca (skala Frankla)', { '': '—', 1: '1 — zdecydowanie negatywna', 2: '2 — negatywna', 3: '3 — pozytywna', 4: '4 — zdecydowanie pozytywna' }, 'współpraca wg Frankla {v}'),
+    S('mih', 'MIH', { '': '—', no: 'nie', yes: 'tak' }, 'MIH: {v}') ] },
+  hig: { title: 'Ocena higieny', fields: [
+    S('plaque', 'Płytka nazębna', { '': '—', none: 'brak', little: 'niewielka', much: 'obfita' }, 'płytka {v}'),
+    S('calc', 'Kamień', { '': '—', none: 'brak', supra: 'naddziąsłowy', sub: 'poddziąsłowy' }, 'kamień {v}'),
+    S('stain', 'Przebarwienia', { '': '—', no: 'brak', yes: 'obecne' }, 'przebarwienia {v}'),
+    S('bop', 'Krwawienie dziąsła', { '': '—', no: 'nie', yes: 'tak' }, 'krwawienie: {v}') ] },
+  mfs: { title: 'Badanie chirurgiczne (szczękowo-twarzowe)', fields: [
+    T('region', 'Okolica', 'okolica: {v}', 'np. trzon żuchwy po stronie lewej'),
+    N('size', 'Wielkość zmiany', 'mm', 'wielkość {v} mm'),
+    M('char', 'Charakter', { hard: 'twarda', soft: 'miękka', pain: 'bolesna', ulcer: 'owrzodzenie', mobile: 'przesuwalna' }, '{v}'),
+    S('sens', 'Czucie (n. V)', { '': '—', ok: 'prawidłowe', low: 'osłabione', none: 'zniesione' }, 'czucie {v}'),
+    S('img', 'Obrazowanie', { '': '—', opg: 'pantomogram', cbct: 'CBCT', ct: 'TK', mri: 'MR' }, 'na podstawie: {v}') ] },
+};
+/** Examination findings of the other specialties, for the record and the letter: [{ spec, title, text }]. */
+export function specExamText(rec) {
+  return Object.entries(rec?.sx || {}).map(([spec, x]) => {
+    const e = SPEC_EXAM[spec]; if (!e || !x) return null;
+    const parts = e.fields.map((f) => fieldText(f, x[f.k])).filter(Boolean);
+    return parts.length ? { spec, title: e.title, text: parts.join(', ') } : null;
+  }).filter(Boolean);
+}
 
 /* ------------------------------------------------------------------ zdania z pól */
 const optLabel = (o) => (Array.isArray(o) ? o[0] : o);
@@ -240,7 +317,7 @@ export const EXTRA_CATS = {
   bone: ['Materiał kościozastępczy', 'impl'], membrane: ['Membrana', 'impl'],
   perioinst: ['Skalery / urządzenia', 'perio'], curette: ['Kirety / sondy', 'perio'], periolocal: ['Leki miejscowe (perio)', 'perio'], softgraft: ['Przeszczep / matryca tkanek miękkich', 'perio'], regen: ['Materiał regeneracyjny', 'perio'], splintmat: ['Szynowanie', 'perio'],
   impression: ['Materiał wyciskowy / skaner', 'prot'], crownmat: ['Materiał uzupełnienia', 'prot'], tempmat: ['Uzupełnienia tymczasowe', 'prot'], cadcam: ['CAD/CAM', 'prot'], denture: ['Materiał protezy', 'prot'],
-  brackets: ['Zamki / aparat stały', 'orto'], aligners: ['System nakładek', 'orto'], wires: ['Łuki', 'orto'], orthoadh: ['Klej ortodontyczny', 'orto'], removable: ['Aparat ruchomy / czynnościowy', 'orto'], tad: ['Miniimplanty', 'orto'], retainer: ['Retencja', 'orto'],
+  brackets: ['Zamki / aparat stały', 'orto'], aligners: ['System nakładek', 'orto'], wires: ['Łuki', 'orto'], orthoadh: ['Klej ortodontyczny', 'orto'], removable: ['Aparat ruchomy / czynnościowy', 'orto'], tad: ['Miniimplanty', 'orto'], retainer: ['Retencja', 'orto'], elastics: ['Wyciągi, ligatury, łańcuszki', 'orto'], orthoinst: ['Instrumentarium i skanery ortodontyczne', 'orto'],
   sealant: ['Lak szczelinowy', 'ped'], fluoride: ['Preparat fluorkowy', 'ped'], pedcrown: ['Korony pedodontyczne', 'ped'], pedpulp: ['Materiał do pulpotomii / pulpektomii', 'ped'], sdf: ['Diamina fluorku srebra (SDF)', 'ped'],
   powder: ['Proszek do piaskowania', 'hig'], paste: ['Pasta profilaktyczna', 'hig'], oralcare: ['Środki do higieny domowej', 'hig'],
   osteo: ['Osteosynteza (płytki, śruby)', 'mfs'], tmjmat: ['Preparaty do iniekcji (SSŻ)', 'mfs'],
@@ -278,6 +355,8 @@ export const EXTRA_PRODUCTS = {
   tempmat: ['Protemp 4', 'Luxatemp Star', 'Structur 3', 'Integrity', 'Telio CS C&B', 'TempBond NE', 'Freegenol'],
   cadcam: ['CEREC', 'inLab', 'Planmeca PlanMill', 'Roland DWX', 'drukarka 3D (Formlabs / SprintRay)'],
   denture: ['akryl Superacryl Plus', 'Vertex', 'Paladon', 'szkielet CoCr', 'Valplast', 'acetal', 'zęby SR Phonares', 'zęby Major', 'Rebase II', 'GC Reline', 'Ufi Gel'],
+  elastics: ['Wyciągi elastyczne 1/8" 3,5 oz', 'Wyciągi elastyczne 3/16" 4,5 oz', 'Wyciągi elastyczne 1/4" 6 oz', 'Ligatury elastyczne', 'Ligatury stalowe', 'Łańcuszek elastyczny (power chain)', 'Sprężyna otwierająca NiTi', 'Sprężyna zamykająca NiTi'],
+  orthoinst: ['Skaner iTero Element', 'Skaner 3Shape TRIOS', 'Skaner Medit i700', 'Szczypce Weingarta', 'Szczypce do cięcia dystalnego', 'Pozycjoner do zamków (Boone gauge)', 'Kątnica do IPR', 'Lampa polimeryzacyjna Valo Ortho'],
   brackets: ['3M Victory Series', '3M Clarity Advanced', '3M SmartClip', 'Damon Q2', 'Damon Clear', 'Empower 2', 'In-Ovation', 'Forestadent BioQuick', 'GAC Experience', 'Symetri Clear', 'Incognito (lingwalny)'],
   aligners: ['Invisalign', 'Spark', 'ClearCorrect', 'Angel Aligner', 'Orthocaps', 'SureSmile Aligners', 'nakładki wykonane w gabinecie'],
   wires: ['NiTi .012', 'NiTi .014', 'NiTi .016', 'NiTi .016×.022', 'NiTi .018×.025', 'CuNiTi .014×.025', 'TMA .017×.025', 'stal .016×.022', 'stal .019×.025'],
@@ -305,7 +384,7 @@ export const SPEC_CATS = {
   impl: ['implsys', 'implmotor', 'isq', 'abut', 'bone', 'membrane', 'prf', 'suture'],
   perio: ['perioinst', 'curette', 'periolocal', 'softgraft', 'regen', 'splintmat', 'suture'],
   prot: ['impression', 'crownmat', 'cement', 'tempmat', 'post', 'cadcam', 'denture'],
-  orto: ['brackets', 'aligners', 'wires', 'orthoadh', 'removable', 'tad', 'retainer'],
+  orto: ['brackets', 'aligners', 'wires', 'orthoadh', 'removable', 'tad', 'retainer', 'elastics', 'orthoinst'],
   ped: ['sealant', 'fluoride', 'pedcrown', 'pedpulp', 'gic', 'sdf', 'composite'],
   mfs: ['osteo', 'suture', 'bone', 'membrane', 'tmjmat', 'anesth'],
   hig: ['perioinst', 'powder', 'paste', 'fluoride', 'oralcare'],

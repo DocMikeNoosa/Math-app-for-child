@@ -4,7 +4,7 @@ import {
   WORK, POST_TYPE, IMPL_PREP, RTIME, CONTROL, PROG, LATERAL,
 } from './data.js';
 import { finalDx } from './dx.js';
-import { PROCS, SPECS, SPEC_ORDER, procSentence, procShort, specOf } from './specs.js';
+import { PROCS, SPECS, SPEC_ORDER, procSentence, procShort, specOf, specExamText } from './specs.js';
 
 /* ------------------------------------------------------------ polszczyzna */
 export const PT = {
@@ -430,6 +430,7 @@ export function buildOffline({ visits, patient, doctor, referrer, used = { openi
       if (hx.length) a.push(`W wywiadzie ${P.reported} ${join(hx, ', ', ' i ')}.`);
       const ex = examNarrative(dx);
       if (ex) a.push(ex);
+      for (const x of specExamText(rec)) a.push(`${x.title} wykazało: ${x.text}.`);
       const rp = radioPhrase(dx);
       if (rp) a.push(`W obrazie RTG: ${low(rp)}.`);
       const d = dxPhrase(dx, icd);
@@ -473,6 +474,7 @@ export function aiPayload({ visits, patient, doctor, referrer, used, repeat, icd
         performed_by: visit.performer === 'other' ? (visit.otherDentist || 'inny lekarz') : 'self',
         reason: rec.dx?.history?.cc || '',
         examination: examPhrases(rec.dx || {}),
+        specialty_examination: specExamText(rec).map((x) => `${x.title}: ${x.text}`),
         radiology: radioPhrase(rec.dx || {}),
         diagnosis: dxPhrase(rec.dx || {}, icd),
         anatomy: (anatKnown(rec) ? rec.roots || [] : []).map((r) => ({ root: r.label || r.name, canals: r.canals.map((c) => ({ canal: canalLabel(c.name), working_length_mm: c.wl ? plNum(c.wl) : null, reference: c.ref || null, final_size: c.maf || null })), lateral_canal: r.lateral ? LATERAL[r.lateral] : null })),
@@ -511,6 +513,7 @@ export function recordEntry({ visits, patient = {}, doctor = '', fmtDate = (d) =
       const hist = [h.cc?.trim(), h.spontaneous && 'ból samoistny', h.night && 'ból nocny', h.deep && 'głęboka próchnica / obnażenie miazgi', HIST_STATUS[h.status]].filter(Boolean);
       if (hist.length) out.push(`Wywiad: ${hist.join(', ')}.`);
       const ex = examPhrases(dx).map((x) => x.replace(/^głębokość kieszonek nie przekraczała (.*)$/, 'kieszonki do $1')); if (ex.length) out.push(`Badanie: ${ex.join(', ')}.`);
+      for (const x of specExamText(rec)) out.push(`${x.title}: ${x.text}.`);
       const rad = radioPhrase(dx); if (rad) out.push(`RTG: ${low(rad)}.`);
       const d = dxPhrase(dx); if (d) out.push(`Rozpoznanie: ${d}.`);
       const done = [...endoSentences(rec, P), ...(rec.work || []).map(workSentence).filter(Boolean)];

@@ -173,7 +173,9 @@ async function org(req, store, now, acct, me) {
   }
   if (method === 'POST' && path === '/v1/org/policy') {
     if (!blob(body.policy, 2000)) return bad('policy');
-    await store.updateOrg(me.orgId, { policy: { aiDpa: !!body.policy.aiDpa } }); return out(200, { ok: true });
+    // policy: AI consent and which administrator is the medical director (an account id, not personal data)
+    const dir = typeof body.policy.director === 'string' && /^[0-9a-f]{16,128}$/.test(body.policy.director) ? body.policy.director : '';
+    await store.updateOrg(me.orgId, { policy: { aiDpa: !!body.policy.aiDpa, director: dir } }); return out(200, { ok: true });
   }
   if (method === 'POST' && path === '/v1/org/name') {
     if (typeof body.name !== 'string' || !body.name.trim() || body.name.length > 200) return bad('name');

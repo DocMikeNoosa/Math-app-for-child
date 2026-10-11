@@ -103,6 +103,27 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   ok((await p.locator('#ws-tabs .step.on[data-ttab=endo]').count()) === 1 && (await p.locator('#ws-tabs [data-ttab=anat]').count()) === 1 && (await p.textContent('#stage-legend')).includes('kanał'), 'endodontics still available: Zabiegi › Endodoncja adds the root-canal steps and shows the canals');
   await p.click('#ws-tabs [data-ttab=work]'); await p.waitForTimeout(200);
   await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
+  // ---------- orthodontic tooth card (side rail → Ortodoncja): own steps, examination, procedures, materials, 3D
+  await p.click('#arch g.tooth[data-fdi="13"]'); await p.waitForSelector('#ws'); await p.waitForTimeout(600);
+  await p.click('#sp-rail [data-spec=orto]'); await p.waitForTimeout(400);
+  const steps = await p.$$eval('#ws-tabs .step .l', (els) => els.map((e) => e.firstChild.textContent));
+  ok(steps.join('|') === 'Badanie|Zabiegi|Materiały|Opis własny|Zalecenia' && (await p.textContent('#ws-tabs')).includes('Ortodoncja') && (await p.textContent('#ws-spec')).includes('Ortodoncja') && (await p.getAttribute('#ws', 'data-spec')) === 'orto', 'orthodontic card: own steps (no Anatomia / Endodoncja), badge and colours: ' + steps.join(', '));
+  await p.click('#ws-tabs [data-ttab=work]'); await p.waitForTimeout(300);
+  ok((await p.locator('[data-act=add-work][data-type=BRACKET]').count()) === 1 && (await p.locator('[data-act=add-work][data-type=IPR]').count()) === 1 && (await p.locator('[data-act=add-work][data-type=ATTACH]').count()) === 1, 'orthodontic procedures on a tooth: bracket, IPR, attachment…');
+  await p.click('[data-act=add-work][data-type=BRACKET]'); await p.waitForTimeout(200);
+  const pick = async (k, v) => ((await p.locator(`[data-seg="${k}"]`).count()) ? seg(k, v) : p.selectOption(`[data-b="${k}"]`, v));
+  await pick('t.work.0.kind', 'ceram'); await pick('t.work.0.rx', 'mbt'); await p.waitForTimeout(500);
+  ok((await p.textContent('#stage-legend')).includes('zamek ceramiczny'), '3D: ceramic bracket with arch wire on the tooth');
+  await shot(p, '01e-ws-orto');
+  await p.click('#ws-tabs [data-ttab=dx]'); await p.waitForTimeout(200);
+  ok((await p.textContent('#ws-tab')).includes('Badanie ortodontyczne') && (await p.locator('details.pulp-more').count()) === 1, 'orthodontic examination (pulp tests folded away)');
+  await p.click('label.chip:has(input[data-arr="t.sx.orto.pos"][value="rot"])'); await p.fill('[data-b="t.sx.orto.rot"]', '20'); await pick('t.sx.orto.contact', 'open'); await p.waitForTimeout(200);
+  await shot(p, '01f-ws-orto-exam');
+  await p.click('#ws-tabs [data-ttab=mat]'); await p.waitForTimeout(200);
+  ok((await p.locator('[data-act=mat-spec].on[data-spec=orto]').count()) === 1 && (await p.textContent('.cat-chips')).includes('Wyciągi'), 'orthodontic materials and equipment (brackets, wires, elastics, scanners…)');
+  await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
+  const rec13 = await p.evaluate(() => { const v = window.__dentlist.curVisit(); return v.teeth.find((t) => t.fdi === 13); });
+  ok(rec13?.sx?.orto?.contact === 'open' && rec13.work[0].type === 'BRACKET', 'orthodontic examination and bracket saved on tooth 13');
   // ---------- whole mouth: periodontal exam + fixed braces
   await p.click('[data-act=mouth-open]'); await p.waitForTimeout(200);
   await p.click('#vmouth [data-act=mproc-spec][data-spec=perio]'); await p.click('#vmouth [data-act=add-mproc][data-type=PERIO_DX]'); await p.waitForTimeout(300);
@@ -276,7 +297,18 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   ok((await p.textContent('#asst-reply')).includes('Zapisz PDF') && acalls.length === nA, 'assistant: a "how do I" question about letters is answered in the panel (no AI needed)');
   await ask('opowiedz mi coś o tej aplikacji'); await p.waitForTimeout(800);
   ok((await p.textContent('#asst-reply')).includes('Zapisz PDF') && acalls.length === nA + 1, 'assistant (AI MOCK): free question → text answer from AI in the panel');
+  await p.unroute('https://api.anthropic.com/**');
+  await p.evaluate(() => { const st = window.__dentlist.settings(); st.ai.key = ''; window.__dentlist.save('settings', st); });
+  await ask('chcę być na profilu chirurgicznym'); await p.waitForTimeout(300);
+  ok((await p.evaluate(() => window.__dentlist.settings().doctor.home)) === 'chir' && (await p.getAttribute('html', 'data-spec')) === 'chir', 'assistant: "chcę być na profilu chirurgicznym" switches the profile to surgery');
+  await ask('profil zachowawczy'); await p.waitForTimeout(300);
+  ok((await p.evaluate(() => window.__dentlist.settings().doctor.home)) === 'zach', 'assistant: "profil zachowawczy" switches back');
+  await ask('pokaż mi gdzie są kopje zapasowe danych'); await p.waitForTimeout(300);
+  await ask('jakaś zupełnie dziwna rzecz z kopją'); await p.waitForTimeout(300);
+  ok((await p.locator('#asst-reply [data-asst-ex]').count()) >= 1, 'assistant: not sure → offers "did you mean…" commands');
+  await p.click('#asst-reply [data-asst-ex]'); await p.waitForTimeout(500);
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+  if (await p.locator('#asst').count()) { await p.keyboard.press('Escape'); await p.waitForTimeout(200); }
   ok(!(await p.locator('#asst').count()), 'assistant closes with Esc');
   console.log('ERRORS', p.errs);
   ok(!p.errs.length, 'no page errors');

@@ -722,3 +722,10 @@ section.asst-flash { box-shadow: 0 0 0 2px rgba(var(--acc-rgb), 0.7), 0 0 40px -
 .cmp-mode { margin-bottom: 4px; }
 .doc-add { gap: 8px; padding: 10px; width: 170px; }
 .doc-add select { font-size: 12px; height: 32px; padding: 0 8px; }
+
+/* tooth card: the specialty it is working in */
+.ws-spec { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 99px; font-size: 12.5px; font-weight: 600; color: var(--strong); border: 1px solid color-mix(in srgb, var(--sp) 55%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--sp) 18%, transparent), color-mix(in srgb, var(--sp2) 8%, transparent)); white-space: nowrap; }
+@media (max-width: 720px) { .ws-spec { order: 3; } }
+details.pulp-more { margin-top: 18px; border: 1px solid var(--line-2); border-radius: 14px; padding: 4px 14px 12px; background: rgba(255, 255, 255, 0.015); }
+details.pulp-more > summary { cursor: pointer; padding: 10px 0 6px; color: var(--dim); font-size: 13px; font-weight: 600; }
+details.pulp-more[open] > summary { color: var(--strong); }

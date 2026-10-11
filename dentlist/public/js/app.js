@@ -9,9 +9,9 @@ import {
 import { suggestDx, finalDx } from './dx.js';
 import { archSVG, toothDetailSVG } from './odontogram.js';
 import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT, materialsFor, recordEntry, mouthGlance } from './letter.js';
-import { SPECS, SPEC_ORDER, SPEC_TITLE, PROCS, procsFor, procShort, procSentence, specOf, optLabel, SPEC_CATS, DX_OTHER } from './specs.js';
+import { SPECS, SPEC_ORDER, SPEC_TITLE, PROCS, procsFor, procShort, procSentence, specOf, optLabel, SPEC_CATS, DX_OTHER, SPEC_EXAM, fieldText } from './specs.js';
 import { generateLetter, reviseLetter, cleanDictation, testKey, draftComplaint, assistCommand } from './ai.js';
-import { parseLocal, assistCatalog, norm, SECTION_HEAD } from './assistant.js';
+import { parseLocal, assistCatalog, norm, SECTION_HEAD, suggest } from './assistant.js';
 import { SOURCES, STATUS, TONES, REBUTTALS, DOC_KINDS, newOutside, newComplaint, builtinComplaintDraft, complaintPayload, salutationFor } from './complaints.js';
 import { buildPlainLetterPDF } from './pdf.js';
 import { Pseudonymizer } from './privacy.js';
@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.7';
+export const APP_VERSION = '1.0.8';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -94,6 +94,14 @@ const NAVY = {
 const NAVY_3D = [[54.7, 25.1], [62, 15.5], [62.2, 7.3]];
 const hslHex = (h, s, l) => { s /= 100; l /= 100; const f = (n) => { const k = (n + h / 30) % 12, c = l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1)); return Math.round(c * 255).toString(16).padStart(2, '0'); }; return '#' + f(0) + f(8) + f(4); };
 const themeBg3D = (k) => (k !== 'endo' && SPECS[k]?.hue !== undefined ? NAVY_3D.map(([s, l]) => hslHex(SPECS[k].hue, s, l)) : null);
+const NAVY_ORIG = { '--bg': '#050a14', '--bg-2': '#0a1324', '--panel': 'rgba(15, 24, 43, 0.74)', '--panel-solid': '#0e1729', '--panel-2': 'rgba(22, 34, 58, 0.6)', '--line': 'rgba(148, 172, 214, 0.1)', '--line-2': 'rgba(148, 172, 214, 0.17)', '--line-3': 'rgba(148, 172, 214, 0.28)', '--text': '#d6dfed', '--strong': '#f3f6fb', '--dim': '#8b99b2', '--faint': '#5a6983', '--tooth-1': '#1d2a42', '--tooth-2': '#141e31', '--topbar': 'rgba(5, 10, 20, 0.66)', '--abar': 'rgba(10, 17, 32, 0.82)', '--ws-1': 'rgba(16, 26, 46, 0.97)', '--ws-2': 'rgba(8, 14, 27, 0.98)', '--overlay': 'rgba(2, 6, 14, 0.9)' };
+/** All colour variables of a specialty (endodontics: the original EndoList values). */
+function themeVars(k) {
+  const sp = SPECS[k] || SPECS.zach, endo = k === 'endo' || sp.hue === undefined, [a, b] = endo ? ['#5ee6d6', '#62a9ff'] : [sp.color, sp.color2];
+  const v = { '--accent': a, '--accent-2': b, '--acc-rgb': hexRgb(a), '--acc2-rgb': hexRgb(b), '--accent-hi': mixHex(a, '#ffffff', 0.3) };
+  for (const [n, [sat, li, al]] of Object.entries(NAVY)) { if (endo) v[n] = NAVY_ORIG[n]; else { const x = hslHex(sp.hue, sat, li); v[n] = al === undefined ? x : rgba(x, al); } }
+  return v;
+}
 function applyTheme() {
   const k = home(), sp = SPECS[k] || SPECS.zach, r = document.documentElement.style;
   // endodontics: the original EndoList navy and aqua, untouched; other specialties: the same recipe in their own hue
@@ -635,6 +643,8 @@ function refreshVisit() {
 function openTooth(fdi) {
   const v = curVisit(), ex = v.teeth.find((t) => t.fdi === fdi);
   S.ws = { fdi, isNew: !ex, draft: clone(ex || newToothRec(fdi, v.performer === 'other')), dirty: !ex };
+  // the card works in one specialty at a time (side rail): the doctor's own, or the one already used on this tooth
+  const used = specsOn(S.ws.draft); S.ws.spec = !used.length || used.includes(home()) ? home() : used[0];
   S.ttab = null; S.matSpec = null; S.matCat = null; S.ttab = wsSteps()[0][0]; S.ws.modelKey = JSON.stringify([toothMode(S.ws.draft), opts3D(S.ws.draft).crown, toothExtras(S.ws.draft)]);
   const ov = document.createElement('div'); ov.className = 'ws-overlay'; ov.id = 'ws';
   ov.innerHTML = workspaceHTML(); requestAnimationFrame(() => { centerStep(); if (S.ws) tintWorkspace(S.ws.draft); });
@@ -645,6 +655,7 @@ function workspaceHTML() {
   const t = S.ws.draft, ti = toothInfo(t.fdi);
   return `<div class="ws" role="dialog" aria-modal="true" aria-label="Ząb ${t.fdi}">
     <header class="ws-head"><div class="tp-num">${t.fdi}</div><div class="grow"><div class="ws-title">${esc(ti.name[0].toUpperCase() + ti.name.slice(1))}</div><div class="tp-name" id="ws-sum">${esc(toothSummary(t))}</div></div>
+      <span class="ws-spec" id="ws-spec" style="${specStyle(wsSpec())}">${specDot(wsSpec())}${esc(SPECS[wsSpec()].label)}</span>
       ${S.ws.isNew ? '' : `<button class="btn btn-ghost btn-sm btn-danger" data-act="rm-tooth">${I('trash')} Usuń ząb</button>`}
       <button class="btn btn-soft btn-sm asst-btn" data-act="assistant" title="Asystent (Ctrl+K)">${I('spark')}<span>Asystent</span></button>
       <button class="btn btn-ghost" data-act="ws-cancel">Anuluj</button>
@@ -665,31 +676,40 @@ const STEP_DEF = {
   anat: ['Anatomia', 'Korzenie i kanały'], dx: ['Badanie', 'Badanie i rozpoznanie'], endo: ['Endodoncja', 'Leczenie endodontyczne'],
   work: ['Zabiegi', 'Zabiegi wszystkich specjalności'], mat: ['Materiały', 'Materiały i sprzęt'], manual: ['Opis własny', 'Opis własnymi słowami lub dyktowanie'], rec: ['Zalecenia', 'Zalecenia i rokowanie'],
 };
-/** Step order follows the home specialty: an endodontist starts with anatomy and the root canal, others with examination and procedures. */
+/** Specialty the tooth card is working in (chosen in the side rail). */
+const wsSpec = () => (S.ws?.spec && SPECS[S.ws.spec] ? S.ws.spec : home());
+/** Steps follow the chosen specialty: endodontics has anatomy and the root canal; every other specialty has its own
+ *  examination and its own procedures step (e.g. "Ortodoncja"), without root-canal steps. */
 function wsSteps(t = S.ws?.draft) {
-  // other specialties: no root-canal steps unless this tooth needs them (opened from Zabiegi › Endodoncja, or already has endodontic data)
-  const order = home() === 'endo' && endoOn(t) ? [['anat'], ['dx'], ['endo'], ['work', true], ['mat'], ['manual', true], ['rec']] : [['dx'], ['work'], ...(endoOn(t) ? [['endo', true], ['anat', true]] : []), ['mat'], ['manual', true], ['rec']];
-  return order.map(([k, opt]) => [k, STEP_DEF[k][0], STEP_DEF[k][1], !!opt]);
+  const sp = wsSpec(), noRoots = (t?.work || []).some((x) => IMPLANT_WORK.includes(x.type) || ['EXT', 'IMPACT', 'EXT_P'].includes(x.type));
+  const order = sp === 'endo' && !noRoots ? [['anat'], ['dx'], ['endo'], ['work', true], ['mat'], ['manual', true], ['rec']] : [['dx'], ['work'], ['mat'], ['manual', true], ['rec']];
+  return order.map(([k, opt]) => {
+    if (k === 'work' && sp !== 'endo') return [k, 'Zabiegi', `Zabiegi — ${SPECS[sp].label}`, false, SPECS[sp].short];
+    if (k === 'dx' && SPEC_EXAM[sp] && sp !== 'ped') return [k, 'Badanie', `Badanie ogólne i ${SPEC_EXAM[sp].title.toLowerCase()}`, false, SPECS[sp].short];
+    return [k, STEP_DEF[k][0], STEP_DEF[k][1], !!opt];
+  });
 }
 function stepDone(k, t) {
   const d = t.dx || {}, ts = d.tests || {};
   return {
-    anat: !!t.anatOk, dx: !!(d.pulp || d.peri || d.history?.cc || (d.radio || []).length || ts.probe || ['cold', 'heat', 'ept', 'perc', 'palp', 'bite'].some((x) => ts[x] && ts[x] !== 'nt')),
+    anat: !!t.anatOk, dx: !!(Object.values(t.sx || {}).some((o) => Object.values(o || {}).some((v) => (Array.isArray(v) ? v.length : v))) || d.pulp || d.peri || d.history?.cc || (d.radio || []).length || ts.probe || ['cold', 'heat', 'ept', 'perc', 'palp', 'bite'].some((x) => ts[x] && ts[x] !== 'nt')),
     endo: !!t.endo?.proc, work: !!(t.work || []).length, mat: !!((t.products || []).length || t.endo?.microBrand),
     manual: !!t.manual?.trim(), rec: !!(t.rec?.restor || t.rec?.control || t.rec?.prog || t.rec?.note),
   }[k];
 }
 function stepsHTML(t) {
-  return wsSteps().map(([k, l, title, opt], i) => { const done = stepDone(k, t);
-    return `<button data-ttab="${k}" class="step ${S.ttab === k ? 'on' : ''} ${done ? 'done' : ''}" title="${esc(title)}"><span class="n">${done ? I('check') : i + 1}</span><span class="l">${l}${opt ? '<small>opcjonalnie</small>' : ''}</span></button>`; }).join('');
+  return wsSteps().map(([k, l, title, opt, sub], i) => { const done = stepDone(k, t);
+    return `<button data-ttab="${k}" class="step ${S.ttab === k ? 'on' : ''} ${done ? 'done' : ''}" title="${esc(title)}"><span class="n">${done ? I('check') : i + 1}</span><span class="l">${l}${sub ? `<small>${esc(sub)}</small>` : opt ? '<small>opcjonalnie</small>' : ''}</span></button>`; }).join('');
 }
 /** The tooth card takes the colour of the specialty being worked on: the chosen procedure group, the endodontic step, or the tooth's last procedure. */
 function tintWorkspace(t) {
-  // the tooth card keeps the home specialty's colours (as in the original); only the 3D background follows them too
+  // the tooth card takes the colours of the specialty it is working in (endodontics: the original navy and aqua)
   const el = $('#ws'); if (!el) return;
-  el.dataset.spec = home();
-  try { S.t3d?.setTint?.(themeBg3D(home())); } catch {}
+  const k = wsSpec(); el.dataset.spec = k;
+  for (const [n, x] of Object.entries(themeVars(k))) el.style.setProperty(n, x);
+  try { S.t3d?.setTint?.(themeBg3D(k)); } catch {}
 }
+function setWsSpec(k) { if (!S.ws || !SPECS[k]) return; S.ws.spec = k; S.workSpec = k; S.matSpec = k; S.matCat = null; }
 /** Keep the current step visible in the strip (it scrolls sideways on a phone). */
 function centerStep() { const st = $('#ws-tabs'), on = $('#ws-tabs .step.on'); if (!st || !on || st.scrollWidth <= st.clientWidth) return; const a = st.getBoundingClientRect(), b = on.getBoundingClientRect(); st.scrollLeft += b.left - a.left - (a.width - b.width) / 2; }
 function stepNav() {
@@ -702,7 +722,9 @@ const tabBody = (t) => ({ anat: tabAnat, dx: tabDx, endo: tabEndo, work: tabWork
 function refreshWorkspace({ tabs = true, model = false } = {}) {
   if (!S.ws) return;
   const t = S.ws.draft;
-  if (['endo', 'anat'].includes(S.ttab)) S.ws.endoOn = true;
+  if (['endo', 'anat'].includes(S.ttab) && S.ws.spec !== 'endo') setWsSpec('endo');
+  if (!wsSteps(t).some(([k]) => k === S.ttab)) S.ttab = wsSteps(t).some(([k]) => k === 'work') ? 'work' : wsSteps(t)[0][0];
+  const bd = $('#ws-spec'); if (bd) { bd.setAttribute('style', specStyle(wsSpec())); bd.innerHTML = `${specDot(wsSpec())}${esc(SPECS[wsSpec()].label)}`; }
   // the model follows what is done to the tooth (implant, extraction, canals) — redraw when that changes
   const mk = JSON.stringify([toothMode(t), opts3D(t).crown, toothExtras(t)]);
   if (mk !== S.ws.modelKey) { S.ws.modelKey = mk; model = true; const lg = $('#stage-legend'); if (lg) lg.innerHTML = stageLegend(t); const xs = $('#xray-sw'); if (xs && !xs.dataset.flat) xs.hidden = toothMode(t) !== 'endo'; }
@@ -715,7 +737,7 @@ function refreshWorkspace({ tabs = true, model = false } = {}) {
   if (model) update3D();
 }
 /** Root canals belong to endodontics: shown for an endodontist, or when this tooth has endodontic work. */
-function endoOn(t) { const noRoots = (t?.work || []).some((x) => IMPLANT_WORK.includes(x.type) || ['EXT', 'IMPACT', 'EXT_P'].includes(x.type)); return (home() === 'endo' && !noRoots) || !!S.ws?.endoOn || ['endo', 'anat'].includes(S.ttab) || !!(t && (ENDO[t.endo?.proc] || t.anatOk)); }
+function endoOn(t) { const noRoots = (t?.work || []).some((x) => IMPLANT_WORK.includes(x.type) || ['EXT', 'IMPACT', 'EXT_P'].includes(x.type)); return (!noRoots && wsSpec() === 'endo') || !!(t && (ENDO[t.endo?.proc] || t.anatOk)); }
 const IMPLANT_WORK = ['IMPLANT', 'UNCOVER', 'ABUT', 'IMPL_PROS', 'PERIIMPL'], CROWN_WORK = ['IMPL_PROS', 'CROWN', 'TEMPCROWN'];
 /** What the model shows: an implant, a removed tooth, a tooth with its canal system, or a plain tooth. */
 function toothMode(t) {
@@ -735,13 +757,17 @@ function toothExtras(t) {
   if (has('FILL', 'REFILL') && !fill.size) fill.add('O');
   return { fill: [...fill], tempFill: has('TEMPFILL'), seal: has('SEAL'), sdf: has('SDF'), post: has('POST'), pulpotomy: has('PULPOT_P', 'PULPECT_P'), apico: has('APICO_S'),
     crown: has('SSC') ? 'steel' : has('TEMPCROWN') ? 'temp' : has('CROWN', 'BRIDGE') ? 'ceramic' : has('VENEER') ? 'veneer' : has('INLAY') ? 'inlay' : '',
-    gum: has('RECESSION') ? 'recession' : has('SRP', 'FLAP', 'REGEN', 'GINGIVECT', 'CROWNLEN') ? 'gum' : '' };
+    gum: has('RECESSION') ? 'recession' : has('SRP', 'FLAP', 'REGEN', 'GINGIVECT', 'CROWNLEN') ? 'gum' : '',
+    ortho: (() => { const b = [...w].reverse().find((x) => x.type === 'BRACKET'); if (has('DEBOND_T') && !b) return ''; return b ? (b.kind || 'metal') : has('BAND') ? 'band' : has('ATTACH') ? 'attach' : ''; })(),
+    ipr: [...new Set(w.filter((x) => x.type === 'IPR').flatMap((x) => x.side || []))] };
 }
 function stageLegend(t) {
   const m = toothMode(t), x = toothExtras(t), it = (c, l) => `<span><i style="background:${c}"></i>${l}</span>`;
   const more = m === 'implant' || m === 'gone' ? '' : [x.fill.length && it('#9fb2ff', `wypełnienie (${x.fill.join('')})`), x.tempFill && it('#f1e9d2', 'opatrunek'), x.seal && it('#ffd2b0', 'lak'), x.sdf && it('#222', 'SDF'),
     x.crown && it(x.crown === 'steel' ? '#c9ced6' : '#fdfdf9', { steel: 'korona stalowa', temp: 'korona tymczasowa', ceramic: 'korona', veneer: 'licówka', inlay: 'wkład koronowy (inlay/onlay)' }[x.crown]),
-    x.post && it('#b9c0c9', 'wkład koronowo-korzeniowy'), x.pulpotomy && it('#f5efe3', 'pulpotomia / pulpektomia'), x.apico && it('#f4f1e8', 'resekcja z wypełnieniem wstecznym'), x.gum && it('#e0707f', x.gum === 'recession' ? 'dziąsło (recesja)' : 'dziąsło')].filter(Boolean).join('');
+    x.post && it('#b9c0c9', 'wkład koronowo-korzeniowy'), x.pulpotomy && it('#f5efe3', 'pulpotomia / pulpektomia'), x.apico && it('#f4f1e8', 'resekcja z wypełnieniem wstecznym'), x.gum && it('#e0707f', x.gum === 'recession' ? 'dziąsło (recesja)' : 'dziąsło'),
+    x.ortho && it(x.ortho === 'ceram' ? '#f3efe6' : x.ortho === 'attach' ? '#9fb2ff' : '#c9ced6', { metal: 'zamek metalowy i łuk', ceram: 'zamek ceramiczny i łuk', sl: 'zamek samoligaturujący i łuk', ling: 'zamek lingwalny', tube: 'rurka policzkowa', button: 'guzik ortodontyczny', band: 'pierścień', attach: 'attachment' }[x.ortho]),
+    x.ipr.length && it('#ffd27a', `stripping (${x.ipr.join(', ')})`)].filter(Boolean).join('');
   if (m === 'endo') return '<span><i style="background:#ff3b66"></i>miazga / kanał</span><span><i style="background:#14d8c0"></i>wypełnienie kanałowe</span><span><i style="background:#9a86ff"></i>kanał boczny</span>' + more;
   if (m === 'implant') return `<span><i style="background:#b8c0c8"></i>implant${(t.work || []).some((x) => CROWN_WORK.includes(x.type)) ? ' z koroną' : ' ze śrubą gojącą'}</span>`;
   if (m === 'gone') return '<span><i style="background:#c9d2de;opacity:.5"></i>ząb usunięty (zarys)</span>';
@@ -801,12 +827,23 @@ function tabAnat(t) {
     <div class="hint" style="margin-top:12px">Model po lewej odświeża się na bieżąco. Długości robocze wpiszesz w zakładce Endodoncja.</div>`;
 }
 
+/** Examination of the chosen specialty (orthodontic, periodontal, surgical…); endodontics, conservative dentistry and
+ *  paediatrics keep the pulp tests, the others can open them when needed. */
+function specExamHTML(t, sp) {
+  const e = SPEC_EXAM[sp]; if (!e) return '';
+  const x = (t.sx ??= {})[sp] ??= {};
+  const f = (fl) => {
+    const path = `t.sx.${sp}.${fl.k}`;
+    if (fl.type === 'sel') return `<div class="test"><span>${esc(fl.label)}</span>${seg(path, Object.fromEntries(Object.entries(fl.opts).filter(([k]) => k !== '').map(([k, o]) => [k, optLabel(o)])))}</div>`;
+    if (fl.type === 'multi') return `<div class="label" style="margin-top:12px">${esc(fl.label)}</div>${chipsArr(path, Object.fromEntries(Object.entries(fl.opts).map(([k, o]) => [k, optLabel(o)])))}`;
+    if (fl.type === 'num') return `<div class="test"><span>${esc(fl.label)}</span><div class="row"><input type="text" inputmode="decimal" data-b="${path}" value="${esc(x[fl.k] ?? '')}" style="width:110px;height:34px">${fl.unit ? `<span class="faint small">${esc(fl.unit)}</span>` : ''}</div></div>`;
+    return `<label class="f" style="margin-top:10px"><span>${esc(fl.label)}</span><input type="text" data-b="${path}" value="${esc(x[fl.k] ?? '')}" placeholder="${esc(fl.ph || '')}"></label>`;
+  };
+  return `<div class="label" style="color:var(--accent)">${esc(e.title)}</div>${e.fields.map(f).join('')}`;
+}
 function tabDx(t) {
-  return `<div class="label">Wywiad</div>
-    <div class="row nowrap">${inp('t.dx.history.cc', '', { ph: 'Powód zgłoszenia, np. ból przy nagryzaniu od 2 tygodni' })}${micBtn('t.dx.history.cc')}</div>
-    <div class="row" style="margin-top:10px;gap:16px">${sw('t.dx.history.spontaneous', 'Ból samoistny')}${sw('t.dx.history.night', 'Ból nocny')}${sw('t.dx.history.deep', 'Głęboka próchnica / obnażenie')}</div>
-    <div class="test" style="margin-top:8px"><span>Stan zęba</span>${seg('t.dx.history.status', { virgin: 'nieleczony', treated: 'leczony kanałowo', initiated: 'leczenie rozpoczęte' })}</div>
-    <div class="label">Testy</div>
+  const sp = wsSpec(), own = SPEC_EXAM[sp] && sp !== 'ped';
+  const pulp = `
     <div class="test"><span>Zimno</span>${seg('t.dx.tests.cold', T_COLD, { bad: ['exag', 'ling', 'nr'] })}</div>
     <div class="test"><span>Test elektryczny</span><div class="row">${seg('t.dx.tests.ept', T_EPT, { bad: ['neg'] })}<input type="text" data-b="t.dx.tests.eptVal" value="${esc(t.dx.tests.eptVal)}" placeholder="wynik" style="width:90px;height:34px"></div></div>
     <div class="test"><span>Ciepło</span>${seg('t.dx.tests.heat', T_HEAT, { bad: ['ling', 'nr'] })}</div>
@@ -817,7 +854,13 @@ function tabDx(t) {
     <div class="test"><span>Ruchomość</span>${seg('t.dx.tests.mob', T_MOB, { bad: ['II', 'III'] })}</div>
     <div class="test"><span>Obrzęk</span>${seg('t.dx.tests.swelling', T_SWELL, { bad: ['intra', 'extra'] })}</div>
     <div class="test"><span>Przetoka</span>${seg('t.dx.tests.sinus', T_SINUS, { bad: ['yes'] })}</div>
-    <div class="label">RTG / CBCT</div>
+    `;
+  const head = `<div class="label">Wywiad</div>
+    <div class="row nowrap">${inp('t.dx.history.cc', '', { ph: 'Powód zgłoszenia, np. ból przy nagryzaniu od 2 tygodni' })}${micBtn('t.dx.history.cc')}</div>
+    <div class="row" style="margin-top:10px;gap:16px">${sw('t.dx.history.spontaneous', 'Ból samoistny')}${sw('t.dx.history.night', 'Ból nocny')}${sw('t.dx.history.deep', 'Głęboka próchnica / obnażenie')}</div>
+    <div class="test" style="margin-top:8px"><span>Stan zęba</span>${seg('t.dx.history.status', { virgin: 'nieleczony', treated: 'leczony kanałowo', initiated: 'leczenie rozpoczęte' })}</div>
+    `;
+  const tail = `<div class="label">RTG / CBCT</div>
     ${chipsArr('t.dx.radio', RADIO)}
     <div class="row nowrap" style="margin-top:8px">${inp('t.dx.radioNote', '', { ph: 'Dodatkowy opis, np. zmiana ok. 4 mm przy wierzchołku korzenia bliższego' })}${micBtn('t.dx.radioNote')}</div>
     <div class="label">Rozpoznanie</div><div id="dxbox"></div>
@@ -827,6 +870,27 @@ function tabDx(t) {
       ${sel('t.dx.pulp', 'Miazga (zmień ręcznie)', { '': 'jak sugerowane', ...Object.fromEntries(Object.entries(PULP_DX).map(([k, v]) => [k, v.label])) })}
       ${sel('t.dx.peri', 'Tkanki okołowierzchołkowe', { '': 'jak sugerowane', ...Object.fromEntries(Object.entries(PERI_DX).map(([k, v]) => [k, v.label])) })}
     </div>`;
+  if (!own) return `${head}<div class="label">Testy</div>${pulp}${sp === 'ped' ? specExamHTML(t, 'ped') : ''}${tail}`;
+  // other specialties: their own examination first; the pulp tests and the endodontic diagnosis fold away
+  const [rtg, dxPart] = tail.split('<div class="label">Rozpoznanie</div>');
+  const general = `<div class="label">Badanie ogólne</div>
+    <div class="test"><span>Opukiwanie</span>${seg('t.dx.tests.perc', T_PERC, { bad: ['pain'] })}</div>
+    <div class="test"><span>Palpacja</span>${seg('t.dx.tests.palp', T_PALP, { bad: ['pain'] })}</div>
+    <div class="test"><span>Ruchomość</span>${seg('t.dx.tests.mob', T_MOB, { bad: ['II', 'III'] })}</div>
+    <div class="test"><span>Obrzęk</span>${seg('t.dx.tests.swelling', T_SWELL, { bad: ['intra', 'extra'] })}</div>
+    <div class="test"><span>Przetoka</span>${seg('t.dx.tests.sinus', T_SINUS, { bad: ['yes'] })}</div>`;
+  const vital = `<div class="test"><span>Zimno</span>${seg('t.dx.tests.cold', T_COLD, { bad: ['exag', 'ling', 'nr'] })}</div>
+    <div class="test"><span>Test elektryczny</span><div class="row">${seg('t.dx.tests.ept', T_EPT, { bad: ['neg'] })}<input type="text" data-b="t.dx.tests.eptVal" value="${esc(t.dx.tests.eptVal)}" placeholder="wynik" style="width:90px;height:34px"></div></div>
+    <div class="test"><span>Ciepło</span>${seg('t.dx.tests.heat', T_HEAT, { bad: ['ling', 'nr'] })}</div>
+    <div class="test"><span>Nagryzanie</span>${seg('t.dx.tests.bite', T_BITE, { bad: ['pain', 'release'] })}</div>`;
+  return `<div class="label">Wywiad</div><div class="row nowrap">${inp('t.dx.history.cc', '', { ph: 'Powód zgłoszenia' })}${micBtn('t.dx.history.cc')}</div>
+    <div class="row" style="margin-top:10px;gap:16px">${sw('t.dx.history.spontaneous', 'Ból samoistny')}${sw('t.dx.history.night', 'Ból nocny')}</div>
+    ${general}${specExamHTML(t, sp)}${rtg}
+    <label class="f" style="margin-top:12px"><span>Rozpoznanie (ICD-10)</span><input type="text" data-b="t.dx.other" value="${esc(t.dx.other || '')}" list="dl-dxother" placeholder="np. K07.3 Nieprawidłowości ustawienia zębów"></label>
+    <datalist id="dl-dxother">${DX_OTHER.map((x) => `<option>${esc(x)}</option>`).join('')}</datalist>
+    <details class="pulp-more" ${['cold', 'ept', 'heat', 'bite'].some((k) => t.dx.tests?.[k] && t.dx.tests[k] !== 'nt') ? 'open' : ''}><summary>Testy żywotności miazgi i rozpoznanie endodontyczne (opcjonalnie)</summary>
+      ${vital}<div class="label">Rozpoznanie endodontyczne</div><div id="dxbox"></div>
+      <div class="grid g2" style="margin-top:10px">${sel('t.dx.pulp', 'Miazga', { '': 'jak sugerowane', ...Object.fromEntries(Object.entries(PULP_DX).map(([k, v]) => [k, v.label])) })}${sel('t.dx.peri', 'Tkanki okołowierzchołkowe', { '': 'jak sugerowane', ...Object.fromEntries(Object.entries(PERI_DX).map(([k, v]) => [k, v.label])) })}</div></details>`;
 }
 function renderDx() {
   const el = $('#dxbox'), t = curTooth(); if (!el || !t) return;
@@ -934,7 +998,7 @@ function tabWork(t) {
   const items = (t.work || []).map((w, i) => procCard('t.work', i, w, lists, 'rm-work')).join('');
   const endoTip = ENDO[t.endo?.proc] ? '' : `<div class="banner info" style="margin:14px 0 0"><span class="grow small">Leczenie kanałowe, pulpotomia, resekcja i inne zabiegi endodontyczne mają osobny, szczegółowy krok.</span><button class="btn btn-sm" data-ttab="endo">${specDot('endo')} Endodoncja</button></div>`;
   return `${items || '<div class="hint" style="margin-bottom:12px">Brak zabiegów przy tym zębie.</div>'}
-    ${procPicker('t', S.workSpec || (home() === 'endo' ? 'zach' : home()), 'add-work', 'work-spec')}${endoTip}
+    ${procPicker('t', wsSpec() === 'endo' ? (S.workSpec && S.workSpec !== 'endo' ? S.workSpec : 'zach') : wsSpec(), 'add-work', 'work-spec')}${wsSpec() === 'endo' ? '' : endoTip}
     ${datalists(lists)}
     <div class="hint" style="margin-top:12px">Nie ma tu wykonanej procedury? Opisz ją w kroku <b>Opis własny</b> — trafi do listu.</div>`;
 }
@@ -942,10 +1006,10 @@ function tabWork(t) {
 const custom = (cat) => (settings().customProducts || {})[cat] || [];
 /** Specialties of the work recorded on this tooth (endodontics first), in catalogue order. */
 function specsOn(t) { const set = new Set([...(ENDO[t?.endo?.proc] ? ['endo'] : []), ...(t?.work || []).map((w) => specOf(w))]); return SPEC_ORDER.filter((k) => set.has(k)); }
-const matSpecOf = (t) => (S.matSpec && SPECS[S.matSpec] ? S.matSpec : specsOn(t)[0] || home());
+const matSpecOf = (t) => (S.matSpec && SPECS[S.matSpec] ? S.matSpec : S.ws ? wsSpec() : specsOn(t)[0] || home());
 const matCatOf = (t) => (S.matCat && PRODUCTS[S.matCat] ? S.matCat : SPEC_CATS[matSpecOf(t)][0]);
 /** Side rail: every specialty is one tap away from the tooth card, whatever the doctor's own specialty. */
-function railActive() { return ['endo', 'anat'].includes(S.ttab) ? 'endo' : S.ttab === 'work' ? (S.workSpec || (home() === 'endo' ? 'zach' : home())) : S.ttab === 'mat' ? matSpecOf(S.ws?.draft) : ''; }
+function railActive() { return wsSpec(); }
 function railHTML(t) {
   const on = specsOn(t), act = railActive();
   return `<span class="rail-h">Specjalność</span>${SPEC_ORDER.map((k) => { const n = k === 'endo' ? (ENDO[t.endo?.proc] ? 1 : 0) : (t.work || []).filter((w) => specOf(w) === k).length;
@@ -1039,6 +1103,13 @@ function openAssistant(prefill = '') {
   ov.querySelector('#asst-form').addEventListener('submit', (e) => { e.preventDefault(); runAssist($('#asst-input').value); });
   document.body.appendChild(ov); $('#asst-input').focus();
 }
+/** Not understood: offer the closest ready commands instead of a dead end. */
+function assistGuess(text, why = '') {
+  const g = suggest(text);
+  const r = $('#asst-reply'); if (!r) return;
+  r.hidden = false; r.className = 'asst-reply';
+  r.innerHTML = `${why ? `<div class="small" style="color:var(--danger);margin-bottom:6px">${esc(why)}</div>` : ''}${g.length ? `Nie jestem pewny, o co chodzi. Czy chodziło o:<div class="chips" style="margin-top:8px">${g.map((x) => `<button type="button" class="chip on" data-asst-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : 'Nie rozumiem tego polecenia — spróbuj innymi słowami, np. „otwórz ząb 36", „profil chirurgiczny", „pokaż skargi".'}${aiKey() ? '' : '<div class="hint" style="margin-top:8px">Z kluczem AI (Ustawienia › Asystent AI) asystent rozumie dowolne sformułowania.</div>'}`;
+}
 function assistSay(text, kind = '') { const r = $('#asst-reply'); if (!r) { if (text) toast(text, kind === 'err' ? 'err' : 'ok'); return; } r.hidden = !text; r.className = `asst-reply ${kind}`; r.textContent = text; }
 function closeAssistant() { if (DICT?.target === '#asst-input') stopMic(); $('#asst')?.remove(); }
 /** Patients whose name matches the words of the query (Polish endings tolerated: Kowalską / Kowalskiej → Kowalska). */
@@ -1072,9 +1143,9 @@ async function runAssist(raw) {
       const r = await assistCommand(aiKey(), { command: pseudo.text(text), app: assistCatalog(ctx) });
       audit('ai', 'asystent: polecenie (nazwiska zanonimizowane)');
       cmd = pseudo.restore({ action: r.action, params: r.params || {}, reply: r.reply || '' });
-    } catch (e) { return assistSay('AI niedostępne: ' + e.message, 'err'); }
+    } catch (e) { return assistGuess(text, 'AI niedostępne: ' + e.message); }
   }
-  if (!cmd) return assistSay('Nie rozumiem tego polecenia. Spróbuj np. „otwórz ząb 36", „dodaj implant 46", „pokaż skargi" albo dodaj klucz AI w Ustawieniach, aby asystent rozumiał dowolne polecenia.', 'err');
+  if (!cmd) return assistGuess(text);
   try { await execAssist(cmd); } catch (e) { console.error(e); assistSay(e.message || String(e), 'err'); }
 }
 /** Carries out one assistant action. Returns after navigation; the palette closes when the app moved somewhere. */
@@ -1113,8 +1184,8 @@ async function execAssist({ action: act, params: p = {}, reply = '' }) {
       toVisit();
       if (S.ws && S.ws.fdi !== +fdi) { if (S.ws.dirty) saveWorkspace(); else closeWorkspace(); }
       if (!S.ws) openTooth(+fdi);
-      if (act === 'add_procedure') { S.ws.draft.work ??= []; S.ws.draft.work.push(newProc(type)); S.ws.dirty = true; S.workSpec = pr.spec; S.ttab = 'work'; }
-      else if (STEP_DEF[p.step]) S.ttab = p.step;
+      if (act === 'add_procedure') { S.ws.draft.work ??= []; S.ws.draft.work.push(newProc(type)); S.ws.dirty = true; setWsSpec(pr.spec); S.ttab = 'work'; }
+      else if (STEP_DEF[p.step]) { if (['endo', 'anat'].includes(p.step)) setWsSpec('endo'); S.ttab = p.step; }
       refreshWorkspace({ model: true }); const b = $('#ws-tab'); if (b) b.scrollTop = 0; if (act === 'add_procedure') $$('#ws-tab .spcard').at(-1)?.scrollIntoView({ block: 'start' });
       return done(reply || `Ząb ${fdi}.`);
     }
@@ -1137,6 +1208,14 @@ async function execAssist({ action: act, params: p = {}, reply = '' }) {
       if (S.view !== 'letter' || !D().letters.get(S.letterId)) return fail('Najpierw otwórz list (Pacjenci › pacjent › list) albo wygeneruj go z wizyty.');
       closeAssistant(); return action(m, document.body);
     }
+    case 'set_specialty': {
+      const k = p.spec; if (!SPECS[k]) return fail('Nie znam tej specjalności.');
+      // inside a tooth card: work in that specialty; otherwise (or "my profile"): change the doctor's profile
+      if (S.ws && p.scope !== 'home' && p.section !== 'home') { setWsSpec(k); S.ttab = k === 'endo' ? 'endo' : 'work'; refreshWorkspace({ model: true }); return done(`Karta zęba: ${SPECS[k].label}.`); }
+      const st = settings(); st.doctor.home = k; save('settings', st); applyTheme(); renderTop(); renderView();
+      return done(`Profil: ${SPECS[k].label} — kolory, kolejność kroków, zabiegi i materiały ustawione dla tej specjalności.`);
+    }
+    case 'lock': closeAssistant(); return action('lock');
     case 'answer': return assistSay(reply || 'Nie wiem, jak pomóc w tej sprawie.');
     default: return fail('Nie rozumiem tego polecenia.');
   }
@@ -1891,21 +1970,28 @@ function exportAuditCsv() {
   download(new Blob(['\ufeff' + rows.map((r) => r.map(q).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' }), `dentlist-rejestr-zdarzen-${today()}.csv`);
 }
 
+/** The logged-in administrator is the clinic's medical director. */
+function isDirector() { const d = S.org?.org?.policy?.director; return !!(d && S.clinic?.isAdmin() && S.clinic.c?.cfg?.acct === d); }
 function clinicPanel() {
   if (!S.sync) return `<p class="small muted" style="margin:0">Gabinet (zespół lekarzy z administratorami) wymaga synchronizacji — włącz ją powyżej lub poniżej.</p>`;
   if (!S.org) return `<p class="small muted" style="margin:0 0 12px;line-height:1.6">Załóż gabinet, aby zostać jego <b>administratorem</b>: zapraszać lekarzy i innych administratorów, resetować zapomniane hasła, zachować dostęp do dokumentacji po odejściu lekarza i decydować o użyciu AI. Albo dołącz do istniejącego gabinetu kodem zaproszenia.</p>
     <div class="row"><button class="btn btn-sm btn-primary" data-act="clinic-create">${I('shield')} Załóż gabinet (zostanę administratorem)</button><button class="btn btn-sm" data-act="clinic-join">${I('users')} Dołącz kodem zaproszenia</button></div>`;
   const admin = S.clinic.isAdmin();
-  return `<div class="kv"><div>Gabinet</div><div><b>${esc(S.org.org.name)}</b></div><div>Twoja rola</div><div>${admin ? '<span class="tag">administrator</span>' : '<span class="tag">lekarz</span>'}</div></div>
+  return `<div class="kv"><div>Gabinet</div><div><b>${esc(S.org.org.name)}</b></div><div>Twoja rola</div><div>${admin ? `<span class="tag">administrator</span>${isDirector() ? ' <span class="tag g">dyrektor medyczny</span>' : ''}` : '<span class="tag">lekarz</span>'}</div></div>
     ${admin ? `<div class="row" style="margin-top:12px"><button class="btn btn-sm btn-primary" data-nav="admin">${I('shield')} Otwórz administrację</button></div>` : ''}
     <div class="hint" style="margin-top:10px">Administratorzy gabinetu mają dostęp do Twoich danych w celu zapewnienia ciągłości dokumentacji (np. po zmianie pracy) i mogą zresetować Twoje hasło. Każdy taki dostęp jest zapisywany w rejestrze zdarzeń.</div>`;
 }
 function clinicCreateModal() {
-  modal({ title: 'Załóż gabinet', body: `<p class="muted" style="margin-top:0">Zostaniesz pierwszym administratorem. Kolejnych lekarzy i administratorów zaprosisz kodem.</p><label class="f"><span>Nazwa gabinetu</span><input type="text" id="cl-name" value="${esc([settings().doctor.practice, settings().doctor.group].filter(Boolean).join(' · '))}"></label>`,
+  modal({ title: 'Załóż gabinet', body: `<p class="muted" style="margin-top:0">Zostaniesz pierwszym administratorem. Kolejnych lekarzy i administratorów zaprosisz kodem.</p><label class="f"><span>Nazwa gabinetu</span><input type="text" id="cl-name" value="${esc([settings().doctor.practice, settings().doctor.group].filter(Boolean).join(' · '))}"></label><label class="cmp-check" style="margin-top:12px"><input type="checkbox" id="cl-dir" checked> <span>Jestem dyrektorem medycznym <span class="faint">(odpowiedzi na skargi podpisuję jako dyrektor; można zmienić później w Administracji)</span></span></label>`,
     buttons: [{ label: 'Anuluj', cls: 'btn-ghost' }, { label: `${I('shield')} Załóż`, cls: 'btn-primary', onClick: async (ov, btn) => {
       const name = $('#cl-name', ov).value.trim(); if (!name) { toast('Podaj nazwę.', 'err'); return false; }
       btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Tworzenie kluczy…';
-      try { S.org = await S.clinic.create(name); audit('admin', 'utworzono gabinet ' + name); toast('Gabinet utworzony — jesteś administratorem.', 'ok'); renderTop(); go('admin'); }
+      const dir = $('#cl-dir', ov)?.checked;
+      try {
+        S.org = await S.clinic.create(name); audit('admin', 'utworzono gabinet ' + name);
+        if (dir) { const me = (await S.clinic.members()).find((m) => m.self); if (me) { S.org = (await S.clinic.setPolicy({ ...(S.org.org?.policy || {}), director: me.acct })) || S.org; audit('admin', 'dyrektor medyczny: ' + (me.name || me.login)); } }
+        toast(dir ? 'Gabinet utworzony — jesteś administratorem i dyrektorem medycznym.' : 'Gabinet utworzony — jesteś administratorem.', 'ok'); renderTop(); go('admin');
+      }
       catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.innerHTML = 'Załóż'; return false; }
     } }] });
 }
@@ -1918,7 +2004,9 @@ function clinicJoinModal() {
     } }] });
 }
 async function clinicInvite(role) {
+  const director = role === 'director'; if (director) role = 'admin';
   const inv = await S.clinic.invite(role);
+  if (director) toast('Po dołączeniu tej osoby kliknij przy niej „Ustaw jako dyrektora" (Administracja › Zespół).', 'ok');
   audit('admin', `zaproszenie (${role === 'admin' ? 'administrator' : 'lekarz'})`);
   const text = `Zaproszenie do gabinetu „${S.org.org.name}" w DentList${role === 'admin' ? ' (rola: administrator)' : ''}.\nKod: ${inv.code}\nWażny do: ${new Date(inv.expires).toLocaleDateString('pl-PL')}.\nDentList → Ustawienia → Gabinet → Dołącz kodem zaproszenia.`;
   modal({ title: role === 'admin' ? 'Zaproszenie administratora' : 'Zaproszenie lekarza', body: `<p class="muted" style="margin-top:0">Przekaż kod osobiście lub bezpiecznym kanałem. Kod jest jednorazowy i ważny 7 dni (do ${new Date(inv.expires).toLocaleDateString('pl-PL')}). Osoba zapraszana musi mieć konto DentList z włączoną synchronizacją.</p>
@@ -1930,7 +2018,8 @@ function viewAdmin() {
   if (!S.clinic?.isAdmin()) return '<div class="empty">Brak uprawnień administratora.</div>';
   const o = S.org.org;
   return `<div class="pagehead"><div><h2>Administracja</h2><div class="small muted">${esc(o.name)} <button class="btn btn-ghost btn-sm" data-act="clinic-rename">${I('edit')}</button></div></div><span class="grow"></span>
-      <button class="btn" data-act="clinic-invite" data-role="member">${I('plus')} Zaproś lekarza</button><button class="btn btn-soft" data-act="clinic-invite" data-role="admin">${I('shield')} Zaproś administratora</button></div>
+      <button class="btn" data-act="clinic-invite" data-role="member">${I('plus')} Zaproś lekarza</button><button class="btn btn-soft" data-act="clinic-invite" data-role="admin">${I('shield')} Zaproś administratora</button><button class="btn btn-soft" data-act="clinic-invite" data-role="director">${I('shield')} Zaproś dyrektora medycznego</button></div>
+    <div class="banner info" style="margin:0 0 14px"><span class="grow small"><b>Role:</b> <b>Administrator</b> — pełne uprawnienia: widzi wszystkich pacjentów, wizyty i listy wszystkich lekarzy (Placówka), prowadzi skargi, zaprasza i usuwa członków, resetuje hasła, eksportuje dane. Administratorów może być wielu. · <b>Dyrektor medyczny</b> — administrator wskazany jako dyrektor; podpisuje odpowiedzi na skargi. · <b>Lekarz</b> — widzi tylko własnych pacjentów.</span></div>
     <div class="settings"><div>
       <section class="panel"><header><h3>Zespół</h3><span class="sub" id="adm-count"></span></header><div class="body" id="adm-members"><div class="row"><span class="spin"></span><span class="muted">Odszyfrowywanie listy…</span></div></div></section>
     </div><div>
@@ -1951,13 +2040,14 @@ async function fillAdmin() {
   const el = $('#adm-members'); if (!el) return;
   $('#adm-count').textContent = `${ms.filter((m) => m.status === 'active').length} aktywnych`;
   fingerprint(S.org.org.pub).then((f) => { const x = $('#adm-fp'); if (x) x.textContent = f; });
-  const admins = ms.filter((m) => m.role === 'admin' && m.status === 'active').length;
+  const admins = ms.filter((m) => m.role === 'admin' && m.status === 'active').length, o = S.org.org;
   const ago = (t) => (t ? new Date(t).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' }) : '—');
   el.innerHTML = ms.map((m) => `<div class="member ${m.status}">
       <div class="grow"><b>${esc(m.name || m.login || '?')}</b>${m.self ? ' <span class="faint small">(Ty)</span>' : ''}<div class="small muted">login: ${esc(m.login || '?')} · ostatnio: ${ago(m.lastSeen)}</div></div>
-      <span class="tag ${m.role === 'admin' ? '' : 'v'}">${m.role === 'admin' ? 'administrator' : 'lekarz'}</span>${m.status === 'removed' ? '<span class="tag o">usunięty</span>' : ''}
+      ${o.policy?.director === m.acct ? '<span class="tag g">dyrektor medyczny</span>' : ''}<span class="tag ${m.role === 'admin' ? '' : 'v'}">${m.role === 'admin' ? 'administrator' : 'lekarz'}</span>${m.status === 'removed' ? '<span class="tag o">usunięty</span>' : ''}
       <div class="row m-act">${m.status === 'active' ? `
         ${m.role === 'admin' && admins <= 1 ? '<span class="faint small" style="padding:0 8px">jedyny administrator</span>' : `<button class="btn btn-ghost btn-sm" data-act="m-role" data-acct="${m.acct}" data-v="${m.role === 'admin' ? 'member' : 'admin'}">${m.role === 'admin' ? 'Odbierz admina' : 'Nadaj admina'}</button>`}
+        ${o.policy?.director === m.acct ? '' : `<button class="btn btn-ghost btn-sm" data-act="m-director" data-acct="${m.acct}">${I('shield')} Ustaw jako dyrektora</button>`}
         ${m.self ? '' : `<button class="btn btn-ghost btn-sm" data-act="m-reset" data-acct="${m.acct}">${I('key')} Reset hasła</button>`}
         <button class="btn btn-ghost btn-sm" data-act="m-data" data-acct="${m.acct}">${I('doc')} Dane</button>
         ${m.self ? '' : `<button class="btn btn-ghost btn-sm btn-danger" data-act="m-remove" data-acct="${m.acct}">${I('trash')} Usuń z gabinetu</button>`}` : `
@@ -1971,6 +2061,10 @@ async function memberAction(kind, acct, v) {
     if (kind === 'role') {
       if (!(await confirmBox(v === 'admin' ? `Nadać uprawnienia administratora: ${who}?` : `Odebrać uprawnienia administratora: ${who}?`, v === 'admin' ? 'Administrator może zarządzać zespołem, resetować hasła i odczytywać dane wszystkich lekarzy gabinetu.' : 'Osoba straci dostęp do administracji na serwerze.', v === 'admin' ? 'Nadaj' : 'Odbierz'))) return;
       await S.clinic.setRole(m, v); audit('admin', `${v === 'admin' ? 'nadano' : 'odebrano'} uprawnienia administratora: ${who}`);
+    } else if (kind === 'director') {
+      if (!(await confirmBox(`Ustawić ${who} jako dyrektora medycznego?`, `${m.role === 'admin' ? '' : 'Osoba otrzyma też uprawnienia administratora (widzi dane wszystkich lekarzy). '}Odpowiedzi na skargi będą podpisywane funkcją „Dyrektor medyczny".`, 'Ustaw'))) return;
+      if (m.role !== 'admin') await S.clinic.setRole(m, 'admin');
+      S.org = (await S.clinic.setPolicy({ ...(S.org.org.policy || {}), director: m.acct })) || S.org; audit('admin', `dyrektor medyczny: ${who}`);
     } else if (kind === 'remove') {
       if (!(await confirmBox(`Usunąć ${who} z gabinetu?`, 'Konto straci dostęp natychmiast; przy najbliższym połączeniu urządzenia tej osoby usuną dane gabinetu. Dokumentacja pozostaje w gabinecie — administratorzy nadal mają do niej dostęp („Dane").', 'Usuń z gabinetu'))) return;
       await S.clinic.setStatus(m, 'removed'); audit('admin', `usunięto z gabinetu: ${who}`);
@@ -2086,9 +2180,10 @@ async function action(act, a) {
     case 'clinic-create': return clinicCreateModal();
     case 'clinic-join': return clinicJoinModal();
     case 'clinic-invite': return clinicInvite(a.dataset.role);
-    case 'clinic-policy-ai': { const on = !S.org.org.policy?.aiDpa; if (on && !(await confirmBox('Zezwolić na AI w gabinecie?', 'Potwierdzasz jako administrator, że gabinet (administrator danych) zawarł z Anthropic umowę powierzenia (DPA). Dane będą wysyłane wyłącznie w postaci zanonimizowanej.', 'Zezwól'))) return; await S.clinic.setPolicy({ aiDpa: on }); audit('admin', on ? 'AI dozwolone w gabinecie' : 'AI wyłączone w gabinecie'); return renderView(); }
+    case 'clinic-policy-ai': { const on = !S.org.org.policy?.aiDpa; if (on && !(await confirmBox('Zezwolić na AI w gabinecie?', 'Potwierdzasz jako administrator, że gabinet (administrator danych) zawarł z Anthropic umowę powierzenia (DPA). Dane będą wysyłane wyłącznie w postaci zanonimizowanej.', 'Zezwól'))) return; await S.clinic.setPolicy({ ...(S.org.org.policy || {}), aiDpa: on }); audit('admin', on ? 'AI dozwolone w gabinecie' : 'AI wyłączone w gabinecie'); return renderView(); }
     case 'clinic-rename': { const n = prompt('Nazwa gabinetu', S.org.org.name); if (n && n.trim()) { await S.clinic.rename(n.trim()); audit('admin', 'zmiana nazwy gabinetu'); renderView(); } return; }
     case 'm-role': return memberAction('role', a.dataset.acct, a.dataset.v);
+    case 'm-director': return memberAction('director', a.dataset.acct);
     case 'm-remove': return memberAction('remove', a.dataset.acct);
     case 'm-restore': return memberAction('restore', a.dataset.acct);
     case 'm-reset': return memberAction('reset', a.dataset.acct);
@@ -2166,10 +2261,10 @@ async function action(act, a) {
     case 'add-canal': { const name = a.dataset.name === 'dodatkowy' ? 'X' : a.dataset.name; rec.roots[+a.dataset.r].canals.push({ name, wl: '', ref: '', maf: '' }); rec.config = -1; rec.anatOk = true; S.ws.dirty = true; return refreshWorkspace({ model: true }); }
     case 'rm-canal': rec.roots[+a.dataset.r].canals.splice(+a.dataset.c, 1); rec.config = -1; rec.anatOk = true; S.ws.dirty = true; return refreshWorkspace({ model: true });
     case 'add-work': rec.work.push(newProc(a.dataset.type, a.dataset.spec)); S.ws.dirty = true; return refreshWorkspace();
-    case 'work-spec': S.workSpec = a.dataset.spec; return refreshWorkspace();
+    case 'work-spec': if (wsSpec() === 'endo' || a.dataset.spec === 'endo') S.workSpec = a.dataset.spec; else setWsSpec(a.dataset.spec); return refreshWorkspace();
     case 'mat-spec': S.matSpec = a.dataset.spec; S.matCat = null; return refreshWorkspace();
     case 'mat-cat': S.matCat = a.dataset.cat; return refreshWorkspace();
-    case 'rail-spec': { const k = a.dataset.spec; S.matSpec = k; S.matCat = null; if (k === 'endo') { S.ws.endoOn = true; S.ttab = 'endo'; } else { S.workSpec = k; S.ttab = 'work'; } refreshWorkspace(); const b = $('#ws-tab'); if (b) b.scrollTop = 0; return; }
+    case 'rail-spec': { const k = a.dataset.spec; setWsSpec(k); S.ttab = k === 'endo' ? 'endo' : ['dx', 'work', 'mat', 'manual', 'rec'].includes(S.ttab) ? S.ttab : 'work'; refreshWorkspace({ model: true }); const b = $('#ws-tab'); if (b) b.scrollTop = 0; return; }
     case 'rm-work': rec.work.splice(+a.dataset.i, 1); S.ws.dirty = true; return refreshWorkspace();
     case 'add-prod': case 'pick-prod': {
       const cat = matCatOf(rec), name = (act === 'pick-prod' ? a.dataset.name : $('#mat-name').value).trim(); if (!name) return;
