@@ -5,19 +5,23 @@
 #   ./setup.sh --cpu           ignore the NVIDIA GPU
 #   ./setup.sh --dry-run       only show what would be installed
 #   ./setup.sh --down          stop everything (models and chats are kept)
+#   ./setup.sh --images        add picture making (ComfyUI; NVIDIA/Linux recommended)
+#   ./setup.sh --video         add picture + video making
 set -euo pipefail
 cd "$(dirname "$0")"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-tier_arg="" force_cpu=0 dry_run=0 down=0
+tier_arg="" force_cpu=0 dry_run=0 down=0 images=0 video=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tier) tier_arg="${2:-}"; shift 2 ;;
     --cpu) force_cpu=1; shift ;;
     --dry-run) dry_run=1; shift ;;
     --down) down=1; shift ;;
-    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
+    --images) images=1; shift ;;
+    --video) images=1; video=1; shift ;;
+    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
     *) die "unknown option: $1 (see --help)" ;;
   esac
 done
@@ -87,7 +91,7 @@ command -v docker >/dev/null || die "Docker is not installed. Get it from https:
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required (docker compose ...)."
 docker info >/dev/null 2>&1 || die "Docker is installed but not running. Start Docker Desktop / the docker service first."
 
-if [[ $down -eq 1 ]]; then docker compose down; exit 0; fi
+if [[ $down -eq 1 ]]; then docker compose --profile images down; exit 0; fi
 
 if [[ "$os" == "Darwin" ]]; then
   # Docker on macOS cannot use the Apple GPU, so Ollama runs natively and only the UI runs in Docker.
@@ -105,7 +109,36 @@ else
   fi
   docker compose "${files[@]}" up -d ollama open-webui
   echo "Downloading models (first run can take a long time)..."
-  docker compose "${files[@]}" up model-puller \
+  if [[ $images -eq 1 ]]; then
+    hf=https://huggingface.co/Comfy-Org
+    COMFY_DOWNLOADS="diffusion_models|$hf/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_int8_convrot.safetensors"
+    COMFY_DOWNLOADS+=" text_encoders|$hf/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors"
+    COMFY_DOWNLOADS+=" vae|$hf/z_image_turbo/resolve/main/split_files/vae/ae.safetensors"
+    COMFY_WORKFLOWS="image_z_image_turbo_int8|1_-_Make_a_picture"
+    if [[ $video -eq 1 ]]; then
+      COMFY_DOWNLOADS+=" diffusion_models|$hf/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors"
+      COMFY_DOWNLOADS+=" text_encoders|$hf/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+      COMFY_DOWNLOADS+=" vae|$hf/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan2.2_vae.safetensors"
+      COMFY_WORKFLOWS+=" video_wan2_2_5B_ti2v|2_-_Make_a_video"
+    fi
+    export COMFY_DOWNLOADS COMFY_WORKFLOWS
+    # Free the GPU: unload chat models sitting in memory.
+    for m in $(docker exec ollama ollama ps 2>/dev/null | tail -n +2 | awk '{print $1}'); do docker exec ollama ollama stop "$m" >/dev/null 2>&1 || true; done
+    docker compose "${files[@]}" --profile images up -d comfyui
+    docker compose "${files[@]}" --profile images run --rm comfyui-models \
+      || die "some picture/video models failed to download - run the same command again to resume."
+    echo -n "Waiting for ComfyUI"
+    for _ in $(seq 1 300); do
+      if curl -fsS http://localhost:8188/system_stats >/dev/null 2>&1; then
+        echo; echo "Pictures ready: http://localhost:8188 (Workflows panel > \"1 - Make a picture\")"
+        echo "Pictures are saved in: $(pwd)/pictures"
+        exit 0
+      fi
+      echo -n "."; sleep 2
+    done
+    echo; die "ComfyUI did not respond. Check: docker compose logs comfyui"
+  fi
+  docker compose "${files[@]}" run --rm model-puller \
     || echo "WARNING: some models failed to download - see above. You can also pull models in Open WebUI > Admin > Settings > Models."
 fi
 

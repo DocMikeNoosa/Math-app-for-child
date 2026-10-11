@@ -73,6 +73,31 @@ Models that support tool calling (qwen3.x, gpt-oss) can use Open WebUI **Tools**
 - Workspace > Tools lets you add community tools (calculators, web fetch, calendars, etc.).
 - Open WebUI also has an OpenAI-compatible API (Settings > Account > API keys) for scripts and n8n/Zapier-style automation.
 
+## Pictures and video (ComfyUI, optional)
+
+Runs ComfyUI in Docker, so there's no separate Windows program for antivirus to block.
+
+**Windows:** paste into PowerShell:
+```powershell
+irm https://raw.githubusercontent.com/DocMikeNoosa/Math-app-for-child/claude/dazzling-bohr-1gdahq/open-webui/images.ps1 | iex
+```
+For video as well, paste this line first: `$global:LocalAIArgs = '-Video'`
+
+**Mac/Linux:** `./setup.sh --images` or `./setup.sh --video`. This needs an NVIDIA GPU on Linux. On a Mac,
+use the ComfyUI Desktop app instead, because Docker can't use the Apple GPU.
+
+Then open **http://localhost:8188**, open the **Workflows** panel on the left and choose
+**"1 - Make a picture"** (or "2 - Make a video"). Type your description and press **Run**.
+Results are saved in the `pictures` folder next to these files.
+
+| | Model | Download |
+|---|---|---|
+| Pictures | Z-Image Turbo (int8, sized for 8 GB graphics cards) | ~10 GB |
+| Video | Wan 2.2 5B (text/image to video, ~5 s clips) | ~18 GB more |
+
+The model links come from ComfyUI's own official templates. On an 8 GB card, the chat models are unloaded
+automatically before ComfyUI starts, because the graphics card can only hold one at a time.
+
 ## Everyday commands
 
 ```bash

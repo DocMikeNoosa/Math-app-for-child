@@ -62,4 +62,7 @@ Remove-Item -Recurse -Force $tmp
 
 # ---------- 3. Run setup ----------
 Say 'Running setup'
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Target 'setup.ps1')
+# images.ps1 sets $global:LocalAIArgs (e.g. '-Images') before running this script.
+$extra = @()
+if ($global:LocalAIArgs) { $extra = @($global:LocalAIArgs) }
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Target 'setup.ps1') @extra

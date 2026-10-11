@@ -4,12 +4,16 @@
 #   .\setup.cmd -Cpu            ignore the NVIDIA GPU
 #   .\setup.cmd -DryRun         only show what would be installed
 #   .\setup.cmd -Down           stop everything (models and chats are kept)
+#   .\setup.cmd -Images         add picture making (ComfyUI)
+#   .\setup.cmd -Video          add picture + video making (ComfyUI)
 param(
     [ValidateSet('', 'auto', 'small', 'medium', 'large', 'max')]
     [string]$Tier = '',
     [switch]$Cpu,
     [switch]$DryRun,
-    [switch]$Down
+    [switch]$Down,
+    [switch]$Images,
+    [switch]$Video
 )
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
@@ -99,7 +103,7 @@ docker info *> $null
 if ($LASTEXITCODE -ne 0) { Fail 'Docker Desktop is not running. Start it from the Start menu, wait until it says "Engine running", then try again.' }
 
 $files = @('-f', 'docker-compose.yml')
-if ($Down) { docker compose @files down; exit $LASTEXITCODE }
+if ($Down) { docker compose @files --profile images down; exit $LASTEXITCODE }
 if ($gpu) {
     Write-Host 'Enabling NVIDIA GPU for models and voice.'
     $files += @('-f', 'docker-compose.gpu.yml')
@@ -108,8 +112,59 @@ if ($gpu) {
 docker compose @files up -d ollama open-webui
 if ($LASTEXITCODE -ne 0) { Fail 'Could not start the containers - see the messages above.' }
 
+if ($Images -or $Video) {
+    # ---------- pictures / video (ComfyUI) ----------
+    # Official model links, taken from ComfyUI's own workflow templates.
+    $hf = 'https://huggingface.co/Comfy-Org'
+    $dl = @(
+        "diffusion_models|$hf/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_int8_convrot.safetensors",
+        "text_encoders|$hf/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors",
+        "vae|$hf/z_image_turbo/resolve/main/split_files/vae/ae.safetensors"
+    )
+    $wf = @('image_z_image_turbo_int8|1_-_Make_a_picture')
+    if ($Video) {
+        $dl += @(
+            "diffusion_models|$hf/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors",
+            "text_encoders|$hf/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+            "vae|$hf/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan2.2_vae.safetensors"
+        )
+        $wf += 'video_wan2_2_5B_ti2v|2_-_Make_a_video'
+    }
+    $env:COMFY_DOWNLOADS = $dl -join ' '
+    $env:COMFY_WORKFLOWS = $wf -join ' '
+
+    # Free the graphics card: unload chat models that are sitting in memory.
+    $loaded = docker exec ollama ollama ps 2>$null | Select-Object -Skip 1 | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ }
+    foreach ($m in $loaded) { docker exec ollama ollama stop $m *> $null }
+
+    docker compose @files --profile images up -d comfyui
+    if ($LASTEXITCODE -ne 0) { Fail 'Could not start ComfyUI - see the messages above.' }
+    Write-Host 'Downloading picture/video models (about 10 GB for pictures, 18 GB more for video)...'
+    docker compose @files --profile images run --rm comfyui-models
+    if ($LASTEXITCODE -ne 0) { Fail 'Some picture/video models failed to download - see above. Run the same command again to resume.' }
+
+    $cport = '8188'
+    Write-Host -NoNewline 'Waiting for ComfyUI'
+    for ($i = 0; $i -lt 300; $i++) {
+        try {
+            Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 "http://localhost:$cport/system_stats" | Out-Null
+            Write-Host ''
+            Write-Host "Pictures ready: http://localhost:$cport" -ForegroundColor Green
+            Write-Host 'Open the Workflows panel on the left and choose "1 - Make a picture".'
+            Write-Host "Your pictures are saved in: $(Join-Path $PSScriptRoot 'pictures')"
+            Start-Process "http://localhost:$cport"
+            exit 0
+        } catch {
+            Write-Host -NoNewline '.'
+            Start-Sleep -Seconds 2
+        }
+    }
+    Write-Host ''
+    Fail 'ComfyUI did not respond. Check: docker compose logs comfyui'
+}
+
 Write-Host 'Downloading models (first run can take a long time)...'
-docker compose @files up model-puller
+docker compose @files run --rm model-puller
 if ($LASTEXITCODE -ne 0) {
     Write-Host 'WARNING: some models failed to download - see above. You can also pull models in Open WebUI > Admin > Settings > Models.' -ForegroundColor Yellow
 }

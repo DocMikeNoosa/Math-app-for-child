@@ -64,6 +64,63 @@ services:
     volumes:
       - open-webui:/app/backend/data
 
+  # ---- Pictures & video (optional): ./setup.ps1 -Images  /  ./setup.sh --images ----
+  comfyui:
+    image: yanwk/comfyui-boot:${COMFY_TAG:-cpu}
+    container_name: comfyui
+    profiles: ["images"]
+    restart: unless-stopped
+    ports:
+      - "${COMFY_PORT:-8188}:8188"
+    environment:
+      # IPv4 listen works on every Docker setup (IPv6-only bind fails on some).
+      - CLI_ARGS=${COMFY_ARGS:---cpu --listen 0.0.0.0}
+    volumes:
+      - comfyui:/root
+      - ./pictures:/root/ComfyUI/output
+
+  # One-shot job: downloads picture/video models (official links from ComfyUI's
+  # own templates) and adds ready-to-use workflows to the Workflows sidebar.
+  comfyui-models:
+    image: yanwk/comfyui-boot:${COMFY_TAG:-cpu}
+    container_name: comfyui-models
+    profiles: ["images"]
+    environment:
+      - COMFY_DOWNLOADS=${COMFY_DOWNLOADS:-}
+      - COMFY_WORKFLOWS=${COMFY_WORKFLOWS:-}
+    volumes:
+      - comfyui:/root
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -u
+        # Wait until the comfyui container has unpacked ComfyUI into the volume.
+        for i in $$(seq 1 300); do [ -f /root/ComfyUI/main.py ] && break; sleep 2; done
+        failed=""
+        for item in $$COMFY_DOWNLOADS; do
+          dir=$${item%%|*}; url=$${item#*|}; name=$${url##*/}
+          dest=/root/ComfyUI/models/$$dir/$$name
+          mkdir -p "$$(dirname "$$dest")"
+          if [ -s "$$dest" ]; then echo ">>> already have $$name"; continue; fi
+          echo ">>> downloading $$name"
+          if curl -fL --retry 5 --retry-delay 5 -C - -o "$$dest.part" "$$url"; then
+            mv "$$dest.part" "$$dest"
+          else
+            failed="$$failed $$name"
+          fi
+        done
+        tpl=$$(python3 -c 'import comfyui_workflow_templates_json as m,os;print(os.path.dirname(m.__file__)+"/templates")')
+        wf=/root/ComfyUI/user/default/workflows
+        mkdir -p "$$wf"
+        for item in $$COMFY_WORKFLOWS; do
+          src=$${item%%|*}; title=$${item#*|}
+          cp "$$tpl/$$src.json" "$$wf/$${title//_/ }.json" && echo ">>> added workflow: $${title//_/ }"
+        done
+        if [ -n "$$failed" ]; then echo ">>> FAILED to download:$$failed"; exit 1; fi
+        echo ">>> picture/video models ready"
+    restart: "no"
+
 volumes:
   ollama:
   open-webui:
+  comfyui:

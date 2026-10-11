@@ -21,3 +21,16 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+  comfyui:
+    image: yanwk/comfyui-boot:${COMFY_TAG_GPU:-cu126-slim}
+    environment:
+      - CLI_ARGS=${COMFY_ARGS_GPU:---listen 0.0.0.0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  comfyui-models:
+    image: yanwk/comfyui-boot:${COMFY_TAG_GPU:-cu126-slim}
