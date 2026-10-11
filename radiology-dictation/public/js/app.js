@@ -20,7 +20,7 @@ const els = Object.fromEntries(
     'tplDelete', 'tplDuplicate', 'tplCancel', 'tplSave',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
-    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo', 'learnSummary', 'clinical',
+    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo', 'learnSummary', 'clinical', 'clinicalMic',
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
@@ -142,6 +142,8 @@ function toast(message, kind = 'info', ms = 2800) {
   t.className = `toast ${kind}`;
   t.innerHTML = `<span class="t-dot"></span><span>${esc(message)}</span>`;
   els.toasts.appendChild(t);
+  // at most a few at a time, so they never cover the report
+  while (els.toasts.children.length > 3) els.toasts.firstElementChild.remove();
   setTimeout(() => {
     t.classList.add('out');
     t.addEventListener('animationend', () => t.remove(), { once: true });
@@ -1014,7 +1016,28 @@ let timerStart = 0;
 let timerId = null;
 const chunkStack = []; // dictation text before each recognised fragment (for "cofnij to")
 
+// Where spoken text goes: the dictation (default) or the clinical-details box.
+let speechTarget = 'dictation';
+let clinicalStartedRecording = false;
+function setSpeechTarget(target) {
+  speechTarget = target;
+  document.body.classList.toggle('target-clinical', target === 'clinical');
+  els.clinicalMic.setAttribute('aria-pressed', String(target === 'clinical'));
+  if (target === 'dictation') clinicalStartedRecording = false;
+}
+function appendClinical(text) {
+  if (!text) return;
+  const chunk = tidy(convertSpokenFor(state.inputLang)(text), { closeSentences: false });
+  const cur = els.clinical.value.replace(/\s+$/, '');
+  if (!chunk) return;
+  // continue the same sentence: "Ból brzucha, gorączka…" (not a new capital after the comma)
+  const next = cur && !/[.!?]$/.test(cur) ? chunk.charAt(0).toLowerCase() + chunk.slice(1) : chunk.charAt(0).toUpperCase() + chunk.slice(1);
+  els.clinical.value = cur ? `${cur}${/[.;,:]$/.test(cur) ? '' : ','} ${next}` : next;
+  renderClinical();
+}
+
 function appendDictation(text) {
+  if (speechTarget === 'clinical') { appendClinical(text); return; }
   const prev = els.dictation.value.replace(/\s+$/, '');
   chunkStack.push(els.dictation.value);
   if (chunkStack.length > 60) chunkStack.shift();
@@ -1031,18 +1054,28 @@ function setDictation(value) {
 /** Run a spoken command (see voice-commands.js). */
 function runVoiceCommand(part) {
   const v = els.dictation.value;
+  // editing commands act on the clinical box while dictating into it
+  if (speechTarget === 'clinical' && ['deleteSentence', 'deleteWord', 'undoChunk', 'clear'].includes(part.cmd)) {
+    const c = els.clinical.value;
+    els.clinical.value = part.cmd === 'deleteWord' ? dropLastWord(c).trim() : part.cmd === 'clear' ? '' : dropLastSentence(c.replace(/[;,]\s*/g, '. '), '').replace(/\.\s/g, ', ').trim();
+    renderClinical();
+    onDictationChanged();
+    toast(COMMAND_LABELS[part.cmd], 'info', 1800);
+    return;
+  }
   switch (part.cmd) {
     case 'deleteSentence': setDictation(dropLastSentence(v, chunkStack[chunkStack.length - 1] ?? '')); break;
     case 'deleteWord': setDictation(dropLastWord(v)); break;
     case 'undoChunk': setDictation(chunkStack.length ? chunkStack[chunkStack.length - 1] : ''); break;
     case 'clear': setDictation(''); chunkStack.length = 0; break;
     case 'clinical': {
-      const cur = els.clinical.value.trim();
-      els.clinical.value = cur ? `${cur}; ${part.text}` : part.text;
-      renderClinical();
-      toast(`Dane kliniczne: „${part.text}”`, 'info', 3000);
+      // everything said from now on goes into the clinical details, until "koniec danych klinicznych"
+      setSpeechTarget('clinical');
+      appendClinical(part.text);
+      toast('Dyktujesz dane kliniczne — powrót: „koniec danych klinicznych”', 'info', 3600);
       return;
     }
+    case 'endClinical': setSpeechTarget('dictation'); break;
     case 'instruction': {
       const cur = els.instruction.value.trim();
       els.instruction.value = cur ? `${cur}; ${part.text}` : part.text;
@@ -1112,6 +1145,7 @@ async function stopRecording() {
   els.recBtn.setAttribute('aria-label', 'Rozpocznij dyktowanie');
   els.recState.textContent = 'Naciśnij, aby dyktować';
   els.interim.textContent = '';
+  setSpeechTarget('dictation');
   schedulePrefetch(300);
 }
 const toggleRecording = () => (state.recording ? stopRecording() : startRecording());
@@ -1402,6 +1436,25 @@ function bind() {
   els.dictation.addEventListener('input', () => { chunkStack.length = 0; onDictationChanged(); });
   els.instruction.addEventListener('input', onDictationChanged);
   els.clinical.addEventListener('input', () => { renderClinical(); onDictationChanged(); });
+  els.clinicalMic.addEventListener('click', async () => {
+    if (speechTarget === 'clinical') {
+      const stop = clinicalStartedRecording;
+      setSpeechTarget('dictation');
+      if (stop && state.recording) await stopRecording();
+      return;
+    }
+    if (!state.recording) {
+      startRecording();
+      if (!state.recording) return;
+      setSpeechTarget('clinical');
+      clinicalStartedRecording = true;
+    } else {
+      setSpeechTarget('clinical');
+    }
+    toast('Dyktujesz dane kliniczne — kliknij ponownie lub powiedz „koniec danych klinicznych”', 'info', 3600);
+  });
+  // clicking into the dictation box sends speech back there
+  els.dictation.addEventListener('focus', () => { if (speechTarget === 'clinical') setSpeechTarget('dictation'); });
   els.clinical.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) { e.preventDefault(); els.dictation.focus(); } });
   els.stylePrefs.addEventListener('input', save);
   els.bgProcess.addEventListener('change', () => { save(); renderPrepState(); schedulePrefetch(300); });

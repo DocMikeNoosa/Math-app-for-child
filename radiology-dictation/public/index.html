@@ -77,7 +77,10 @@
         <div class="field clinical-field">
           <div class="clinical-box">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v4h4v6h-4v4H9v-4H5V7h4z" transform="translate(0 2)"/></svg>
-            <textarea id="clinical" rows="1" spellcheck="true" lang="pl" placeholder="Dane kliniczne / wskazanie (opcjonalnie) — np. ból brzucha, hipotonia; znany nowotwór" aria-label="Dane kliniczne"></textarea>
+            <textarea id="clinical" rows="1" spellcheck="true" lang="pl" placeholder="Dane kliniczne (opcjonalnie) — np. ból brzucha, hipotonia" aria-label="Dane kliniczne"></textarea>
+            <button type="button" class="clinical-mic" id="clinicalMic" title="Dyktuj dane kliniczne (albo powiedz „dane kliniczne …”; powrót: „koniec danych klinicznych”)" aria-label="Dyktuj dane kliniczne" aria-pressed="false">
+              <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+            </button>
           </div>
         </div>
         <div class="field">
@@ -395,7 +398,8 @@
           <span>„zakończ dyktowanie”</span><span>stop</span>
           <span>„zmień… / popraw… / dodaj do wniosków… / usuń z opisu…”</span><span>→ polecenie dla AI</span>
           <span>„polecenie …”</span><span>→ polecenie dla AI</span>
-          <span>„dane kliniczne …” / „wskazanie …”</span><span>→ dane kliniczne</span>
+          <span>„dane kliniczne …” / „wskazanie …”</span><span>→ dyktujesz dane kliniczne</span>
+          <span>„koniec danych klinicznych”</span><span>→ z powrotem do dyktatu</span>
         </div>
         <p class="hint">Po angielsku: “delete last sentence”, “scratch that”, “prepare report”, “copy report”.</p>
       </div>

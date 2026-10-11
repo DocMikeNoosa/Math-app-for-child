@@ -14,12 +14,14 @@ const COMMANDS = [
   { cmd: 'prepare', re: W('(przygotuj|opracuj|zrób) opis|prepare (the )?report') },
   { cmd: 'copy', re: W('(kopiuj|skopiuj) opis|copy (the )?report') },
   { cmd: 'stop', re: W('(zakończ|zatrzymaj|stop) dyktowani[ea]|stop dictation') },
+  { cmd: 'endClinical', re: W('koniec danych klinicznych|koniec wskazania|wróć do dyktatu|przejdź do dyktatu|end (of )?clinical (details|information)') },
 ];
 
 // Editing commands for the finished report: the rest of the chunk goes to the AI instruction.
 const INSTRUCTION_RE = /^(?:polecenie|instrukcja|instruction|command)[\s:,]+(.+)$/iu;
 // "Dane kliniczne …" / "Wskazanie …" fills the clinical-details field.
-const CLINICAL_RE = /^(?:dane kliniczne|wskazanie(?: kliniczne)?|informacje kliniczne|clinical (?:details|information|history)|indication)[\s:,]+(.+)$/iu;
+// Saying it switches the dictation into that field (also across pauses) until "koniec danych klinicznych".
+const CLINICAL_RE = /^(?:dane kliniczne|wskazanie(?: kliniczne)?|informacje kliniczne|clinical (?:details|information|history)|indication)(?:[\s:,.]+(.*))?$/iu;
 const EDIT_RE = /^((?:zmień|popraw|dodaj do wniosków|dodaj do opisu|usuń z opisu|usuń z wniosków|skróć|przenieś|change|add to (?:the )?conclusion|remove from (?:the )?report|shorten)(?![\p{L}\d]).*)$/iu;
 
 /**
@@ -30,7 +32,7 @@ export function parseVoiceCommands(raw) {
   const text = String(raw || '').trim();
   if (!text) return [];
   const clin = text.match(CLINICAL_RE);
-  if (clin) return [{ cmd: 'clinical', text: clin[1].trim() }];
+  if (clin) return [{ cmd: 'clinical', text: (clin[1] || '').replace(/[.]$/, '').trim() }];
   const instr = text.match(INSTRUCTION_RE);
   if (instr) return [{ cmd: 'instruction', text: instr[1].trim() }];
   const parts = [];
@@ -82,4 +84,5 @@ export const COMMAND_LABELS = {
   stop: 'Zatrzymano dyktowanie',
   instruction: 'Polecenie dla AI',
   clinical: 'Dane kliniczne',
+  endClinical: 'Dalej: dyktat opisu',
 };

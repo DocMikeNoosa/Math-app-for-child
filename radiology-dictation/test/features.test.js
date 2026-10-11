@@ -162,3 +162,8 @@ test('voice: "dane kliniczne …" fills the clinical-details field', () => {
   assert.deepEqual(parseVoiceCommands('dane kliniczne ból brzucha od dwóch dni'), [{ cmd: 'clinical', text: 'ból brzucha od dwóch dni' }]);
   assert.deepEqual(parseVoiceCommands('Wskazanie: uraz głowy'), [{ cmd: 'clinical', text: 'uraz głowy' }]);
 });
+
+test('voice: "dane kliniczne" alone switches to clinical dictation; "koniec danych klinicznych" switches back', () => {
+  assert.deepEqual(parseVoiceCommands('dane kliniczne'), [{ cmd: 'clinical', text: '' }]);
+  assert.deepEqual(parseVoiceCommands('gorączka od dwóch dni koniec danych klinicznych'), [{ text: 'gorączka od dwóch dni' }, { cmd: 'endClinical' }]);
+});

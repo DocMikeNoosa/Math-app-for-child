@@ -506,6 +506,14 @@ select:focus { border-color: rgba(89, 212, 255, 0.5); }
 .clinical-box svg { width: 16px; height: 16px; color: var(--rec); margin-top: 2px; opacity: 0.85; }
 .dict-fields .clinical-box textarea { flex: 1; border: 0 !important; box-shadow: none !important; border-radius: 0; background: transparent !important; resize: none; color: var(--text); font: inherit; font-size: 13.5px; line-height: 1.45; padding: 0 !important; min-height: 20px; max-height: 96px; overflow-y: auto; outline: none; }
 .clinical-box.filled { border-color: rgba(255, 77, 97, 0.35); }
+.clinical-mic { flex: none; width: 28px; height: 28px; margin: -4px -4px -4px 0; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--text-faint); display: grid; place-items: center; }
+.clinical-mic svg { width: 15px; height: 15px; }
+.clinical-mic:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.clinical-mic[aria-pressed='true'] { color: #fff; background: var(--rec); box-shadow: 0 0 14px rgba(255, 77, 97, 0.6); }
+.clinical-mic[aria-pressed='true'] svg { stroke: #fff; }
+body.target-clinical .clinical-box { border-color: rgba(255, 77, 97, 0.75); box-shadow: 0 0 0 3px rgba(255, 77, 97, 0.14); }
+body.target-clinical #dictation { opacity: 0.55; }
+body.target-clinical.recording .rec-state::after { content: ' · dane kliniczne'; color: var(--rec); }
 
 /* original template viewer */
 .orig-card { width: min(860px, calc(100vw - 32px)); max-height: min(86vh, 900px); display: flex; flex-direction: column; }
@@ -619,21 +627,104 @@ select:focus { border-color: rgba(89, 212, 255, 0.5); }
   .kbd-in { display: none; }
 }
 
-/* Phones / very narrow: everything stacks and the page scrolls */
-@media (max-width: 600px), (max-height: 560px) {
-  body { overflow: auto; }
-  .layout { height: auto; grid-template-rows: auto auto; }
-  .dictation { flex-direction: column; }
-  .recorder { width: auto; flex-direction: row; gap: 14px; justify-content: flex-start; }
-  .rec-meta { align-items: flex-start; }
-  .report { min-height: 75vh; }
-  .paper { padding: 18px 16px; }
-  .report-scroll { padding: 10px; }
+/* Narrow window next to the PACS / RIS (≈ 380–760 px wide): a slim dictation strip on top and the
+   report filling the rest of the height with its own scrolling. Tall narrow windows give the extra
+   height to the report. */
+@media (max-width: 760px) {
+  :root { --topbar: 52px; }
+  .topbar { gap: 8px; padding: 0 8px; }
+  .brand-mark { width: 30px; height: 30px; border-radius: 9px; }
+  #helpBtn { display: none; }
+  .clock { margin-right: 0; }
+  .clock .c-time { font-size: 16px; }
+  .today-btn { padding: 0 8px; gap: 5px; }
+  .tpl-current { height: 38px; padding: 0 8px 0 4px; gap: 8px; }
   .tpl-current-region { display: none; }
-  .tpl-chip { padding: 7px 7px; }
+  .tpl-chip { padding: 6px 6px; font-size: 9.5px; }
+
+  .layout { height: calc(100vh - var(--topbar)); grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 8px; padding: 8px; }
+  .dictation { position: relative; display: block; padding: 10px 12px 12px; overflow: visible; }
+  .recorder { flex-direction: row; justify-content: flex-start; align-items: center; gap: 10px; width: auto; margin-bottom: 8px; min-height: 52px; }
+  .rec-wrap { width: 52px; height: 52px; }
+  .rec-meta { flex-direction: column; align-items: flex-start; gap: 0; min-width: 0; }
+  /* leave room for the PL/EN · Wstawki · Wyczyść tools sitting in the same row */
+  .recorder { padding-right: 236px; }
+  .rec-state { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .rec-state { font-size: 12.5px; }
+  .rec-timer { font-size: 13px; letter-spacing: 0.5px; }
+  .rec-hint, .privacy { display: none; }
+  .dict-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+  .dict-fields > .clinical-field, .dict-fields > .field:nth-child(2) { grid-column: 1 / -1; }
+  .dict-fields > .field:nth-child(3) { grid-column: 1; }
+  .dict-fields > .actions { grid-column: 2; flex-direction: row; align-items: center; gap: 6px; }
+  /* language switch, snippets and clear sit in the microphone row */
+  .dictation .field-head { position: absolute; top: 22px; right: 12px; }
+  .dictation .field-head label { display: none; }
+  .field-tools { gap: 8px; }
+  .clinical-box { padding: 7px 10px; }
+  #dictation { min-height: 0; height: 78px; max-height: 40vh; }
+  #instruction { height: 40px; padding: 0 12px; font-size: 13px; }
+  .btn-xl { height: 40px; font-size: 13.5px; padding: 0 14px; flex: none; }
+  .prep-state { font-size: 0; gap: 0; }
+  .prep-state::before { width: 9px; height: 9px; }
+
+  .report-toolbar { padding: 6px 8px; gap: 6px; }
+  .tb-btn { padding: 0 7px; height: 32px; }
+  .tb-sep { margin: 0 2px; }
+  .btn-copy, .btn-new { height: 36px; }
+  .btn-copy { padding: 0 12px; }
+  .report-scroll { padding: 8px; }
+  .paper { padding: 14px 14px 18px; border-radius: 10px; }
+  .exam-title { font-size: 15.5px; }
+  .editable, .conclusion { font-size: 14.5px; line-height: 1.65; }
+  .block { padding: 12px 0 2px; }
+  .report-foot { padding: 5px 10px; }
+  .empty-state { margin: 2vh auto 0; padding: 14px 10px; gap: 8px; }
+  .empty-icon { width: 46px; height: 46px; border-radius: 14px; }
+  .empty-state h2 { font-size: 17px; }
+
   .picker { width: 100vw; height: 100vh; border-radius: 0; }
   .regions { grid-template-columns: 1fr; }
+  .modal-card { width: calc(100vw - 16px); }
 }
+/* narrow and tall: a little more room for the dictation, the rest is report */
+@media (max-width: 760px) and (min-height: 1000px) {
+  #dictation { height: 120px; }
+}
+/* narrow and not very tall: tighter strip so the report keeps most of the height */
+@media (max-width: 760px) and (max-height: 760px) {
+  .recorder { min-height: 42px; margin-bottom: 6px; gap: 8px; }
+  .rec-wrap { width: 42px; height: 42px; }
+  .dictation .field-head { top: 16px; }
+  .dictation { padding: 8px 10px 10px; }
+  .dict-fields { gap: 6px; }
+  .clinical-box { padding: 5px 10px; }
+  #dictation { height: 58px; }
+  #instruction, .btn-xl { height: 36px; }
+}
+@media (max-width: 760px) {
+  .toasts { bottom: 10px; gap: 6px; max-width: calc(100vw - 16px); }
+  .toast { padding: 8px 12px; font-size: 12.5px; }
+}
+/* very narrow */
+@media (max-width: 460px) {
+  .clock .c-time { font-size: 14px; }
+  .today-btn .count { display: none; }
+  .btn-copy .btn-label { display: none; }
+  .seg button { padding: 0 7px; }
+  .dictation .field-head { right: 8px; }
+  .recorder { padding-right: 168px; }
+  #snippetsBtn { font-size: 0; gap: 0; }
+  #snippetsBtn svg { width: 18px; height: 18px; }
+  .field-tools { gap: 6px; }
+}
+/* windows too short to share the height: the page scrolls instead of squeezing the report */
+@media (max-height: 540px) {
+  body { overflow: auto; }
+  .layout { height: auto; grid-template-rows: auto auto; }
+  .report { min-height: 85vh; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }

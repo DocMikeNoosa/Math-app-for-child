@@ -2,7 +2,7 @@
 
 Read this first, then `README.md` (features in detail) and the code. Repository:
 https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-radiology-dictation-e0ov8p`, folder
-`radiology-dictation/`. Version 0.10.0 (see `package.json`).
+`radiology-dictation/`. Version 0.11.0 (see `package.json`).
 
 ## The person and the goal
 - Owner: a Polish radiologist, not technical — explain things in short, simple steps.
@@ -32,7 +32,7 @@ https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-rad
   `polish-text.js` (spoken numbers/units/punctuation), `voice-commands.js`, `style-learning.js`,
   `mic-button.js` (Nuance PowerMic via WebHID + key binding).
 - Windows install: `Zainstaluj RadVox (Windows).bat` → desktop icon (`launcher/RadVox.ps1`, no console).
-- Tests: `npm test` (84 unit tests). UI was tested with Playwright + a mock Claude server (scripts not in
+- Tests: `npm test` (85 unit tests). UI was tested with Playwright + a mock Claude server (scripts not in
   the repo).
 
 ## Report rules the radiologist asked for (keep these)
@@ -72,6 +72,10 @@ https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-rad
    - Within a tier, findings answering the clinical question come first. Clinical context never
      outranks a tier-1 finding.
    - Example: ruptured AAA first in the body and conclusion; liver metastases also in the conclusion.
+5c. LAYOUT (v0.11): the most common use is a NARROW window (~450–560 px wide) beside the PACS,
+   sometimes narrow and full-height. Below 760 px: a slim dictation strip on top and the report
+   filling the rest with its own scroll. Clinical details can be dictated with the mic inside the
+   box, or by voice ("dane kliniczne …" until "koniec danych klinicznych").
 6. Classifications (Fleischner, Bosniak, TI-RADS, LI-RADS, ASPECTS, Fazekas) only from dictated data;
    otherwise a warning naming what is missing.
 7. Workflow: app opens **blank** (choose a template); stopping dictation does NOT make the report — the

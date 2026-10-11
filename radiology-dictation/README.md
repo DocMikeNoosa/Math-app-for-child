@@ -144,8 +144,12 @@ for the AI, and set personal style rules under ⚙.
 ## Clinical details and emergency tiers (v0.10)
 
 - **Dane kliniczne** (optional box above the dictation, red cross icon): symptoms, mechanism of
-  injury, the referral question, known history (e.g. known cancer). Type it, or say
-  "dane kliniczne …" / "wskazanie …". It is context for the AI and the checker, never copied into
+  injury, the referral question, known history (e.g. known cancer). Type or paste it, or dictate
+  it:
+  - press the small microphone inside the box (press again to stop), or
+  - say "dane kliniczne …" / "wskazanie …". Everything you say then goes into the box, across
+    pauses, until you say "koniec danych klinicznych", press the button again, click into the
+    dictation box, or stop recording. It is context for the AI and the checker, never copied into
   the report. It stays with the report until "Nowy opis".
 - **Every finding is put into an emergency tier**, and the tiers decide the order of the
   description and of the conclusion:
@@ -310,8 +314,14 @@ understands Polish only, so with an English report the cross-check is done by Cl
 ## Layouts
 
 - **Full screen**: dictation panel on the left, report on the right.
-- **Half screen** (about 700–1180 px wide): the dictation becomes a compact strip above the report.
-- **Phone**: everything stacks.
+- **Half screen** (about 760–1180 px wide): the dictation becomes a compact strip above the report.
+- **Narrow window next to the PACS / RIS** (about 380–760 px wide, the most common setup):
+  - a slim dictation strip on top: small microphone with the language switch in the same row,
+    the clinical details, the dictation box, and the AI instruction next to "Przygotuj opis";
+  - the report fills the rest of the height and scrolls on its own;
+  - in a tall narrow window the extra height goes to the report;
+  - toolbar buttons show icons only, and at most 3 notifications are shown.
+- **Very short windows** (under about 540 px): the page scrolls instead of squeezing the report.
 
 ## Templates
 
