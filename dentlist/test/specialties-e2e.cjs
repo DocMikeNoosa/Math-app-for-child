@@ -46,7 +46,7 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.click('[data-act=ob-create]'); await p.waitForSelector('[data-act=ob-finish]', { timeout: 20000 });
   await p.click('[data-act=ob-finish]'); await p.waitForSelector('#arch', { timeout: 20000 });
   await p.click('.banner [data-act=folder-pick]'); await p.waitForTimeout(800);
-  ok((await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim())) === '#8fa2ff' && (await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())) === '#040416', 'accent and background colour follow the home specialty (zachowawcza: indigo)');
+  ok((await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim())) === '#8e9bff' && (await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())) === '#050614', 'accent and background colour follow the home specialty (zachowawcza: indigo)');
   // ---------- adult patient + referrer
   await p.click('[data-act=pick-patient]'); await p.fill('.modal [data-f=first]', 'Tomasz'); await p.fill('.modal [data-f=last]', 'Nowicki'); await p.fill('.modal [data-f=dob]', '1975-05-20'); await p.selectOption('.modal [data-f=sex]', 'm');
   await p.click('.modal footer .btn-primary'); await p.waitForTimeout(300);

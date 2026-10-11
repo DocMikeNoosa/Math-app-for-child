@@ -3,19 +3,20 @@
 // Zdania do listu (1. osoba) i do dokumentacji (forma bezosobowa) powstają z tych samych pól.
 
 /* ------------------------------------------------------------------ specjalności */
-// Kolory: każda specjalność ma własny, wyraźny kolor (color → color2) i własne ciemne tło (bg: [tło, góra gradientu, panele]),
-// tak jak endodoncja ma granat z akwamaryną z oryginalnej aplikacji EndoList.
+// Kolory: endodoncja = oryginalny granat EndoList. Pozostałe specjalności: ten sam przepis tła co granat (ta sama
+// jasność, nasycenie, przezroczystość i poświata), tylko w innym odcieniu (hue); akcenty w stylu kolorów systemowych Apple.
+// Chirurgia i chirurgia szczękowo-twarzowa: odcienie czerwieni.
 export const SPECS = {
-  zach: { label: 'Stomatologia zachowawcza', short: 'Zachowawcza', color: '#8fa2ff', color2: '#5f6ff0', bg: ['#040416', '#0c0b35', '#121136'], icon: 'tooth' },
+  zach: { label: 'Stomatologia zachowawcza', short: 'Zachowawcza', color: '#8e9bff', color2: '#5e7cff', hue: 236, icon: 'tooth' },
   endo: { label: 'Endodoncja', short: 'Endodoncja', color: '#5fd8c8', color2: '#3b8fd9', icon: 'tooth' },
-  chir: { label: 'Chirurgia stomatologiczna', short: 'Chirurgia', color: '#6be39a', color2: '#34b36e', bg: ['#04160b', '#0b351c', '#113621'], icon: 'tooth' },
-  impl: { label: 'Implantologia', short: 'Implantologia', color: '#ecc970', color2: '#c99a3c', bg: ['#041016', '#0b2835', '#112b36'], icon: 'tooth' },
-  perio: { label: 'Periodontologia', short: 'Periodontologia', color: '#f592c9', color2: '#d4589f', bg: ['#16040f', '#350b25', '#361129'], icon: 'tooth' },
-  prot: { label: 'Protetyka stomatologiczna', short: 'Protetyka', color: '#bba3ff', color2: '#8a6af0', bg: ['#0b0416', '#1c0b35', '#211136'], icon: 'tooth' },
-  orto: { label: 'Ortodoncja', short: 'Ortodoncja', color: '#c2e36a', color2: '#8fbf3a', bg: ['#0a1604', '#19350b', '#1e3611'], icon: 'tooth' },
-  ped: { label: 'Stomatologia dziecięca', short: 'Dziecięca', color: '#ffab70', color2: '#ff7f6b', bg: ['#130416', '#2e0b35', '#301136'], icon: 'tooth' },
-  mfs: { label: 'Chirurgia szczękowo-twarzowa', short: 'Szczękowo-twarzowa', color: '#ff6f78', color2: '#d93848', bg: ['#160406', '#350b10', '#361116'], icon: 'tooth' },
-  hig: { label: 'Higienizacja i profilaktyka', short: 'Higienizacja', color: '#cdf3ee', color2: '#7fd4cb', bg: ['#041615', '#0b3534', '#113635'], icon: 'tooth' },
+  chir: { label: 'Chirurgia stomatologiczna', short: 'Chirurgia', color: '#ff6961', color2: '#e5383b', hue: 356, icon: 'tooth' },
+  impl: { label: 'Implantologia', short: 'Implantologia', color: '#f5d27a', color2: '#d4a43a', hue: 168, icon: 'tooth' },
+  perio: { label: 'Periodontologia', short: 'Periodontologia', color: '#ff8fc8', color2: '#e2559f', hue: 318, icon: 'tooth' },
+  prot: { label: 'Protetyka stomatologiczna', short: 'Protetyka', color: '#b59cff', color2: '#7d5cff', hue: 262, icon: 'tooth' },
+  orto: { label: 'Ortodoncja', short: 'Ortodoncja', color: '#b4e36a', color2: '#5ec247', hue: 98, icon: 'tooth' },
+  ped: { label: 'Stomatologia dziecięca', short: 'Dziecięca', color: '#ffb35c', color2: '#ff8a5c', hue: 288, icon: 'tooth' },
+  mfs: { label: 'Chirurgia szczękowo-twarzowa', short: 'Szczękowo-twarzowa', color: '#ff7d95', color2: '#d23a62', hue: 338, icon: 'tooth' },
+  hig: { label: 'Higienizacja i profilaktyka', short: 'Higienizacja', color: '#7ee8c6', color2: '#33c98a', hue: 142, icon: 'tooth' },
 };
 export const SPEC_ORDER = ['zach', 'endo', 'chir', 'impl', 'perio', 'prot', 'orto', 'ped', 'mfs', 'hig'];
 /** Specialist title for the letter header, by home specialty. */

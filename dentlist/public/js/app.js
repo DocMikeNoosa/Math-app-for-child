@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.5';
+export const APP_VERSION = '1.0.6';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -84,22 +84,24 @@ const home = () => (S.data && settings()?.doctor?.home) || 'zach';
 const mixHex = (a, b, k) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - k) + parseInt(b.slice(i, i + 2), 16) * k).toString(16).padStart(2, '0')).join('');
 const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(', ');
 const rgba = (h, al) => `rgba(${hexRgb(h)}, ${al})`;
-const THEME_VARS = ['--bg', '--bg-2', '--panel-solid', '--panel', '--panel-2', '--line', '--line-2', '--line-3', '--dim', '--faint', '--tooth-1', '--tooth-2'];
+/** The original EndoList navy, measured as [saturation %, lightness %, alpha]: every other specialty uses exactly
+ *  this recipe in its own hue, so all backgrounds have the same depth and calm (no grey, no colour mixing). */
+const NAVY = {
+  '--bg': [60, 4.9], '--bg-2': [56.5, 9], '--panel': [48.3, 11.4, 0.74], '--panel-solid': [49.1, 10.8], '--panel-2': [45, 15.7, 0.6],
+  '--line': [44.6, 71, 0.1], '--line-2': [44.6, 71, 0.17], '--line-3': [44.6, 71, 0.28], '--text': [39, 88.4], '--strong': [50, 96.9], '--dim': [20.2, 62.2], '--faint': [18.6, 43.3],
+  '--tooth-1': [38.9, 18.6], '--tooth-2': [42, 13.5], '--topbar': [60, 4.9, 0.66], '--abar': [52.4, 8.2, 0.82], '--ws-1': [48.4, 12.2, 0.97], '--ws-2': [54.3, 6.9, 0.98], '--overlay': [75, 3.1, 0.9],
+};
+const NAVY_3D = [[54.7, 25.1], [62, 15.5], [62.2, 7.3]];
+const hslHex = (h, s, l) => { s /= 100; l /= 100; const f = (n) => { const k = (n + h / 30) % 12, c = l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1)); return Math.round(c * 255).toString(16).padStart(2, '0'); }; return '#' + f(0) + f(8) + f(4); };
+const themeBg3D = (k) => (k !== 'endo' && SPECS[k]?.hue !== undefined ? NAVY_3D.map(([s, l]) => hslHex(SPECS[k].hue, s, l)) : null);
 function applyTheme() {
   const k = home(), sp = SPECS[k] || SPECS.zach, r = document.documentElement.style;
-  // endodontics keeps the original EndoList navy and aqua; every other specialty has its own defined colour and dark background
+  // endodontics: the original EndoList navy and aqua, untouched; other specialties: the same recipe in their own hue
   const [a, b] = k === 'endo' ? ['#5ee6d6', '#62a9ff'] : [sp.color, sp.color2];
-  r.setProperty('--accent', a); r.setProperty('--accent-2', b); r.setProperty('--acc-rgb', hexRgb(a)); r.setProperty('--acc2-rgb', hexRgb(b));
-  r.setProperty('--glow1', '0.11'); r.setProperty('--glow2', '0.08'); r.setProperty('--tint', '0'); r.setProperty('--panel-tint', '0');
-  const own = k !== 'endo' && sp.bg;
-  if (own) {
-    // built like the original navy: a deep, saturated hue (no grey), lines and secondary text tinted with the same hue
-    const [bg, bg2, pn] = sp.bg, ln = mixHex(bg2, '#ffffff', 0.62);
-    const v = { '--bg': bg, '--bg-2': bg2, '--panel-solid': pn, '--panel': rgba(pn, 0.74), '--panel-2': rgba(mixHex(pn, '#ffffff', 0.05), 0.6), '--line': rgba(ln, 0.1), '--line-2': rgba(ln, 0.17), '--line-3': rgba(ln, 0.28),
-      '--dim': mixHex(bg2, '#ffffff', 0.58), '--faint': mixHex(bg2, '#ffffff', 0.34), '--tooth-1': mixHex(pn, '#ffffff', 0.07), '--tooth-2': mixHex(pn, bg, 0.25) };
-    for (const [n, x] of Object.entries(v)) r.setProperty(n, x);
-  } else for (const n of THEME_VARS) r.removeProperty(n);
-  const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = own ? sp.bg[0] : '#050a14';
+  r.setProperty('--accent', a); r.setProperty('--accent-2', b); r.setProperty('--acc-rgb', hexRgb(a)); r.setProperty('--acc2-rgb', hexRgb(b)); r.setProperty('--accent-hi', mixHex(a, '#ffffff', 0.3));
+  const own = k !== 'endo' && sp.hue !== undefined;
+  for (const [n, [sat, li, al]] of Object.entries(NAVY)) { if (own) { const x = hslHex(sp.hue, sat, li); r.setProperty(n, al === undefined ? x : rgba(x, al)); } else r.removeProperty(n); }
+  const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = own ? hslHex(sp.hue, 60, 4.9) : '#050a14';
   document.documentElement.dataset.spec = k;
 }
 const specStyle = (k) => `--sp:${SPECS[k]?.color || '#888'};--sp2:${SPECS[k]?.color2 || '#666'}`;
@@ -683,13 +685,10 @@ function stepsHTML(t) {
 }
 /** The tooth card takes the colour of the specialty being worked on: the chosen procedure group, the endodontic step, or the tooth's last procedure. */
 function tintWorkspace(t) {
+  // the tooth card keeps the home specialty's colours (as in the original); only the 3D background follows them too
   const el = $('#ws'); if (!el) return;
-  const sp = S.ttab === 'endo' || (S.ttab === 'anat' && home() === 'endo') ? 'endo' : S.ttab === 'work' ? (S.workSpec || (home() === 'endo' ? 'zach' : home())) : (t.work || []).length ? specOf(t.work.at(-1)) : ENDO[t.endo?.proc] ? 'endo' : home();
-  const c = SPECS[sp] || SPECS.zach;
-  el.style.setProperty('--ws-rgb', hexRgb(c.color)); el.style.setProperty('--ws2-rgb', hexRgb(c.color2)); el.dataset.spec = sp;
-  if (sp !== 'endo' && c.bg) { el.style.setProperty('--ws-base1', rgba(c.bg[2], 0.97)); el.style.setProperty('--ws-base2', rgba(c.bg[0], 0.98)); } else { el.style.removeProperty('--ws-base1'); el.style.removeProperty('--ws-base2'); }
-  // the 3D view keeps the original navy for endodontics, other specialties tint it
-  try { S.t3d?.setTint?.(sp === 'endo' || !c.bg ? null : c.bg); } catch {}
+  el.dataset.spec = home();
+  try { S.t3d?.setTint?.(themeBg3D(home())); } catch {}
 }
 /** Keep the current step visible in the strip (it scrolls sideways on a phone). */
 function centerStep() { const st = $('#ws-tabs'), on = $('#ws-tabs .step.on'); if (!st || !on || st.scrollWidth <= st.clientWidth) return; const a = st.getBoundingClientRect(), b = on.getBoundingClientRect(); st.scrollLeft += b.left - a.left - (a.width - b.width) / 2; }
