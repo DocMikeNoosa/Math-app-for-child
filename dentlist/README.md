@@ -29,6 +29,17 @@ There are 10 specialties, each with its own subdued colour gradient. The colours
 - The **Placówka** view shows **all doctors' patients and all their treatment**. The data is decrypted with the clinic key, is read-only, and every access is recorded in the activity log.
 - From there, a **complaint about another doctor's patient** can be opened. The complaint keeps an encrypted snapshot of that patient's visits as they were at the time of the complaint.
 
+## Assistant (Asystent)
+
+If you get lost in the menus, press **Asystent** (top right, also inside the tooth card) or **Ctrl+K**, then type or speak (microphone) what you want to do:
+
+- "otwórz ząb 36", "leczenie kanałowe 26" (opens the tooth at the right step)
+- "dodaj implant 46", "korona 21", "skaling", "aparat stały" (adds the procedure to the tooth or to the whole mouth)
+- "pokaż pacjentkę Kowalską", "nowy pacjent", "nowa wizyta", "pokaż skargi", "wydrukuj", "wpis do ProDentis"
+- "gdzie zmienić podpis", "kopie zapasowe", "klucz AI" (opens Settings at the right section)
+
+Common commands work **without AI and without the internet**. With an AI key, the assistant also understands any other phrasing; patient names are replaced with tokens before anything is sent. The assistant only moves you around the app or adds an empty procedure card. It never deletes anything. A procedure added to a tooth is saved only when you press "Zapisz ząb". A whole-mouth procedure goes straight into the visit, and you can remove it with ×.
+
 ## Complaints and letters (Skargi)
 
 Available to administrators (or to a single doctor without a clinic).
@@ -141,6 +152,7 @@ node server.mjs                      # http://localhost:4174 (+ /api/status)
 LC_ALL=C.UTF-8 node test/e2e.cjs     # end-to-end test (Playwright + Chromium)
 LC_ALL=C.UTF-8 node test/sync-e2e.cjs  # sync: computer ↔ iPhone (emulated) ↔ third device
 node test/ai-sdk.mjs                 # Claude API through the real SDK (local stand-in, no key needed)
+LC_ALL=C.UTF-8 node test/specialties-e2e.cjs # all specialties, primary teeth, history, complaints, assistant
 LC_ALL=C.UTF-8 node test/admin-e2e.cjs # clinic: admin (computer) + doctor (iPhone): invite, roles, reset, removal
 node test/sync-api.mjs <address>      # sync protocol (local server or Cloudflare Worker)
 ```

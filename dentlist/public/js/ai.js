@@ -145,3 +145,24 @@ export async function testKey(apiKey) {
   const out = await call(apiKey, 'Test połączenia. Zwróć {"ok": true}.', { test: 'ping' }, { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false }, 'low');
   return out.ok === true;
 }
+
+export const ASSIST_PROMPT = `Jesteś asystentem nawigacji w aplikacji DentList (dokumentacja stomatologiczna, po polsku). Lekarz wpisał lub podyktował polecenie („otwórz ząb 36", „dodaj implant przy 46", „gdzie zmienić logo", „pokaż pacjentkę Kowalską", „jak wysłać list e-mailem"). Otrzymasz JSON: "command" (polecenie) i "app" (bieżący widok, dostępne akcje, widoki, sekcje ustawień i klucze zabiegów).
+
+Zwróć JSON zgodny ze schematem: "action" — jedna akcja z listy "app.actions"; "params" — tylko pola potrzebne tej akcji (pozostałe puste ""); "reply" — jedno krótkie zdanie po polsku dla lekarza, co robisz (albo odpowiedź na pytanie przy akcji "answer").
+Zasady:
+- Wybieraj wyłącznie akcje, widoki, sekcje i klucze zabiegów z "app". Nie wymyślaj innych.
+- Numery zębów w FDI (11–48, mleczne 51–85). Liczebniki słowne zamień na cyfry („trzydzieści sześć" → "36").
+- Zabieg przy zębie → add_procedure z "type" i "fdi"; zabieg całej jamy ustnej/łuku → add_mouth_procedure. Leczenie kanałowe zęba → open_tooth z "step": "endo".
+- Nazwisko pacjenta przepisz do "params.query" dokładnie tak, jak jest w poleceniu (także znacznik [OSOBA-n]).
+- Pytanie „jak/gdzie…" → najlepiej akcja prowadząca do właściwego miejsca (np. settings z sekcją) i w "reply" krótka wskazówka; gdy żadna akcja nie pasuje → "answer".
+- Gdy polecenie jest niezrozumiałe lub nie dotyczy aplikacji → "answer" z krótką prośbą o doprecyzowanie.`;
+const ASSIST_SCHEMA = {
+  type: 'object',
+  properties: {
+    action: { type: 'string', enum: ['go', 'open_patient', 'new_patient', 'new_visit', 'open_tooth', 'add_procedure', 'add_mouth_procedure', 'generate_letter', 'letter_action', 'settings', 'new_complaint', 'answer'] },
+    params: { type: 'object', properties: { view: { type: 'string' }, query: { type: 'string' }, fdi: { type: 'string' }, step: { type: 'string' }, type: { type: 'string' }, section: { type: 'string' }, what: { type: 'string' } }, required: ['view', 'query', 'fdi', 'step', 'type', 'section', 'what'], additionalProperties: false },
+    reply: { type: 'string' },
+  },
+  required: ['action', 'params', 'reply'], additionalProperties: false,
+};
+export const assistCommand = (apiKey, payload, { pseudo } = {}) => call(apiKey, ASSIST_PROMPT, payload, ASSIST_SCHEMA, 'low', pseudo);

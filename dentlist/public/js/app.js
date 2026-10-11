@@ -10,7 +10,8 @@ import { suggestDx, finalDx } from './dx.js';
 import { archSVG, toothDetailSVG } from './odontogram.js';
 import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT, materialsFor, recordEntry, mouthGlance } from './letter.js';
 import { SPECS, SPEC_ORDER, SPEC_TITLE, PROCS, procsFor, procShort, procSentence, specOf, optLabel, SPEC_CATS, DX_OTHER } from './specs.js';
-import { generateLetter, reviseLetter, cleanDictation, testKey, draftComplaint } from './ai.js';
+import { generateLetter, reviseLetter, cleanDictation, testKey, draftComplaint, assistCommand } from './ai.js';
+import { parseLocal, assistCatalog, norm, SECTION_HEAD } from './assistant.js';
 import { SOURCES, STATUS, TONES, REBUTTALS, newComplaint, builtinComplaintDraft, complaintPayload, salutationFor } from './complaints.js';
 import { buildPlainLetterPDF } from './pdf.js';
 import { Pseudonymizer } from './privacy.js';
@@ -73,7 +74,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.1';
+export const APP_VERSION = '1.0.2';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -454,6 +455,7 @@ function renderTop() {
     <div class="top-right">
       <span class="pill" id="status"></span>
       ${S.installEvt ? `<button class="btn btn-ghost btn-sm" data-act="install">${I('install')} Zainstaluj</button>` : ''}
+      <button class="btn btn-soft btn-sm asst-btn" data-act="assistant" title="Asystent — napisz lub powiedz, co chcesz zrobić (Ctrl+K)">${I('spark')}<span>Asystent</span></button>
       <button class="btn btn-ghost btn-icon" title="Zablokuj" data-act="lock">${I('lock')}</button>
     </div>`;
   void st; renderStatus();
@@ -632,6 +634,7 @@ function workspaceHTML() {
   return `<div class="ws" role="dialog" aria-modal="true" aria-label="Ząb ${t.fdi}">
     <header class="ws-head"><div class="tp-num">${t.fdi}</div><div class="grow"><div class="ws-title">${esc(ti.name[0].toUpperCase() + ti.name.slice(1))}</div><div class="tp-name" id="ws-sum">${esc(toothSummary(t))}</div></div>
       ${S.ws.isNew ? '' : `<button class="btn btn-ghost btn-sm btn-danger" data-act="rm-tooth">${I('trash')} Usuń ząb</button>`}
+      <button class="btn btn-soft btn-sm asst-btn" data-act="assistant" title="Asystent (Ctrl+K)">${I('spark')}<span>Asystent</span></button>
       <button class="btn btn-ghost" data-act="ws-cancel">Anuluj</button>
       <button class="btn btn-primary" data-act="ws-save">${I('check')} Zapisz ząb</button></header>
     <div class="ws-body">
@@ -950,6 +953,130 @@ async function stopMic() {
   } catch (e) { toast('Nie udało się poprawić dyktowania: ' + e.message, 'err'); }
   x.btn.classList.remove('busy');
 }
+
+/* ================================================================ asystent (polecenia wpisane lub podyktowane) */
+const ASSIST_EXAMPLES = ['otwórz ząb 36', 'dodaj implant 46', 'leczenie kanałowe 26', 'skaling', 'nowy pacjent', 'pokaż skargi', 'gdzie zmienić podpis', 'kopie zapasowe'];
+function openAssistant(prefill = '') {
+  if (!S.session) return;
+  if ($('#asst')) { $('#asst-input').focus(); return; }
+  const ov = document.createElement('div'); ov.className = 'overlay asst-ov'; ov.id = 'asst';
+  ov.innerHTML = `<div class="modal asst" role="dialog" aria-modal="true" aria-label="Asystent">
+    <header><h3>${I('spark')} Asystent</h3><span class="sub">Napisz lub powiedz, co chcesz zrobić</span><span class="grow"></span><button class="btn btn-ghost btn-icon btn-sm" data-x>${I('x')}</button></header>
+    <div class="mb"><form class="asst-row" id="asst-form" autocomplete="off"><input id="asst-input" type="text" placeholder="np. otwórz ząb 36, dodaj koronę 21, pokaż pacjentkę Kowalską…" value="${esc(prefill)}">${micBtn('#asst-input', true)}<button class="btn btn-primary" type="submit">Wykonaj</button></form>
+      <div class="asst-interim" id="interim-#asst-input"></div>
+      <div class="asst-reply" id="asst-reply" hidden></div>
+      <div class="label">Przykłady</div><div class="chips">${ASSIST_EXAMPLES.map((x) => `<button type="button" class="chip" data-asst-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+      <div class="hint" style="margin-top:12px">${aiKey() ? 'Proste polecenia działają od razu; nietypowe rozumie AI (nazwiska pacjentów są przed wysłaniem zastępowane znacznikami).' : 'Działa bez AI dla typowych poleceń. Z kluczem AI (Ustawienia › Asystent AI) zrozumie też dowolne sformułowania.'} Skrót: Ctrl+K.</div></div></div>`;
+  const close = async () => { if (DICT?.target === '#asst-input') await stopMic(); ov.remove(); };
+  ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(); });
+  ov.addEventListener('click', (e) => { if (e.target.closest('[data-x]')) return close(); const ex = e.target.closest('[data-asst-ex]'); if (ex) { $('#asst-input').value = ex.dataset.asstEx; runAssist(ex.dataset.asstEx); } });
+  ov.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  ov.querySelector('#asst-form').addEventListener('submit', (e) => { e.preventDefault(); runAssist($('#asst-input').value); });
+  document.body.appendChild(ov); $('#asst-input').focus();
+}
+function assistSay(text, kind = '') { const r = $('#asst-reply'); if (!r) { if (text) toast(text, kind === 'err' ? 'err' : 'ok'); return; } r.hidden = !text; r.className = `asst-reply ${kind}`; r.textContent = text; }
+function closeAssistant() { if (DICT?.target === '#asst-input') stopMic(); $('#asst')?.remove(); }
+/** Patients whose name matches the words of the query (Polish endings tolerated: Kowalską / Kowalskiej → Kowalska). */
+function findPatients(query) {
+  const words = norm(query).split(' ').filter((w) => w.length >= 3 && !/^\[/.test(w));
+  if (!words.length) return [];
+  const stem = (w) => w.slice(0, Math.max(3, w.length - (w.length >= 7 ? 3 : w.length >= 5 ? 2 : w.length >= 4 ? 1 : 0)));
+  const parts = (p) => norm([p.first, p.last].join(' ')).split(/[\s-]+/).filter(Boolean);
+  const hits = [...D().patients.values()].filter((p) => words.every((w) => parts(p).some((x) => x.startsWith(stem(w)) || w.startsWith(stem(x)))));
+  // "Nowickiego" fits both Nowicki and Nowicka — prefer the name the word really starts with
+  const exact = hits.filter((p) => words.every((w) => parts(p).some((x) => w.startsWith(x) || x.startsWith(w))));
+  return exact.length && exact.length < hits.length ? exact : hits;
+}
+/** A patient's surname said without "pacjent…" ("Kowalska 36 implant" is not handled — the name alone opens the card). */
+function patientInText(text) {
+  const t = norm(text), hits = [...D().patients.values()].filter((p) => { const l = norm(p.last); return l.length >= 4 && new RegExp(`(^|[^a-z])${l.slice(0, Math.max(4, l.length - 3)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[a-z]{0,4}($|[^a-z])`).test(t); });
+  return hits.length ? hits : null;
+}
+const FDI_RE = /^([1-4][1-8]|[5-8][1-5])$/;
+async function runAssist(raw) {
+  const text = String(raw || '').trim(); if (!text) return;
+  if (DICT?.target === '#asst-input') await stopMic();
+  let cmd = parseLocal(text);
+  if (!cmd) { const pts = patientInText(text); if (pts) cmd = { action: 'open_patient', params: { query: pts.length === 1 ? [pts[0].first, pts[0].last].join(' ') : pts[0].last }, reply: '' }; }
+  if (!cmd && aiKey()) {
+    assistSay('Chwileczkę…', 'busy');
+    const pts = [...D().patients.values()].slice(-500);
+    const pseudo = new Pseudonymizer({ people: pts.map((p) => ({ first: p.first, last: p.last })) });
+    const ctx = { view: S.view, fdi: S.ws?.fdi, letter: S.view === 'letter', admin: S.clinic?.isAdmin() };
+    try {
+      const r = await assistCommand(aiKey(), { command: pseudo.text(text), app: assistCatalog(ctx) });
+      audit('ai', 'asystent: polecenie (nazwiska zanonimizowane)');
+      cmd = pseudo.restore({ action: r.action, params: r.params || {}, reply: r.reply || '' });
+    } catch (e) { return assistSay('AI niedostępne: ' + e.message, 'err'); }
+  }
+  if (!cmd) return assistSay('Nie rozumiem tego polecenia. Spróbuj np. „otwórz ząb 36", „dodaj implant 46", „pokaż skargi" albo dodaj klucz AI w Ustawieniach, aby asystent rozumiał dowolne polecenia.', 'err');
+  try { await execAssist(cmd); } catch (e) { console.error(e); assistSay(e.message || String(e), 'err'); }
+}
+/** Carries out one assistant action. Returns after navigation; the palette closes when the app moved somewhere. */
+async function execAssist({ action: act, params: p = {}, reply = '' }) {
+  const done = (msg) => { closeAssistant(); if (msg) toast(msg, 'ok'); };
+  const fail = (msg) => assistSay(msg, 'err');
+  const toVisit = () => { if (S.view !== 'visit') go('visit'); return ensureVisit(); };
+  switch (act) {
+    case 'go': {
+      const view = p.view;
+      if (!['visit', 'patients', 'referrers', 'settings', 'complaints', 'clinic', 'admin'].includes(view)) return fail('Nie znam takiego miejsca w aplikacji.');
+      if ((view === 'clinic' || view === 'admin') && !S.clinic?.isAdmin()) return fail('Ten widok jest dostępny tylko dla administratorów i dyrektora medycznego.');
+      if (view === 'complaints' && !canComplaints()) return fail('Skargi prowadzi dyrektor medyczny lub administrator gabinetu.');
+      S.search = ''; go(view); return done(reply);
+    }
+    case 'settings': {
+      const head = SECTION_HEAD[p.section]; go('settings');
+      const h = head && $$('#view h3').find((x) => x.textContent.trim().startsWith(head));
+      if (h) { const sec = h.closest('section'); sec.scrollIntoView({ block: 'start', behavior: 'smooth' }); sec.classList.add('asst-flash'); setTimeout(() => sec.classList.remove('asst-flash'), 2200); }
+      return done(reply || 'Otwieram ustawienia.');
+    }
+    case 'open_patient': {
+      const q = String(p.query || '').trim(); if (!q) return fail('Podaj nazwisko pacjenta.');
+      const hits = findPatients(q);
+      if (hits.length === 1) { go('patient', { patientId: hits[0].id }); return done(`Karta pacjenta: ${[hits[0].first, hits[0].last].filter(Boolean).join(' ')}.`); }
+      if (!hits.length) return fail(`Nie znalazłem pacjenta „${q}".`);
+      go('patients', { search: q.split(/\s+/).pop() }); return done(`Znalazłem ${hits.length} pasujących pacjentów — wybierz z listy.`);
+    }
+    case 'new_patient': closeAssistant(); return action('next-patient');
+    case 'new_visit': closeAssistant(); return action('new-visit');
+    case 'new_complaint': if (!canComplaints()) return fail('Skargi prowadzi dyrektor medyczny lub administrator gabinetu.'); closeAssistant(); return action('complaint-new');
+    case 'open_tooth': case 'add_procedure': {
+      const fdi = String(p.fdi || ''); if (!FDI_RE.test(fdi)) return fail('Podaj numer zęba (FDI), np. 36.');
+      const type = p.type, pr = PROCS[type];
+      if (act === 'add_procedure' && (!pr || pr.scope === 'm')) return pr ? execAssist({ action: 'add_mouth_procedure', params: { type }, reply }) : fail('Nie znam tego zabiegu.');
+      toVisit();
+      if (S.ws && S.ws.fdi !== +fdi) { if (S.ws.dirty) saveWorkspace(); else closeWorkspace(); }
+      if (!S.ws) openTooth(+fdi);
+      if (act === 'add_procedure') { S.ws.draft.work ??= []; S.ws.draft.work.push(newProc(type)); S.ws.dirty = true; S.workSpec = pr.spec; S.ttab = 'work'; }
+      else if (STEP_DEF[p.step]) S.ttab = p.step;
+      refreshWorkspace({ model: true }); const b = $('#ws-tab'); if (b) b.scrollTop = 0; if (act === 'add_procedure') $$('#ws-tab .spcard').at(-1)?.scrollIntoView({ block: 'start' });
+      return done(reply || `Ząb ${fdi}.`);
+    }
+    case 'add_mouth_procedure': {
+      const pr = PROCS[p.type]; if (!pr) return fail('Nie znam tego zabiegu.');
+      if (pr.scope === 't') return fail(`„${pr.label}" wykonuje się przy zębie — podaj numer zęba, np. „${pr.label.toLowerCase()} 36".`);
+      if (S.ws) { if (S.ws.dirty) saveWorkspace(); else closeWorkspace(); }
+      const v = toVisit(); v.procs ??= []; v.procs.push(newProc(p.type)); S.mouthOpen = true; S.mouthSpec = pr.spec; save('visits', v); renderView();
+      $$('#vmouth .spcard').at(-1)?.scrollIntoView({ block: 'center' });
+      return done(reply || `Dodano: ${pr.label}.`);
+    }
+    case 'generate_letter': {
+      const v = S.view === 'visit' ? curVisit() : null;
+      if (!v || !(v.teeth.length || (v.procs || []).length)) return fail('Najpierw otwórz wizytę z wpisanym leczeniem — list powstaje z bieżącej wizyty.');
+      closeAssistant(); return action('gen-letter');
+    }
+    case 'letter_action': {
+      const m = { pdf: 'save-pdf', print: 'print', email: 'email', prodentis: 'prodentis' }[p.what];
+      if (!m) return fail('Nie wiem, co zrobić z listem.');
+      if (S.view !== 'letter' || !D().letters.get(S.letterId)) return fail('Najpierw otwórz list (Pacjenci › pacjent › list) albo wygeneruj go z wizyty.');
+      closeAssistant(); return action(m, document.body);
+    }
+    case 'answer': return assistSay(reply || 'Nie wiem, jak pomóc w tej sprawie.');
+    default: return fail('Nie rozumiem tego polecenia.');
+  }
+}
+document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'k' || e.key === 'K') && S.session) { e.preventDefault(); openAssistant(); } });
 
 /* ================================================================ modals */
 function modal({ title, body, buttons = [], wide = false, onClose }) {
@@ -1901,6 +2028,7 @@ async function action(act, a) {
     case 'backup-now': S.folder.error = ''; if (await backupNow()) toast('Kopia zapasowa utworzona.', 'ok'); renderBanner(); return renderView();
     case 'download-backup': audit('backup', 'zaszyfrowana kopia .json'); download(new Blob([JSON.stringify(await S.session.exportBackup())], { type: 'application/json' }), `dentlist-kopia-${today()}.json`); return toast('Pobrano zaszyfrowaną kopię. Do odtworzenia potrzebne jest hasło.', 'ok');
     /* visit */
+    case 'assistant': return openAssistant();
     case 'go-home': { const cv = curVisit(); if (!cv || cv.teeth.length || cv.patientId) S.visitId = null; S.patientId = null; S.letterId = null; return go('visit'); }
     case 'next-patient': {
       S.visitId = null; S.patientId = null; S.letterId = null; go('visit');
@@ -2161,4 +2289,4 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 boot().catch((e) => { console.error(e); $('#root').innerHTML = `<div class="auth"><div class="auth-card"><h1>Błąd uruchomienia</h1><p class="lead">${esc(e.message)}</p><p class="hint">Upewnij się, że nie używasz trybu prywatnego / incognito.</p></div></div>`; });
 
 // test hooks (used by the automated tests only)
-window.__dentlist = { S, save, settings, rerender: () => (S.view === 'letter' ? rerenderLetter() : renderView()), refreshClinic, go };
+window.__dentlist = { S, save, settings, curVisit, rerender: () => (S.view === 'letter' ? rerenderLetter() : renderView()), refreshClinic, go };

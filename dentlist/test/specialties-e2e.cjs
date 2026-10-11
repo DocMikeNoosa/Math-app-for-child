@@ -191,6 +191,52 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.click('[data-nav=complaints]'); await p.waitForTimeout(300);
   ok((await p.textContent('#view table.list')).includes('Tomasz Nowicki') && (await p.textContent('#view table.list')).includes('w opracowaniu'), 'complaints list with status');
   await shot(p, '09-complaints');
+  // ---------- assistant: typed / spoken commands → the right place in the app
+  const ask = async (text) => { if (!(await p.locator('#asst').count())) { await p.keyboard.press('Control+k'); await p.waitForSelector('#asst-input'); } await p.fill('#asst-input', text); await p.press('#asst-input', 'Enter'); await p.waitForTimeout(700); };
+  await p.click('[data-nav=visit]'); await p.waitForTimeout(300);
+  await p.keyboard.press('Control+k'); await p.waitForSelector('#asst-input');
+  ok(await p.locator('#asst .chips .chip').count() >= 6, 'assistant opens with Ctrl+K, examples shown');
+  await shot(p, '10-assistant');
+  await ask('otwórz ząb 36');
+  ok(await p.locator('#ws[aria-label="Ząb 36"], #ws .ws[aria-label="Ząb 36"]').count() === 1 && !(await p.locator('#asst').count()), 'assistant: "otwórz ząb 36" opens the tooth card');
+  const nWork = await p.locator('#ws-tab .spcard').count();
+  await p.click('#ws [data-act=assistant]'); await p.waitForSelector('#asst-input');
+  await ask('dodaj koronę 36');
+  ok((await p.locator('#ws-tab .spcard').count()) === nWork + 1 && (await p.locator('#ws-tabs .step.on[data-ttab=work]').count()) === 1, 'assistant: "dodaj koronę 36" adds a crown in the open tooth card (Zabiegi step)');
+  await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
+  ok(await p.evaluate(() => window.__dentlist.curVisit().teeth.find((t) => t.fdi === 36)?.work.some((w) => w.type === 'CROWN')), 'crown on 36 saved in the visit');
+  await ask('leczenie kanałowe 26');
+  ok(await p.locator('#ws-tabs .step.on[data-ttab=endo]').count() === 1 && (await p.getAttribute('#ws .ws', 'aria-label')) === 'Ząb 26', 'assistant: "leczenie kanałowe 26" opens tooth 26 at the Endodoncja step');
+  await p.click('[data-act=ws-cancel]'); await p.waitForTimeout(300); if (await p.locator('.overlay footer .btn').count()) { await p.click('.overlay footer .btn:last-child'); await p.waitForTimeout(300); }
+  const nProcs = await p.evaluate(() => (window.__dentlist.curVisit().procs || []).length);
+  await ask('skaling');
+  ok(await p.evaluate((n) => { const pr = window.__dentlist.curVisit().procs || []; return pr.length === n + 1 && pr.at(-1).type === 'SCALE'; }, nProcs), 'assistant: "skaling" adds a whole-mouth procedure');
+  await ask('gdzie zmienić podpis');
+  ok((await p.evaluate(() => window.__dentlist.S.view)) === 'settings' && (await p.locator('section.asst-flash h3:has-text("Lekarz i gabinet")').count()) === 1, 'assistant: "gdzie zmienić podpis" opens Settings at the doctor section');
+  await ask('pokaż pacjenta Nowickiego');
+  ok((await p.evaluate(() => window.__dentlist.S.view)) === 'patient' && (await p.textContent('#view h2')).includes('Nowicki'), 'assistant: patient found by an inflected surname');
+  await ask('pokaż skargi');
+  ok((await p.evaluate(() => window.__dentlist.S.view)) === 'complaints', 'assistant: "pokaż skargi"');
+  // AI fallback (MOCK) for an unusual phrasing
+  await p.unroute('https://api.anthropic.com/**');
+  const acalls = [];
+  await p.route('https://api.anthropic.com/**', async (route) => {
+    const body = route.request().postDataJSON(); acalls.push(body);
+    const cmd = JSON.parse(body.messages[0].content).command;
+    const out = /przysłał/.test(cmd) ? { action: 'go', params: { view: 'referrers', query: '', fdi: '', step: '', type: '', section: '', what: '' }, reply: 'Otwieram lekarzy kierujących — tam dodasz lekarza.' } : { action: 'answer', params: { view: '', query: '', fdi: '', step: '', type: '', section: '', what: '' }, reply: 'Listy zapisujesz przyciskiem „Zapisz PDF" na ekranie listu.' };
+    const text = JSON.stringify(out), ev = (e, d) => `event: ${e}\ndata: ${JSON.stringify(d)}\n\n`;
+    await route.fulfill({ status: 200, contentType: 'text/event-stream', body: ev('message_start', { type: 'message_start', message: { id: 'm', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } }) + ev('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) + ev('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }) + ev('content_block_stop', { type: 'content_block_stop', index: 0 }) + ev('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 5 } }) + ev('message_stop', { type: 'message_stop' }) });
+  });
+  await ask('chcę wpisać doktora, który przysłał tego chorego'); await p.waitForTimeout(800);
+  const a1 = acalls.at(-1);
+  ok(!!a1 && a1.system[0].text.includes('nawigacji') && JSON.parse(a1.messages[0].content).app.actions.go && (await p.evaluate(() => window.__dentlist.S.view)) === 'referrers', 'assistant (AI MOCK): unusual phrasing → AI picks the action from the app list → Lekarze kierujący');
+  const nA = acalls.length;
+  await ask('a jak się w ogóle robi te pdf-y z listów?'); await p.waitForTimeout(500);
+  ok((await p.textContent('#asst-reply')).includes('Zapisz PDF') && acalls.length === nA, 'assistant: a "how do I" question about letters is answered in the panel (no AI needed)');
+  await ask('opowiedz mi coś o tej aplikacji'); await p.waitForTimeout(800);
+  ok((await p.textContent('#asst-reply')).includes('Zapisz PDF') && acalls.length === nA + 1, 'assistant (AI MOCK): free question → text answer from AI in the panel');
+  await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+  ok(!(await p.locator('#asst').count()), 'assistant closes with Esc');
   console.log('ERRORS', p.errs);
   ok(!p.errs.length, 'no page errors');
   await ctx.close();
