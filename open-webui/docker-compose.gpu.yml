@@ -1,0 +1,23 @@
+# NVIDIA GPU override. Requires the NVIDIA Container Toolkit on the host.
+# Puts both the LLMs (Ollama) and voice recognition (Whisper) on the GPU.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:${WEBUI_TAG_GPU:-cuda}
+    environment:
+      - WHISPER_COMPUTE_TYPE=float16
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

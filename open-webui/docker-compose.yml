@@ -1,0 +1,69 @@
+# Open WebUI + Ollama, fully local and open source.
+# Usage: ./setup.sh   (picks models for your hardware; see README.md)
+name: open-webui
+
+services:
+  ollama:
+    image: ollama/ollama:${OLLAMA_TAG:-latest}
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-30m}
+      - OLLAMA_CONTEXT_LENGTH=${OLLAMA_CONTEXT_LENGTH:-16384}
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # One-shot job: downloads the models listed in MODELS, then exits.
+  model-puller:
+    image: ollama/ollama:${OLLAMA_TAG:-latest}
+    container_name: ollama-model-puller
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - MODELS=${MODELS:-gpt-oss:20b}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        failed=""
+        for m in $$(echo "$$MODELS" | tr ',' ' '); do
+          echo ">>> pulling $$m"
+          ollama pull "$$m" || failed="$$failed $$m"
+        done
+        echo ">>> installed models:"
+        ollama list
+        if [ -n "$$failed" ]; then echo ">>> FAILED to pull:$$failed"; exit 1; fi
+    restart: "no"
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:${WEBUI_TAG:-main}
+    container_name: open-webui
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    ports:
+      - "${WEBUI_PORT:-3000}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-}
+      - DEFAULT_MODELS=${DEFAULT_MODEL:-gpt-oss:20b}
+      - ENABLE_OPENAI_API=false
+      # Voice input: local Whisper speech-to-text (runs inside this container, offline).
+      - AUDIO_STT_ENGINE=
+      - WHISPER_MODEL=${WHISPER_MODEL:-medium}
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
+    volumes:
+      - open-webui:/app/backend/data
+
+volumes:
+  ollama:
+  open-webui:
