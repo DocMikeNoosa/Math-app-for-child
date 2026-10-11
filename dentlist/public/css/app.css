@@ -57,7 +57,7 @@ input[type=text], input[type=password], input[type=email], input[type=tel], inpu
   color: var(--strong); font-size: 14px; outline: none; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; }
 textarea { height: auto; padding: 10px 12px; line-height: 1.55; resize: vertical; min-height: 64px; }
 select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238b99b2' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; }
-select option { background: #0e1729; }
+select option { background: var(--panel-solid); }
 input::placeholder, textarea::placeholder { color: var(--faint); }
 input:focus, select:focus, textarea:focus { border-color: rgba(var(--acc-rgb), 0.55); box-shadow: 0 0 0 4px rgba(var(--acc-rgb), 0.09); background: rgba(3, 8, 18, 0.6); }
 input[type=date] { color-scheme: dark; }
@@ -327,7 +327,7 @@ select.mini { width: auto; height: 30px; font-size: 12px; }
 .ws-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 18px; background: rgba(2, 6, 14, 0.9); animation: fade 0.2s ease; } /* no backdrop blur: it can hide the 3D canvas on some GPUs */
 .ws { width: min(1460px, 100%); height: min(920px, 100%); display: flex; flex-direction: column; border-radius: 26px; overflow: hidden;
   /* tinted by the specialty being worked on (set from the tooth card) */
-  background: radial-gradient(1000px 620px at 100% 0%, rgba(var(--ws2-rgb, var(--acc2-rgb)), 0.30), transparent 62%), radial-gradient(800px 560px at 40% 110%, rgba(var(--ws-rgb, var(--acc-rgb)), 0.16), transparent 62%), linear-gradient(160deg, rgba(var(--ws-rgb, var(--acc-rgb)), 0.08), transparent 50%), linear-gradient(180deg, rgba(16, 26, 46, 0.97), rgba(8, 14, 27, 0.98));
+  background: radial-gradient(1000px 620px at 100% 0%, rgba(var(--ws2-rgb, var(--acc2-rgb)), 0.30), transparent 62%), radial-gradient(800px 560px at 40% 110%, rgba(var(--ws-rgb, var(--acc-rgb)), 0.16), transparent 62%), linear-gradient(160deg, rgba(var(--ws-rgb, var(--acc-rgb)), 0.08), transparent 50%), linear-gradient(180deg, var(--ws-base1, rgba(16, 26, 46, 0.97)), var(--ws-base2, rgba(8, 14, 27, 0.98)));
   border: 1px solid rgba(var(--ws-rgb, var(--acc-rgb)), 0.22); box-shadow: 0 50px 130px -30px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(var(--ws-rgb, var(--acc-rgb)), 0.08); transition: border-color 0.3s; animation: wsin 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.1); }
 @keyframes wsin { from { transform: scale(0.94) translateY(14px); opacity: 0; } }
 .ws-head { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
@@ -697,3 +697,29 @@ label.cmp-check input { accent-color: var(--accent); width: 18px; height: 18px; 
 .asst-reply.busy { color: var(--muted); }
 section.asst-flash { box-shadow: 0 0 0 2px rgba(var(--acc-rgb), 0.7), 0 0 40px -6px rgba(var(--acc-rgb), 0.6); transition: box-shadow 0.3s; }
 @media (max-width: 760px) { .asst-btn span { display: none; } .asst-ov { padding-top: 18px; } .modal.asst header .sub { display: none; } }
+
+/* whole screen in the colour of the specialty (endodontics keeps the original EndoList navy and aqua).
+   Every colour stays dark, so text contrast is the same as in the original. */
+:root[data-spec]:not([data-spec="endo"]) {
+  --bg: color-mix(in srgb, var(--accent) 9%, #05070b);
+  --bg-2: color-mix(in srgb, var(--accent-2) 24%, #070a10);
+  --panel-solid: color-mix(in srgb, var(--accent) 13%, #0c0f15);
+  --panel: color-mix(in srgb, color-mix(in srgb, var(--accent) 14%, #0d1017) 80%, transparent);
+  --panel-2: color-mix(in srgb, color-mix(in srgb, var(--accent) 18%, #141821) 62%, transparent);
+  --line: color-mix(in srgb, var(--accent) 16%, rgba(190, 196, 208, 0.09));
+  --line-2: color-mix(in srgb, var(--accent) 22%, rgba(190, 196, 208, 0.15));
+  --line-3: color-mix(in srgb, var(--accent) 30%, rgba(190, 196, 208, 0.25));
+}
+:root[data-spec]:not([data-spec="endo"]) .topbar { background-color: color-mix(in srgb, color-mix(in srgb, var(--accent) 16%, #090c12) 86%, transparent); }
+.ws-overlay[data-spec]:not([data-spec="endo"]) {
+  --ws-base1: color-mix(in srgb, rgb(var(--ws-rgb)) 15%, #0c0f15);
+  --ws-base2: color-mix(in srgb, rgb(var(--ws-rgb)) 8%, #06080c);
+}
+:root[data-spec]:not([data-spec="endo"]) {
+  --tooth-1: color-mix(in srgb, var(--accent) 16%, #1b1f27); --tooth-2: color-mix(in srgb, var(--accent) 10%, #12151b);
+}
+:root[data-spec]:not([data-spec="endo"]) .actionbar { background: color-mix(in srgb, color-mix(in srgb, var(--accent) 14%, #0b0e14) 86%, transparent); }
+:root[data-spec]:not([data-spec="endo"]) .btn-primary { color: #0b0d12; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 70%, #fff), var(--accent) 55%, var(--accent-2)); box-shadow: 0 12px 34px -12px rgba(var(--acc-rgb), 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.45); }
+:root[data-spec]:not([data-spec="endo"]) .btn-primary:hover:not(:disabled) { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 55%, #fff), color-mix(in srgb, var(--accent) 85%, #fff) 55%, var(--accent-2)); box-shadow: 0 16px 44px -12px rgba(var(--acc-rgb), 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.55); }
+:root[data-spec]:not([data-spec="endo"]) .btn-soft { color: color-mix(in srgb, var(--accent) 45%, #fff); }
+:root[data-spec]:not([data-spec="endo"]) .tp-num:not(.ws-head .tp-num), :root[data-spec]:not([data-spec="endo"]) .vt-num { background-image: linear-gradient(135deg, color-mix(in srgb, var(--accent) 45%, #fff), var(--accent-2)); }

@@ -53,7 +53,7 @@ export function archSVG({ marks = {}, selected = null, multi = new Set(), dentit
   <defs>
     <linearGradient id="gEndo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7cf0e0"/><stop offset="1" stop-color="#4aa8ff"/></linearGradient>
     <linearGradient id="gWork" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c3b5ff"/><stop offset="1" stop-color="#8f7bff"/></linearGradient>
-    <linearGradient id="gTooth" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1d2a42"/><stop offset="1" stop-color="#141e31"/></linearGradient>
+    <linearGradient id="gTooth" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--tooth-1, #1d2a42)"/><stop offset="1" style="stop-color:var(--tooth-2, #141e31)"/></linearGradient>
     ${specGrads('gSp-')}
     <filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
   </defs>

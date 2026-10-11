@@ -74,13 +74,14 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.2';
+export const APP_VERSION = '1.0.3';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
 const settings = () => S.data.settings.get('main');
 /** The doctor's home specialty: sets the step order, the default procedures and the accent colour. */
 const home = () => (S.data && settings()?.doctor?.home) || 'zach';
+const mixHex = (a, b, k) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - k) + parseInt(b.slice(i, i + 2), 16) * k).toString(16).padStart(2, '0')).join('');
 const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(', ');
 function applyTheme() {
   const k = home(), sp = SPECS[k] || SPECS.zach, r = document.documentElement.style;
@@ -89,7 +90,9 @@ function applyTheme() {
   r.setProperty('--accent', a); r.setProperty('--accent-2', b); r.setProperty('--acc-rgb', hexRgb(a)); r.setProperty('--acc2-rgb', hexRgb(b));
   // background strength: endodontics = original EndoList look; other specialties a stronger, still subdued tint
   const strong = k !== 'endo';
-  r.setProperty('--glow1', strong ? '0.24' : '0.11'); r.setProperty('--glow2', strong ? '0.17' : '0.08'); r.setProperty('--tint', strong ? '0.07' : '0'); r.setProperty('--panel-tint', strong ? '0.07' : '0');
+  r.setProperty('--glow1', strong ? '0.26' : '0.11'); r.setProperty('--glow2', strong ? '0.18' : '0.08'); r.setProperty('--tint', strong ? '0.08' : '0'); r.setProperty('--panel-tint', strong ? '0.06' : '0');
+  // the whole screen takes the specialty colour (css: :root[data-spec]); the phone status bar follows it
+  const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = strong ? mixHex(a, '#05070b', 0.86) : '#050a14';
   document.documentElement.dataset.spec = k;
 }
 const specStyle = (k) => `--sp:${SPECS[k]?.color || '#888'};--sp2:${SPECS[k]?.color2 || '#666'}`;

@@ -10,7 +10,7 @@ There are 10 specialties, each with its own subdued colour gradient. The colours
 
 **Specialties:** Stomatologia zachowawcza · Endodoncja · Chirurgia stomatologiczna · Implantologia · Periodontologia · Protetyka · Ortodoncja · Stomatologia dziecięca · Chirurgia szczękowo-twarzowa · Higienizacja i profilaktyka.
 
-- **Home specialty:** each doctor chooses one in the first-start screen or in Settings. It sets the order of the tooth-card steps, the default procedures and materials, and the accent colour. Every specialty is **always available**: an endodontist can record a filling, and a general dentist can record a root canal or an extraction.
+- **Home specialty:** each doctor chooses one in the first-start screen or in Settings. It sets the order of the tooth-card steps, the default procedures and materials, and the colour of the whole screen. Endodontics keeps the original EndoList navy and aqua; every other specialty gets a dark background in its own colour (e.g. terracotta for surgery, gold for implantology, green for orthodontics). The tooth card takes the colour of the specialty you are working in. Every specialty is **always available**: an endodontist can record a filling, and a general dentist can record a root canal or an extraction.
 - **Procedures:** 83 in total, each with its own fields (for example an implant has system, Ø, length, Ncm, ISQ and protocol; a crown has stage, material and cement). They fall into two kinds:
   - **Tooth procedures:** recorded on the chart.
   - **Whole-mouth procedures:** orthodontics, periodontal charting and staging, dentures, splints, hygiene and so on. These are recorded in the visit panel "Zabiegi w obrębie jamy ustnej".

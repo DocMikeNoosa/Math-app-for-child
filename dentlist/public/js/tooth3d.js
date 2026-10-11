@@ -111,7 +111,8 @@ export class Tooth3D {
   paintBg(tint) {
     const mix = (h1, h2, k) => { const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); const a = p(h1), b = p(h2); return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',')})`; };
     const x = this.bgCanvas.getContext('2d'), g = x.createRadialGradient(256, 230, 20, 256, 256, 360);
-    g.addColorStop(0, tint ? mix('#1d3a63', tint, 0.42) : '#1d3a63'); g.addColorStop(0.55, tint ? mix('#0f2140', tint, 0.22) : '#0f2140'); g.addColorStop(1, '#070f1e');
+    // endodontics: the original navy; other specialties: a dark shade of their own colour
+    g.addColorStop(0, tint ? mix('#0b0e14', tint, 0.34) : '#1d3a63'); g.addColorStop(0.55, tint ? mix('#080a0f', tint, 0.17) : '#0f2140'); g.addColorStop(1, tint ? mix('#05060a', tint, 0.07) : '#070f1e');
     x.fillStyle = g; x.fillRect(0, 0, 512, 512); this.bgTex.needsUpdate = true;
   }
   setTint(hex) { if (hex === this.tint) return; this.tint = hex; this.paintBg(hex); }
