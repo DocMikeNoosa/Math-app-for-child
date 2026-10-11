@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.3';
+export const APP_VERSION = '1.0.4';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -83,16 +83,21 @@ const settings = () => S.data.settings.get('main');
 const home = () => (S.data && settings()?.doctor?.home) || 'zach';
 const mixHex = (a, b, k) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - k) + parseInt(b.slice(i, i + 2), 16) * k).toString(16).padStart(2, '0')).join('');
 const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(', ');
+const rgba = (h, al) => `rgba(${hexRgb(h)}, ${al})`;
+const THEME_VARS = ['--bg', '--bg-2', '--panel-solid', '--panel', '--panel-2', '--line', '--line-2', '--line-3', '--tooth-1', '--tooth-2'];
 function applyTheme() {
   const k = home(), sp = SPECS[k] || SPECS.zach, r = document.documentElement.style;
-  // endodontics keeps the original EndoList look; other specialties use their own subdued gradient
+  // endodontics keeps the original EndoList navy and aqua; every other specialty has its own defined colour and dark background
   const [a, b] = k === 'endo' ? ['#5ee6d6', '#62a9ff'] : [sp.color, sp.color2];
   r.setProperty('--accent', a); r.setProperty('--accent-2', b); r.setProperty('--acc-rgb', hexRgb(a)); r.setProperty('--acc2-rgb', hexRgb(b));
-  // background strength: endodontics = original EndoList look; other specialties a stronger, still subdued tint
-  const strong = k !== 'endo';
-  r.setProperty('--glow1', strong ? '0.26' : '0.11'); r.setProperty('--glow2', strong ? '0.18' : '0.08'); r.setProperty('--tint', strong ? '0.08' : '0'); r.setProperty('--panel-tint', strong ? '0.06' : '0');
-  // the whole screen takes the specialty colour (css: :root[data-spec]); the phone status bar follows it
-  const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = strong ? mixHex(a, '#05070b', 0.86) : '#050a14';
+  r.setProperty('--glow1', '0.11'); r.setProperty('--glow2', '0.08'); r.setProperty('--tint', '0'); r.setProperty('--panel-tint', '0');
+  const own = k !== 'endo' && sp.bg;
+  if (own) {
+    const [bg, bg2, pn] = sp.bg, ln = mixHex(a, '#a7b0c0', 0.45);
+    const v = { '--bg': bg, '--bg-2': bg2, '--panel-solid': pn, '--panel': rgba(pn, 0.78), '--panel-2': rgba(mixHex(pn, '#ffffff', 0.06), 0.6), '--line': rgba(ln, 0.11), '--line-2': rgba(ln, 0.19), '--line-3': rgba(ln, 0.3), '--tooth-1': mixHex(pn, '#ffffff', 0.09), '--tooth-2': mixHex(pn, bg, 0.3) };
+    for (const [n, x] of Object.entries(v)) r.setProperty(n, x);
+  } else for (const n of THEME_VARS) r.removeProperty(n);
+  const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = own ? sp.bg[0] : '#050a14';
   document.documentElement.dataset.spec = k;
 }
 const specStyle = (k) => `--sp:${SPECS[k]?.color || '#888'};--sp2:${SPECS[k]?.color2 || '#666'}`;
@@ -626,7 +631,7 @@ function refreshVisit() {
 function openTooth(fdi) {
   const v = curVisit(), ex = v.teeth.find((t) => t.fdi === fdi);
   S.ws = { fdi, isNew: !ex, draft: clone(ex || newToothRec(fdi, v.performer === 'other')), dirty: !ex };
-  S.ttab = wsSteps()[0][0];
+  S.ttab = null; S.ttab = wsSteps()[0][0]; S.ws.modelKey = JSON.stringify([toothMode(S.ws.draft), opts3D(S.ws.draft).crown]);
   const ov = document.createElement('div'); ov.className = 'ws-overlay'; ov.id = 'ws';
   ov.innerHTML = workspaceHTML(); requestAnimationFrame(() => { centerStep(); if (S.ws) tintWorkspace(S.ws.draft); });
   $('#modal-root').appendChild(ov);
@@ -643,8 +648,8 @@ function workspaceHTML() {
     <div class="ws-body">
       <div class="ws-left">
         <div class="stage" id="stage"></div>
-        <div class="stage-bar"><label class="switch"><input type="checkbox" id="xray" ${S.xray !== false ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok rentgenowski</label><label class="switch"><input type="checkbox" id="flat2d" ${localStorage.getItem('dentlist:no3d') === '1' ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok 2D</label><span class="grow"></span><span class="hint">Przeciągnij, aby obrócić</span></div>
-        <div class="stage-legend"><span><i style="background:#ff3b66"></i>miazga / kanał</span><span><i style="background:#14d8c0"></i>wypełnienie kanałowe</span><span><i style="background:#9a86ff"></i>kanał boczny</span></div>
+        <div class="stage-bar"><label class="switch" id="xray-sw" ${toothMode(t) === 'endo' ? '' : 'hidden'}><input type="checkbox" id="xray" ${S.xray !== false ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok rentgenowski</label><label class="switch"><input type="checkbox" id="flat2d" ${localStorage.getItem('dentlist:no3d') === '1' ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Widok 2D</label><span class="grow"></span><span class="hint">Przeciągnij, aby obrócić</span></div>
+        <div class="stage-legend" id="stage-legend">${stageLegend(t)}</div>
       </div>
       <div class="ws-right"><div class="tabs steps" id="ws-tabs">${stepsHTML(t)}</div>
         <div class="tp-body" id="ws-tab">${tabBody(t)}</div></div>
@@ -656,8 +661,9 @@ const STEP_DEF = {
   work: ['Zabiegi', 'Zabiegi wszystkich specjalności'], mat: ['Materiały', 'Materiały i sprzęt'], manual: ['Opis własny', 'Opis własnymi słowami lub dyktowanie'], rec: ['Zalecenia', 'Zalecenia i rokowanie'],
 };
 /** Step order follows the home specialty: an endodontist starts with anatomy and the root canal, others with examination and procedures. */
-function wsSteps() {
-  const order = home() === 'endo' ? [['anat'], ['dx'], ['endo'], ['work', true], ['mat'], ['manual', true], ['rec']] : [['dx'], ['work'], ['endo', true], ['anat', true], ['mat'], ['manual', true], ['rec']];
+function wsSteps(t = S.ws?.draft) {
+  // other specialties: no root-canal steps unless this tooth needs them (opened from Zabiegi › Endodoncja, or already has endodontic data)
+  const order = home() === 'endo' && endoOn(t) ? [['anat'], ['dx'], ['endo'], ['work', true], ['mat'], ['manual', true], ['rec']] : [['dx'], ['work'], ...(endoOn(t) ? [['endo', true], ['anat', true]] : []), ['mat'], ['manual', true], ['rec']];
   return order.map(([k, opt]) => [k, STEP_DEF[k][0], STEP_DEF[k][1], !!opt]);
 }
 function stepDone(k, t) {
@@ -678,8 +684,9 @@ function tintWorkspace(t) {
   const sp = S.ttab === 'endo' || (S.ttab === 'anat' && home() === 'endo') ? 'endo' : S.ttab === 'work' ? (S.workSpec || (home() === 'endo' ? 'zach' : home())) : (t.work || []).length ? specOf(t.work.at(-1)) : ENDO[t.endo?.proc] ? 'endo' : home();
   const c = SPECS[sp] || SPECS.zach;
   el.style.setProperty('--ws-rgb', hexRgb(c.color)); el.style.setProperty('--ws2-rgb', hexRgb(c.color2)); el.dataset.spec = sp;
+  if (sp !== 'endo' && c.bg) { el.style.setProperty('--ws-base1', rgba(c.bg[2], 0.97)); el.style.setProperty('--ws-base2', rgba(c.bg[0], 0.98)); } else { el.style.removeProperty('--ws-base1'); el.style.removeProperty('--ws-base2'); }
   // the 3D view keeps the original navy for endodontics, other specialties tint it
-  try { S.t3d?.setTint?.(sp === 'endo' ? null : c.color2); } catch {}
+  try { S.t3d?.setTint?.(sp === 'endo' || !c.bg ? null : c.bg); } catch {}
 }
 /** Keep the current step visible in the strip (it scrolls sideways on a phone). */
 function centerStep() { const st = $('#ws-tabs'), on = $('#ws-tabs .step.on'); if (!st || !on || st.scrollWidth <= st.clientWidth) return; const a = st.getBoundingClientRect(), b = on.getBoundingClientRect(); st.scrollLeft += b.left - a.left - (a.width - b.width) / 2; }
@@ -693,21 +700,43 @@ const tabBody = (t) => ({ anat: tabAnat, dx: tabDx, endo: tabEndo, work: tabWork
 function refreshWorkspace({ tabs = true, model = false } = {}) {
   if (!S.ws) return;
   const t = S.ws.draft;
+  if (['endo', 'anat'].includes(S.ttab)) S.ws.endoOn = true;
+  // the model follows what is done to the tooth (implant, extraction, canals) — redraw when that changes
+  const mk = JSON.stringify([toothMode(t), opts3D(t).crown]);
+  if (mk !== S.ws.modelKey) { S.ws.modelKey = mk; model = true; const lg = $('#stage-legend'); if (lg) lg.innerHTML = stageLegend(t); const xs = $('#xray-sw'); if (xs && !xs.dataset.flat) xs.hidden = toothMode(t) !== 'endo'; }
   if (tabs) { const y = $('#ws-tab').scrollTop; const nb = document.createElement('div'); nb.innerHTML = workspaceHTML(); $('#ws-tabs').innerHTML = nb.querySelector('#ws-tabs').innerHTML; $('#ws-tab').innerHTML = tabBody(t); $('#ws-tab').scrollTop = y; renderDx(); }
   $('#ws-sum').textContent = toothSummary(t);
   tintWorkspace(t);
   centerStep();
   if (model) update3D();
 }
-function opts3D(t) { return { done: t.endo.status === 'done' && !!ENDO[t.endo.proc]?.obt, all: true }; }
+/** Root canals belong to endodontics: shown for an endodontist, or when this tooth has endodontic work. */
+function endoOn(t) { const noRoots = (t?.work || []).some((x) => IMPLANT_WORK.includes(x.type) || x.type === 'EXT' || x.type === 'IMPACT'); return (home() === 'endo' && !noRoots) || !!S.ws?.endoOn || ['endo', 'anat'].includes(S.ttab) || !!(t && (ENDO[t.endo?.proc] || t.anatOk)); }
+const IMPLANT_WORK = ['IMPLANT', 'UNCOVER', 'ABUT', 'IMPL_PROS', 'PERIIMPL'], CROWN_WORK = ['IMPL_PROS', 'CROWN', 'TEMPCROWN'];
+/** What the model shows: an implant, a removed tooth, a tooth with its canal system, or a plain tooth. */
+function toothMode(t) {
+  const w = (t?.work || []).map((x) => x.type);
+  if (w.some((x) => IMPLANT_WORK.includes(x))) return 'implant';
+  if (w.includes('EXT') || w.includes('IMPACT')) return 'gone';
+  return endoOn(t) ? 'endo' : 'solid';
+}
+function stageLegend(t) {
+  const m = toothMode(t);
+  if (m === 'endo') return '<span><i style="background:#ff3b66"></i>miazga / kanał</span><span><i style="background:#14d8c0"></i>wypełnienie kanałowe</span><span><i style="background:#9a86ff"></i>kanał boczny</span>';
+  if (m === 'implant') return `<span><i style="background:#b8c0c8"></i>implant${(t.work || []).some((x) => CROWN_WORK.includes(x.type)) ? ' z koroną' : ' ze śrubą gojącą'}</span>`;
+  if (m === 'gone') return '<span><i style="background:#c9d2de;opacity:.5"></i>ząb usunięty (zarys)</span>';
+  return '';
+}
+function opts3D(t) { const mode = toothMode(t); return { done: t.endo.status === 'done' && !!ENDO[t.endo.proc]?.obt, all: true, mode, crown: (t.work || []).some((x) => CROWN_WORK.includes(x.type)) }; }
+const opts2D = (t) => { const o = opts3D(t); return { ...o, done: o.done ? 'all' : false }; };
 function mount3D() {
   const el = $('#stage'), t = S.ws.draft;
   const flat = (why) => {
     if (why) console.warn('3D unavailable — 2D drawing instead:', why);
     if (S.t3d) { try { S.t3d.dispose(); } catch {} S.t3d = null; }
     if (!$('#stage')) return;
-    el.innerHTML = toothDetailSVG(S.ws?.draft || t, { done: opts3D(S.ws?.draft || t).done ? 'all' : false }); el.classList.add('flat');
-    const xr = $('#xray')?.closest('label'); if (xr) xr.hidden = true;
+    el.innerHTML = toothDetailSVG(S.ws?.draft || t, opts2D(S.ws?.draft || t)); el.classList.add('flat');
+    const xr = $('#xray-sw'); if (xr) { xr.hidden = true; xr.dataset.flat = '1'; }
   };
   if (localStorage.getItem('dentlist:no3d') === '1' || !webglOk()) return flat(localStorage.getItem('dentlist:no3d') === '1' ? 'turned off' : 'no WebGL 2');
   let retried = false;
@@ -727,7 +756,7 @@ function mount3D() {
   };
   try { start(); } catch (e) { flat(e); }
 }
-const update3D = debounce(() => { if (!S.ws) return; const t = S.ws.draft; if (S.t3d) S.t3d.setTooth(t, opts3D(t)); else $('#stage').innerHTML = toothDetailSVG(t, { done: opts3D(t).done ? 'all' : false }); }, 120);
+const update3D = debounce(() => { if (!S.ws) return; const t = S.ws.draft; if (S.t3d) S.t3d.setTooth(t, opts3D(t)); else $('#stage').innerHTML = toothDetailSVG(t, opts2D(t)); }, 120);
 function closeWorkspace() { if (S.t3d) { S.t3d.dispose(); S.t3d = null; } $('#ws')?.remove(); S.ws = null; refreshVisit(); }
 function saveWorkspace() {
   const v = curVisit(), t = S.ws.draft;
@@ -2202,7 +2231,7 @@ document.addEventListener('change', (e) => {
     save('complaints', c); if (el.dataset.cvisit || el.dataset.c === 'source') renderView(); return;
   }
   if (el.id === 'xray') { S.xray = el.checked; if (S.t3d) S.t3d.setXray(el.checked); return; }
-  if (el.id === 'flat2d') { try { localStorage.setItem('dentlist:no3d', el.checked ? '1' : '0'); } catch {} if (S.t3d) { S.t3d.dispose(); S.t3d = null; } const st = $('#stage'); if (st) { st.innerHTML = ''; st.classList.remove('flat'); const xr = $('#xray')?.closest('label'); if (xr) xr.hidden = false; mount3D(); } return; }
+  if (el.id === 'flat2d') { try { localStorage.setItem('dentlist:no3d', el.checked ? '1' : '0'); } catch {} if (S.t3d) { S.t3d.dispose(); S.t3d = null; } const st = $('#stage'); if (st) { st.innerHTML = ''; st.classList.remove('flat'); const xr = $('#xray-sw'); if (xr) { delete xr.dataset.flat; xr.hidden = toothMode(S.ws.draft) !== 'endo'; } mount3D(); } return; }
   if (el.id === 'mat-cat') { S.matCat = el.value; return refreshWorkspace(); }
   if (el.id === 'manual-edit') { S.manualEdit = el.checked; return renderView(); }
   if (el.id === 'gen-edit') { const L = D().letters.get(S.letterId); L.genEdit = el.checked; save('letters', L); $('#gen-box').hidden = !el.checked; if (el.checked) $('#gen-text').focus(); return; }

@@ -117,7 +117,7 @@ function rootPath(rx, rw, ch, len, sh) {
 }
 
 /** Large lateral view of one tooth, drawn from the record's roots/canals. */
-export function toothDetailSVG(rec, { done = false } = {}) {
+export function toothDetailSVG(rec, { done = false, mode = 'endo', crown = false } = {}) {
   const ti = toothInfo(rec.fdi), [cw0, ch0, rl0] = DIMS[ti.upper ? 'U' : 'L'][ti.gpos].map((x, i) => x * (ti.primary ? (i === 2 ? 0.75 : 0.85) : 1));
   const S = 3.3, cw = cw0 * S * (ti.type === 'incisor' ? 1.15 : 1), ch = ch0 * S, rl = rl0 * S * 0.92, cx = 120;
   const roots = rec.roots && rec.roots.length ? rec.roots : [{ name: 'K', canals: [{ name: 'K' }] }];
@@ -158,7 +158,16 @@ export function toothDetailSVG(rec, { done = false } = {}) {
   return `<svg class="tooth-detail" viewBox="0 0 240 ${Math.round(totalH + 40)}" xmlns="http://www.w3.org/2000/svg">
     <defs><linearGradient id="gEnamel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4f8ff"/><stop offset="1" stop-color="#c9d5e8"/></linearGradient>
     <linearGradient id="gRoot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9cbb0"/><stop offset="1" stop-color="#a8977a"/></linearGradient></defs>
-    <g ${flip}>${parts}<path class="enamel" d="${crownPath(ti, cx, cw, ch)}"/>${chamber}${canalSvg}</g>${labels}</svg>`;
+    <g ${flip}${mode === 'gone' ? ' opacity="0.22"' : ''}>${mode === 'implant' ? implantSVG(cx, cw, ch, rl, crown) + (crown ? `<path class="enamel" d="${crownPath(ti, cx, cw, ch * 0.92)}"/>` : '') : parts + `<path class="enamel" d="${crownPath(ti, cx, cw, ch)}"/>` + (mode === 'endo' ? chamber + canalSvg : '')}</g>${mode === 'endo' ? labels : ''}</svg>`;
+}
+/** Implant drawn in place of the roots: threaded body, abutment and a crown or a healing cap. */
+function implantSVG(cx, cw, ch, rl, crown) {
+  const R = Math.max(9, Math.min(14, cw * 0.2)), top = ch * (crown ? 0.86 : 0.9), len = Math.min(rl * 0.92, 120);
+  let threads = '';
+  for (let y = top + 8; y < top + len - 10; y += 7) { const k = y > top + len * 0.7 ? 1 - 0.3 * ((y - top - len * 0.7) / (len * 0.3)) : 1; threads += `<path d="M${cx - (R + 3) * k} ${y} L${cx + (R + 3) * k} ${y + 3}" stroke="#7d8793" stroke-width="2"/>`; }
+  const body = `<path d="M${cx - R} ${top} L${cx + R} ${top} L${cx + R} ${top + len * 0.7} Q${cx + R * 0.7} ${top + len} ${cx} ${top + len + 3} Q${cx - R * 0.7} ${top + len} ${cx - R} ${top + len * 0.7} Z" fill="#b9c1ca" stroke="#8a949f" stroke-width="1.5"/>`;
+  const head = crown ? `<rect x="${cx - R * 0.7}" y="${top - 10}" width="${R * 1.4}" height="12" fill="#aab3bd"/>` : `<rect x="${cx - R * 1.05}" y="${top - 9}" width="${R * 2.1}" height="10" rx="3" fill="#aab3bd" stroke="#8a949f"/>`;
+  return body + threads + head;
 }
 
 /* =============================================================== schemat do listu (druk, czarno-biały) */

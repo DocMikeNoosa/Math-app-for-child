@@ -1,6 +1,6 @@
 {
   "name": "dentlist",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "DentList — dokumentacja i listy do lekarzy kierujących dla wszystkich specjalności stomatologicznych (PL).",
   "type": "module",

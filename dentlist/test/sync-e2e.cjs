@@ -71,7 +71,7 @@ const data = (p, store) => p.evaluate((store) => [...window.__dentlist.S.data[st
     await m.click('.modal [data-pid]'); await m.waitForTimeout(400);
     await m.tap('#arch g.tooth[data-fdi="36"]'); await m.waitForSelector('#ws'); await m.waitForTimeout(1200);
     await shot(m, 's06-iphone-tooth');
-    await m.click('[data-ttab=endo]'); await m.selectOption('[data-b="t.endo.proc"]', 'RCT'); await m.waitForTimeout(200);
+    await m.click('#ws-tabs [data-ttab=work]'); await m.click('#ws-tab [data-ttab=endo]'); await m.selectOption('[data-b="t.endo.proc"]', 'RCT'); await m.waitForTimeout(200);
     await m.click('[data-quick="apexloc"]');
     await m.click('[data-act=ws-save]'); await m.waitForTimeout(600);
     if (await m.locator('[data-act=vnotes-open]').count()) await m.click('[data-act=vnotes-open]');

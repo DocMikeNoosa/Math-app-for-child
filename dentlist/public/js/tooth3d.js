@@ -112,16 +112,19 @@ export class Tooth3D {
     const mix = (h1, h2, k) => { const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); const a = p(h1), b = p(h2); return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',')})`; };
     const x = this.bgCanvas.getContext('2d'), g = x.createRadialGradient(256, 230, 20, 256, 256, 360);
     // endodontics: the original navy; other specialties: a dark shade of their own colour
-    g.addColorStop(0, tint ? mix('#0b0e14', tint, 0.34) : '#1d3a63'); g.addColorStop(0.55, tint ? mix('#080a0f', tint, 0.17) : '#0f2140'); g.addColorStop(1, tint ? mix('#05060a', tint, 0.07) : '#070f1e');
+    // tint = the specialty's own background [dark, gradient top, panel]
+    g.addColorStop(0, tint ? mix(tint[1], '#ffffff', 0.1) : '#1d3a63'); g.addColorStop(0.55, tint ? tint[2] : '#0f2140'); g.addColorStop(1, tint ? tint[0] : '#070f1e');
     x.fillStyle = g; x.fillRect(0, 0, 512, 512); this.bgTex.needsUpdate = true;
   }
-  setTint(hex) { if (hex === this.tint) return; this.tint = hex; this.paintBg(hex); }
+  setTint(bg) { const key = bg ? bg.join() : ''; if (key === this.tintKey) return; this.tintKey = key; this.paintBg(bg); }
   setXray(on) { this.xray = on; if (this.rec) this.setTooth(this.rec, this.opts); }
   setTooth(rec, opts = {}) {
     this.rec = rec; this.opts = opts;
     for (const c of [...this.group.children]) { c.geometry?.dispose(); c.material?.dispose(); this.group.remove(c); }
     const ti = toothInfo(rec.fdi), [W, D, H, L] = DIM[ti.upper ? 'U' : 'L'][ti.gpos].map((x, i) => x * ti.scale * (ti.primary && i === 3 ? 0.8 : 1));
-    const x = this.xray;
+    const mode = opts.mode || 'endo';
+    if (mode === 'implant') return this.implant(ti, W, D, H, L, opts);
+    const x = this.xray && mode === 'endo', gone = mode === 'gone';
     // glass-like enamel and dentine (transmission) so the canal system glows through
     const enamel = new THREE.MeshPhysicalMaterial({ color: 0xfff8ec, roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, transmission: x ? 0.78 : 0.12, thickness: 4, ior: 1.62, attenuationColor: new THREE.Color(0xf3e3c3), attenuationDistance: 9, sheen: 0.6, sheenColor: new THREE.Color(0xbfefff), specularIntensity: 1 });
     const dentin = new THREE.MeshPhysicalMaterial({ color: 0xf2dfba, roughness: 0.28, clearcoat: 0.5, clearcoatRoughness: 0.2, transmission: x ? 0.7 : 0.08, thickness: 3, ior: 1.55, attenuationColor: new THREE.Color(0xe7c995), attenuationDistance: 7 });
@@ -130,12 +133,14 @@ export class Tooth3D {
     const pulp = new THREE.MeshStandardMaterial({ color: 0xff3b66, emissive: 0xe0204c, emissiveIntensity: 0.55, roughness: 0.4, opacity: 0.92, ...xr });
     const filled = new THREE.MeshStandardMaterial({ color: 0x14d8c0, emissive: 0x0bb3a0, emissiveIntensity: 0.6, roughness: 0.25, opacity: 0.95, ...xr });
     const lateral = new THREE.MeshStandardMaterial({ color: 0x9a86ff, emissive: 0x7a62ff, emissiveIntensity: 0.6, opacity: 0.95, ...xr });
+    if (gone) for (const m of [enamel, dentin]) { m.transmission = 0; m.transparent = true; m.opacity = 0.16; m.depthWrite = false; m.color = new THREE.Color(0xc9d2de); }
     const crown = new THREE.Mesh(crownGeometry(ti, W, D, H), enamel); crown.position.y = H / 2; crown.renderOrder = 3; this.group.add(crown);
     const roots = rec.roots && rec.roots.length ? rec.roots : [{ name: 'K', canals: [{ name: 'K' }] }];
     const n = roots.length, obt = !!opts.done;
+    const canals = mode === 'endo';
     // pulp chamber
-    const ch = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 24), obt ? filled : pulp); ch.renderOrder = 10;
-    ch.scale.set(W * 0.17, H * 0.1, D * 0.15); ch.position.y = H * 0.2; this.group.add(ch);
+    if (canals) { const ch = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 24), obt ? filled : pulp); ch.renderOrder = 10;
+      ch.scale.set(W * 0.17, H * 0.1, D * 0.15); ch.position.y = H * 0.2; this.group.add(ch); }
     roots.forEach((r, i) => {
       const [rx, rz] = rootSpot(r.name, n, i, W, D, ti);
       const isC = r.name === 'C', len = L * (r.name === 'P' ? 1.06 : r.name === 'RE' ? 0.78 : 1);
@@ -148,7 +153,7 @@ export class Tooth3D {
       const rr = isC ? W * 0.36 : Math.max(1.3, Math.min(2.6, (Math.min(W, D) * 0.62) / Math.sqrt(n)));
       const root = new THREE.Mesh(taperedTube(curve, rr, isC ? rr * 0.45 : rr * (n === 1 ? 0.85 : 0.75), 0.18), dentin); root.renderOrder = 2; this.group.add(root);
       const k = r.canals.length || 1;
-      r.canals.forEach((c, j) => {
+      if (canals) r.canals.forEach((c, j) => {
         const off = k === 1 ? 0 : (j / (k - 1) - 0.5) * rr * 0.9;
         const ax = isC ? off : 0, az = isC ? 0 : off;
         const cc = new THREE.CatmullRomCurve3(curve.points.map((pt, q) => new THREE.Vector3(pt.x * (q === 2 ? 0.97 : 1) + ax * (1 - q * 0.35), q === 0 ? pt.y + 0.4 : q === 2 ? pt.y + 1.1 : pt.y, pt.z * (q === 2 ? 0.97 : 1) + az * (1 - q * 0.35))));
@@ -163,6 +168,31 @@ export class Tooth3D {
         }
       });
     });
+    this.frame(ti);
+  }
+  /** Implant: threaded titanium body, abutment and either a crown or a healing cap. */
+  implant(ti, W, D, H, L, opts) {
+    const ti_ = new THREE.MeshPhysicalMaterial({ color: 0xb8c0c8, metalness: 1, roughness: 0.32, clearcoat: 0.3 });
+    const R = Math.min(2.3, Math.max(1.6, Math.min(W, D) * 0.2)), len = Math.min(L * 0.85, 12), pitch = 0.8, pts = [];
+    // profile from the platform (y = 0) down to a rounded apex, with a saw-tooth thread
+    for (let y = 0; y <= len; y += 0.05) {
+      const taper = y > len * 0.7 ? 1 - 0.35 * ((y - len * 0.7) / (len * 0.3)) : 1;
+      const thread = y > 0.6 && y < len - 0.4 ? 0.32 * (1 - ((y % pitch) / pitch)) : 0;
+      pts.push(new THREE.Vector2((R + thread) * taper, -y));
+    }
+    pts.push(new THREE.Vector2(R * 0.45, -len - 0.25), new THREE.Vector2(0, -len - 0.35));
+    pts.unshift(new THREE.Vector2(0, 0));
+    const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 64), ti_); this.group.add(body);
+    if (opts.crown) {
+      const abut = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.7, R * 0.95, 2.2, 48), ti_); abut.position.y = 1.1; this.group.add(abut);
+      const enamel = new THREE.MeshPhysicalMaterial({ color: 0xfff8ec, roughness: 0.14, clearcoat: 1, clearcoatRoughness: 0.08, transmission: 0.1, thickness: 4, ior: 1.62, sheen: 0.5, sheenColor: new THREE.Color(0xbfefff) });
+      const crown = new THREE.Mesh(crownGeometry(ti, W, D, H), enamel); crown.position.y = 1.4 + H / 2; this.group.add(crown);
+    } else {
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.05, R * 1.05, 1.6, 48), ti_); cap.position.y = 0.8; this.group.add(cap);
+    }
+    this.frame(ti);
+  }
+  frame(ti) {
     // upper teeth: roots up, as in the mouth; centre the model and frame it
     this.group.rotation.set(ti.upper ? Math.PI : 0, 0, 0); this.group.position.set(0, 0, 0); this.group.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(this.group), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());

@@ -46,7 +46,7 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.click('[data-act=ob-create]'); await p.waitForSelector('[data-act=ob-finish]', { timeout: 20000 });
   await p.click('[data-act=ob-finish]'); await p.waitForSelector('#arch', { timeout: 20000 });
   await p.click('.banner [data-act=folder-pick]'); await p.waitForTimeout(800);
-  ok((await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim())) === '#6f9fe0', 'accent colour follows the home specialty');
+  ok((await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim())) === '#8fa2ff' && (await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())) === '#06071c', 'accent and background colour follow the home specialty (zachowawcza: indigo)');
   // ---------- adult patient + referrer
   await p.click('[data-act=pick-patient]'); await p.fill('.modal [data-f=first]', 'Tomasz'); await p.fill('.modal [data-f=last]', 'Nowicki'); await p.fill('.modal [data-f=dob]', '1975-05-20'); await p.selectOption('.modal [data-f=sex]', 'm');
   await p.click('.modal footer .btn-primary'); await p.waitForTimeout(300);
@@ -57,6 +57,7 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   // tooth 48: surgical extraction (chirurgia)
   await p.click('#arch g.tooth[data-fdi="48"]'); await p.waitForSelector('#ws'); await p.waitForTimeout(900);
   ok(await p.locator('#ws-tabs .step.on[data-ttab=dx]').count() === 1 && (await p.textContent('#ws-tabs .step:nth-child(2)')).includes('Zabiegi'), 'general dentist: steps start with Badanie, then Zabiegi');
+  ok(!(await p.locator('#ws-tabs [data-ttab=endo], #ws-tabs [data-ttab=anat]').count()) && (await p.locator('#xray-sw[hidden]').count()) === 1 && !(await p.textContent('#stage-legend')).includes('kanał'), 'general dentist: no root-canal steps, canals or X-ray switch on a plain tooth');
   await p.fill('[data-b="t.dx.other"]', 'K01.1 Zęby zaklinowane');
   await p.click('#ws-tabs [data-ttab=work]'); await p.waitForTimeout(200);
   ok(await p.locator('.spchip').count() >= 9, 'procedure picker lists the specialties');
@@ -67,12 +68,16 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.selectOption('[data-b="t.work.0.anesth"]', 'block'); await p.fill('[data-b="t.work.0.agent"]', 'Ubistesin forte, 1 karpula'); await p.fill('[data-b="t.work.0.suture"]', 'Vicryl 4-0');
   await p.waitForTimeout(300); await shot(p, '01-ws-chir');
   ok(await p.locator('.workcard.spcard .sptag').first().textContent() === 'Chirurgia', 'procedure card tagged with its specialty');
+  ok((await p.textContent('#stage-legend')).includes('usunięty'), 'extraction: the model shows the removed tooth as an outline');
   await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
   // tooth 36: implant (implantologia)
   await p.click('#arch g.tooth[data-fdi="36"]'); await p.waitForSelector('#ws'); await p.click('#ws-tabs [data-ttab=work]');
   await p.click('[data-act=work-spec][data-spec=impl]'); await p.click('[data-act=add-work][data-type=IMPLANT]'); await p.waitForTimeout(200);
   await p.fill('[data-b="t.work.0.system"]', 'Straumann BLX'); await p.fill('[data-b="t.work.0.diam"]', '4,5'); await p.fill('[data-b="t.work.0.len"]', '10'); await p.fill('[data-b="t.work.0.torque"]', '35');
   await p.selectOption('[data-b="t.work.0.protocol"]', 'two'); await p.fill('[data-b="t.work.0.bone"]', 'Bio-Oss');
+  await p.waitForTimeout(500);
+  ok((await p.textContent('#stage-legend')).includes('implant ze śrubą gojącą') && !(await p.locator('#ws-tabs [data-ttab=endo]').count()), 'implant: model shows the implant (no canals), no endodontic steps');
+  await shot(p, '01b-ws-implant');
   await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
   // tooth 26: crown seated (protetyka) + tooth 37: filling (zachowawcza)
   await p.click('#arch g.tooth[data-fdi="26"]'); await p.waitForSelector('#ws'); await p.click('#ws-tabs [data-ttab=work]');
@@ -82,6 +87,9 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.click('#arch g.tooth[data-fdi="37"]'); await p.waitForSelector('#ws'); await p.click('#ws-tabs [data-ttab=work]');
   await p.click('[data-act=work-spec][data-spec=zach]'); await p.click('[data-act=add-work][data-type=FILL]'); await seg('t.work.0.cls', 'II'); await chip('t.work.0.surf', 'O'); await chip('t.work.0.surf', 'D');
   await p.selectOption('[data-b="t.work.0.mat"]', 'kompozyt'); await p.fill('[data-b="t.work.0.product"]', 'Filtek One Bulk Fill');
+  await p.click('#ws-tab [data-ttab=endo]'); await p.waitForTimeout(300);
+  ok((await p.locator('#ws-tabs .step.on[data-ttab=endo]').count()) === 1 && (await p.locator('#ws-tabs [data-ttab=anat]').count()) === 1 && (await p.textContent('#stage-legend')).includes('kanał'), 'endodontics still available: Zabiegi › Endodoncja adds the root-canal steps and shows the canals');
+  await p.click('#ws-tabs [data-ttab=work]'); await p.waitForTimeout(200);
   await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
   // ---------- whole mouth: periodontal exam + fixed braces
   await p.click('[data-act=mouth-open]'); await p.waitForTimeout(200);
