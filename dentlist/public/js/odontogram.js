@@ -47,7 +47,7 @@ function fissures(type, W, H) {
 }
 
 /** marks: { fdi: 'endo' | 'stage' | 'work' | 'plan' } */
-export function archSVG({ marks = {}, selected = null, multi = new Set(), dentition = 'perm' } = {}) {
+export function archSVG({ marks = {}, selected = null, multi = new Set(), dentition = 'perm', caries = {}, todo = new Set(), pick = false } = {}) {
   const prim = dentition === 'prim', A = prim ? AXP : AX;
   let s = `<svg class="arch" viewBox="0 0 760 622" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schemat uzębienia">
   <defs>
@@ -71,14 +71,22 @@ export function archSVG({ marks = {}, selected = null, multi = new Set(), dentit
     let mx = -dy / nl, my = dx / nl;
     const cy = upper ? A.upY + A.b : A.loY - A.b;
     if ((mx * (x - A.cx) + my * (y - cy)) < 0) { mx = -mx; my = -my; }
-    const m = marks[fdi] || '', cls = ['tooth', isSpecMark(m) ? `sp sp-${m}` : m, selected === fdi ? 'sel' : '', multi.has(fdi) ? 'inv' : ''].filter(Boolean).join(' ');
+    const m = marks[fdi] || '', cls = ['tooth', isSpecMark(m) ? `sp sp-${m}` : m, selected === fdi ? 'sel' : '', multi.has(fdi) ? 'inv' : '', caries[fdi] ? 'car' : '', todo.has(fdi) ? 'todo' : '', pick ? 'pick' : ''].filter(Boolean).join(' ');
+    // caries map: a dot on each affected surface (O centre, M/D along the arch, B/L outward/inward)
+    const cs = caries[fdi]; let dots = '';
+    if (cs) {
+      const ar = (ang * Math.PI) / 180, by = Math.sign((-Math.sin(ar)) * mx + Math.cos(ar) * my) || 1;
+      const at = { O: [0, 0], I: [0, 0], M: [-g.w * 0.34, 0], D: [g.w * 0.34, 0], B: [0, by * g.h * 0.32], L: [0, -by * g.h * 0.32], P: [0, -by * g.h * 0.32] };
+      const sf = (cs.surf || []).length ? cs.surf : ['O'];
+      dots = sf.map((k) => at[k]).filter(Boolean).map(([cx2, cy2]) => `<circle class="cdot" cx="${cx2.toFixed(1)}" cy="${cy2.toFixed(1)}" r="${Math.max(3.5, g.w * 0.13).toFixed(1)}"/>`).join('');
+    }
     const fillSt = isSpecMark(m) ? ` style="fill:url(#gSp-${m});stroke:${SPECS[m].color}"` : '';
     const lx = x + mx * (g.h / 2 + 15), ly = y + my * (g.h / 2 + 15) + 4;
     s += `<g class="${cls}" data-fdi="${fdi}" tabindex="0" role="button" aria-label="Ząb ${fdi}">
       <g transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${ang.toFixed(1)})">
         <path class="halo" d="${occlusalPath(ti.type, g.w + 10, g.h + 10)}"/>
         <path class="crown" d="${occlusalPath(ti.type, g.w, g.h)}"${fillSt}/>
-        <path class="fiss" d="${fissures(ti.type, g.w, g.h)}"/>
+        <path class="fiss" d="${fissures(ti.type, g.w, g.h)}"/>${dots}
       </g>
       <text class="num" x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle">${fdi}</text>
     </g>`;

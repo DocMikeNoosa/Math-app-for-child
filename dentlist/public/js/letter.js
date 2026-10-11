@@ -446,6 +446,8 @@ export function buildOffline({ visits, patient, doctor, referrer, used = { openi
     sections.push({ heading: `Ząb ${fdi} — ${ti.name}`, paragraphs: paras });
   }
   const multiDates = new Set(visits.map((x) => x.date)).size > 1;
+  const carV = visits.filter((x) => cariesText(x) && x.performer !== 'other');
+  if (carV.length) sections.push({ heading: 'Badanie stomatologiczne', paragraphs: carV.map((x) => `${multiDates && x.date ? fmtDate(x.date) + ' ' : ''}${multiDates ? v('stwierdził', g) : cap(v('stwierdził', g))} w badaniu ubytki próchnicowe w zębach: ${cariesText(x)}. Zęby zakwalifikowano do leczenia zachowawczego.`) });
   for (const [spec, list] of mouthBySpec(visits)) {
     const paras = mouthParagraphs(list, g, multiDates);
     if (paras.length) sections.push({ heading: SPECS[spec].label, paragraphs: paras });
@@ -486,6 +488,7 @@ export function aiPayload({ visits, patient, doctor, referrer, used, repeat, icd
         prognosis: visit.performer === 'other' ? null : (rec.rec?.prog ? PROG[rec.rec.prog] : null),
       })),
     })),
+    caries_findings: visits.filter((x) => cariesText(x)).map((x) => ({ date: x.date, teeth: cariesText(x) })),
     whole_mouth_procedures: mouthBySpec(visits).map(([spec, list]) => ({ specialty: SPECS[spec].label, entries: list.map(({ visit, w }) => ({ date: visit.date, performed_by: visit.performer === 'other' ? (visit.otherDentist || 'inny lekarz') : 'self', sentence: procSentence(w, 'imp') })) })),
     visit_notes: visits.filter((v) => v.notes).map((v) => ({ date: v.date, note: v.notes })),
     draft,
@@ -497,16 +500,22 @@ const RESTOR_REC = { crown: 'korona protetyczna', onlay: 'nakład (onlay) z pokr
 const HIST_STATUS = { treated: 'ząb leczony wcześniej kanałowo', initiated: 'leczenie kanałowe rozpoczęte wcześniej' };
 /** Treatment record for the patient's chart (e.g. ProDentis): what was found, done and used — no letter phrasing.
  *  One block per visit and tooth; impersonal clinical style ("Wykonano…"). */
+/** Caries map of a visit as text: "16 (OD, ICDAS 3), 26 (O)". */
+export function cariesText(v) {
+  const c = v?.caries || {}; const ks = Object.keys(c).map(Number).sort((a, b) => a - b);
+  return ks.map((f) => { const x = c[f] || {}, d = [(x.surf || []).join(''), x.icdas !== '' && x.icdas != null ? `ICDAS ${x.icdas}` : ''].filter(Boolean); return `${f}${d.length ? ` (${d.join(', ')})` : ''}`; }).join(', ');
+}
 export function recordEntry({ visits, patient = {}, doctor = '', fmtDate = (d) => d }) {
   const P = PT[patient.sex === 'm' ? 'm' : 'f'];
   const mats = new Map(materialsFor(visits).map((m) => [m.fdi, m.items]));
   const sorted = [...visits].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   const out = [];
   for (const v of sorted) {
-    const teeth = [...(v.teeth || [])].map(normalized).sort((a, b) => a.fdi - b.fdi);
-    if (!teeth.length && !(v.procs || []).length) continue;
+    const teeth = [...(v.teeth || [])].map(normalized).sort((a, b) => a.fdi - b.fdi), car = cariesText(v);
+    if (!teeth.length && !(v.procs || []).length && !car) continue;
     if (out.length) out.push('');
     out.push(`Data: ${fmtDate(v.date)}${v.performer === 'other' ? ` — leczenie wykonane wcześniej (${v.otherDentist?.trim() || 'inny lekarz'})` : ''}`);
+    if (car) out.push(`Badanie — próchnica: ${car}. Do leczenia.`);
     for (const rec of teeth) {
       const dx = rec.dx || {}, h = dx.history || {}, r = rec.rec || {};
       out.push('', `Ząb ${rec.fdi} — ${toothInfo(rec.fdi).name}`);

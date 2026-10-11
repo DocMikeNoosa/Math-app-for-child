@@ -4,19 +4,20 @@
 
 /* ------------------------------------------------------------------ specjalności */
 // Kolory: endodoncja = oryginalny granat EndoList. Pozostałe specjalności: ten sam przepis tła co granat (ta sama
-// jasność, nasycenie, przezroczystość i poświata), tylko w innym odcieniu (hue); akcenty w stylu kolorów systemowych Apple.
+// jasność, nasycenie, przezroczystość i poświata), tylko w innym odcieniu (hue); akcenty z tego samego odcienia co tło
+// (tak jak akwamaryna do granatu), przyciski — ten sam szklany gradient co w oryginale, w odcieniu specjalności.
 // Chirurgia i chirurgia szczękowo-twarzowa: odcienie czerwieni.
 export const SPECS = {
-  zach: { label: 'Stomatologia zachowawcza', short: 'Zachowawcza', color: '#8e9bff', color2: '#5e7cff', hue: 236, icon: 'tooth' },
+  zach: { label: 'Stomatologia zachowawcza', short: 'Zachowawcza', color: '#717af4', color2: '#3e7dea', hue: 236, icon: 'tooth' },
   endo: { label: 'Endodoncja', short: 'Endodoncja', color: '#5fd8c8', color2: '#3b8fd9', icon: 'tooth' },
-  chir: { label: 'Chirurgia stomatologiczna', short: 'Chirurgia', color: '#ff6961', color2: '#e5383b', hue: 356, icon: 'tooth' },
-  impl: { label: 'Implantologia', short: 'Implantologia', color: '#f5d27a', color2: '#d4a43a', hue: 168, icon: 'tooth' },
-  perio: { label: 'Periodontologia', short: 'Periodontologia', color: '#ff8fc8', color2: '#e2559f', hue: 318, icon: 'tooth' },
-  prot: { label: 'Protetyka stomatologiczna', short: 'Protetyka', color: '#b59cff', color2: '#7d5cff', hue: 262, icon: 'tooth' },
-  orto: { label: 'Ortodoncja', short: 'Ortodoncja', color: '#b4e36a', color2: '#5ec247', hue: 98, icon: 'tooth' },
-  ped: { label: 'Stomatologia dziecięca', short: 'Dziecięca', color: '#ffb35c', color2: '#ff8a5c', hue: 288, icon: 'tooth' },
-  mfs: { label: 'Chirurgia szczękowo-twarzowa', short: 'Szczękowo-twarzowa', color: '#ff7d95', color2: '#d23a62', hue: 338, icon: 'tooth' },
-  hig: { label: 'Higienizacja i profilaktyka', short: 'Higienizacja', color: '#7ee8c6', color2: '#33c98a', hue: 142, icon: 'tooth' },
+  chir: { label: 'Chirurgia stomatologiczna', short: 'Chirurgia', color: '#f4717a', color2: '#ea3e7d', hue: 356, icon: 'tooth' },
+  impl: { label: 'Implantologia', short: 'Implantologia', color: '#71f4da', color2: '#3eea94', hue: 168, icon: 'tooth' },
+  perio: { label: 'Periodontologia', short: 'Periodontologia', color: '#f471cd', color2: '#ea3eea', hue: 318, icon: 'tooth' },
+  prot: { label: 'Protetyka stomatologiczna', short: 'Protetyka', color: '#a171f4', color2: '#4a3eea', hue: 262, icon: 'tooth' },
+  orto: { label: 'Ortodoncja', short: 'Ortodoncja', color: '#a1f471', color2: '#b0ea3e', hue: 98, icon: 'tooth' },
+  ped: { label: 'Stomatologia dziecięca', short: 'Dziecięca', color: '#da71f4', color2: '#943eea', hue: 288, icon: 'tooth' },
+  mfs: { label: 'Chirurgia szczękowo-twarzowa', short: 'Szczękowo-twarzowa', color: '#f471a1', color2: '#ea3eb0', hue: 338, icon: 'tooth' },
+  hig: { label: 'Higienizacja i profilaktyka', short: 'Higienizacja', color: '#71f4a1', color2: '#3eea4a', hue: 142, icon: 'tooth' },
 };
 export const SPEC_ORDER = ['zach', 'endo', 'chir', 'impl', 'perio', 'prot', 'orto', 'ped', 'mfs', 'hig'];
 /** Specialist title for the letter header, by home specialty. */
@@ -180,6 +181,13 @@ export const procsFor = (spec, scope) => (SPEC_PROCS[spec] || []).filter((k) => 
 // The tooth card's "Badanie" step shows the examination of the chosen specialty (endodontics, conservative
 // dentistry and paediatrics keep the pulp tests). Stored per tooth in rec.sx[spec].
 export const SPEC_EXAM = {
+  zach: { title: 'Badanie stomatologiczne (próchnica)', fields: [
+    M('surf', 'Ubytek — powierzchnie', { O: 'żująca', M: 'mezjalna', D: 'dystalna', B: 'policzkowa / wargowa', L: 'językowa / podniebienna', C: 'przyszyjkowa' }, 'ubytek na powierzchni {v}'),
+    S('icdas', 'Próchnica (ICDAS)', { '': '—', 0: '0', 1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6' }, 'ICDAS {v}'),
+    S('depth', 'Głębokość', { '': '—', enamel: 'w szkliwie', outer: 'zębina — zewnętrzna 1/3', mid: 'zębina — środkowa 1/3', deep: 'zębina — głęboka (blisko miazgi)' }, 'próchnica {v}'),
+    S('rest', 'Istniejące wypełnienie', { '': '—', none: 'brak', ok: 'szczelne', leak: 'nieszczelne', sec: 'próchnica wtórna', frac: 'złamane' }, 'wypełnienie: {v}'),
+    M('wear', 'Niepróchnicowe ubytki', { attr: 'starcie (atrycja)', abr: 'abrazja', ero: 'erozja', abf: 'abfrakcja', crack: 'pęknięcie szkliwa' }, '{v}'),
+    S('sens', 'Nadwrażliwość', { '': '—', no: 'nie', yes: 'tak' }, 'nadwrażliwość: {v}') ] },
   orto: { title: 'Badanie ortodontyczne', fields: [
     M('pos', 'Położenie zęba', { rot: 'rotacja', tip: ['nachylenie (tipping)', 'nachylenie'], torq: 'nieprawidłowy tork', intr: 'intruzja', extr: 'ekstruzja', ect: 'położenie ektopowe', imp: 'zatrzymanie', crowd: 'stłoczenie', gap: 'diastema / szpara' }, '{v}'),
     N('rot', 'Rotacja', '°', 'rotacja o {v}°'),

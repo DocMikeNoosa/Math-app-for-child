@@ -1,5 +1,5 @@
 // DentList — service worker: aplikacja działa offline (AI wymaga internetu).
-const VERSION = 'dentlist-v10';
+const VERSION = 'dentlist-v11';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'config.json', 'css/app.css',
   'js/app.js', 'js/ai.js', 'js/data.js', 'js/dx.js', 'js/files.js', 'js/letter.js', 'js/odontogram.js', 'js/pdf.js', 'js/vault.js', 'js/tooth3d.js', 'js/speech.js', 'js/letterview.js', 'js/sync.js', 'js/privacy.js', 'js/org.js', 'js/specs.js', 'js/complaints.js', 'js/assistant.js',

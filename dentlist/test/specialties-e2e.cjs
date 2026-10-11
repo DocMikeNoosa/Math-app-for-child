@@ -46,7 +46,7 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.click('[data-act=ob-create]'); await p.waitForSelector('[data-act=ob-finish]', { timeout: 20000 });
   await p.click('[data-act=ob-finish]'); await p.waitForSelector('#arch', { timeout: 20000 });
   await p.click('.banner [data-act=folder-pick]'); await p.waitForTimeout(800);
-  ok((await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim())) === '#8e9bff' && (await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())) === '#050614', 'accent and background colour follow the home specialty (zachowawcza: indigo)');
+  ok((await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim())) === '#717af4' && (await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())) === '#050614', 'accent and background colour follow the home specialty (zachowawcza: indigo)');
   // ---------- adult patient + referrer
   await p.click('[data-act=pick-patient]'); await p.fill('.modal [data-f=first]', 'Tomasz'); await p.fill('.modal [data-f=last]', 'Nowicki'); await p.fill('.modal [data-f=dob]', '1975-05-20'); await p.selectOption('.modal [data-f=sex]', 'm');
   await p.click('.modal footer .btn-primary'); await p.waitForTimeout(300);
@@ -58,6 +58,7 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.click('#arch g.tooth[data-fdi="48"]'); await p.waitForSelector('#ws'); await p.waitForTimeout(900);
   ok(await p.locator('#ws-tabs .step.on[data-ttab=dx]').count() === 1 && (await p.textContent('#ws-tabs .step:nth-child(2)')).includes('Zabiegi'), 'general dentist: steps start with Badanie, then Zabiegi');
   ok(!(await p.locator('#ws-tabs [data-ttab=endo], #ws-tabs [data-ttab=anat]').count()) && (await p.locator('#xray-sw[hidden]').count()) === 1 && !(await p.textContent('#stage-legend')).includes('kanał'), 'general dentist: no root-canal steps, canals or X-ray switch on a plain tooth');
+  ok((await p.textContent('#ws-tab')).includes('Badanie stomatologiczne (próchnica)') && (await p.textContent('#ws-tab')).includes('Zimno'), 'general dentist: caries examination plus pulp tests in Badanie');
   await p.fill('[data-b="t.dx.other"]', 'K01.1 Zęby zaklinowane');
   await p.click('#ws-tabs [data-ttab=work]'); await p.waitForTimeout(200);
   ok(await p.locator('.spchip').count() >= 9, 'procedure picker lists the specialties');
@@ -95,7 +96,9 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await shot(p, '01d-ws-fill');
   ok((await p.locator('#sp-rail .rail-b').count()) === 10 && (await p.locator('#sp-rail .rail-b.has[data-spec=zach]').count()) === 1, 'side rail lists all 10 specialties, marks the ones used on this tooth');
   await p.click('#sp-rail [data-spec=perio]'); await p.waitForTimeout(300);
-  ok((await p.locator('#ws-tabs .step.on[data-ttab=work]').count()) === 1 && (await p.locator('.spchip.on[data-spec=perio]').count()) >= 1, 'side rail: Periodontologia opens Zabiegi with periodontal procedures');
+  ok((await p.locator('#ws-tabs .step.on[data-ttab=dx]').count()) === 1 && (await p.textContent('#ws-tab')).includes('Badanie periodontologiczne') && (await p.textContent('#ws-tab')).includes('Badanie ogólne'), 'side rail: Periodontologia starts at step 1 — general + periodontal examination');
+  await p.click('#ws-tabs [data-ttab=work]'); await p.waitForTimeout(300);
+  ok((await p.locator('.spchip.on[data-spec=perio]').count()) >= 1, 'then step 2: periodontal procedures');
   await p.click('[data-ttab=mat]'); await p.waitForTimeout(200);
   ok((await p.locator('[data-act=mat-spec].on[data-spec=perio]').count()) === 1 && (await p.locator('.cat-chips .chip').first().textContent()).length > 2 && !(await p.locator('.micro-card').count()), 'Materiały: specialty-specific categories (perio), no microscope card outside endodontics');
   await p.click('#ws-tabs [data-ttab=work]'); await p.waitForTimeout(200);
@@ -106,6 +109,7 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   // ---------- orthodontic tooth card (side rail → Ortodoncja): own steps, examination, procedures, materials, 3D
   await p.click('#arch g.tooth[data-fdi="13"]'); await p.waitForSelector('#ws'); await p.waitForTimeout(600);
   await p.click('#sp-rail [data-spec=orto]'); await p.waitForTimeout(400);
+  ok((await p.locator('#ws-tabs .step.on[data-ttab=dx]').count()) === 1, 'orthodontics opens at step 1 (Badanie)');
   const steps = await p.$$eval('#ws-tabs .step .l', (els) => els.map((e) => e.firstChild.textContent));
   ok(steps.join('|') === 'Badanie|Zabiegi|Materiały|Opis własny|Zalecenia' && (await p.textContent('#ws-tabs')).includes('Ortodoncja') && (await p.textContent('#ws-spec')).includes('Ortodoncja') && (await p.getAttribute('#ws', 'data-spec')) === 'orto', 'orthodontic card: own steps (no Anatomia / Endodoncja), badge and colours: ' + steps.join(', '));
   await p.click('#ws-tabs [data-ttab=work]'); await p.waitForTimeout(300);
@@ -311,6 +315,25 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
   if (await p.locator('#asst').count()) { await p.keyboard.press('Escape'); await p.waitForTimeout(200); }
   ok(!(await p.locator('#asst').count()), 'assistant closes with Esc');
+  // ---------- caries map: several teeth at once, treated later from "Do leczenia"
+  await p.click('[data-nav=patients]'); await p.waitForTimeout(300);
+  await p.click('tr[data-open-patient]:has-text("Tomasz")'); await p.waitForSelector('.vh');
+  await p.click('.vh-item [data-act=vh-open]'); await p.waitForTimeout(600);
+  await p.click('[data-act=caries-mode]'); await p.waitForTimeout(300);
+  for (const f of [16, 15, 47]) { await p.click(`#arch g.tooth[data-fdi="${f}"]`); await p.waitForTimeout(150); }
+  ok(!(await p.locator('#ws').count()) && (await p.locator('#vcaries .car-row').count()) === 3, 'caries map: clicking teeth marks them (no tooth card), 3 on the list');
+  await p.click('[data-act=caries-surf][data-fdi="16"][data-s=O]'); await p.click('[data-act=caries-surf][data-fdi="16"][data-s=D]'); await p.selectOption('[data-car-icdas="16"]', '3'); await p.waitForTimeout(300);
+  await shot(p, '11-caries-map');
+  await p.click('#vcaries [data-act=caries-mode]'); await p.waitForTimeout(300);
+  const car = await p.evaluate(() => window.__dentlist.curVisit().caries);
+  ok(Object.keys(car).join(',') === '15,16,47' && car[16].surf.join('') === 'OD' && car[16].icdas === '3' && (await p.locator('#arch .cdot').count()) >= 4, 'caries saved with surfaces and ICDAS, dots on the chart');
+  await p.click('[data-act=new-visit]'); await p.waitForTimeout(500);
+  ok((await p.locator('#vcaries .todo-chip').count()) === 3 && (await p.locator('#arch g.tooth.todo').count()) === 3, 'next visit: the 3 teeth are shown as "Do leczenia"');
+  await shot(p, '12-caries-todo');
+  await p.click('#vcaries .todo-chip[data-fdi="16"]'); await p.waitForSelector('#ws'); await p.waitForTimeout(500);
+  ok((await p.textContent('#stage-legend')).includes('wypełnienie (OD)') && (await p.locator('#ws-tabs .step.on[data-ttab=work]').count()) === 1, 'treat from the list: tooth 16 opens with a filling prepared on O and D');
+  await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
+  ok((await p.locator('#vcaries .todo-chip').count()) === 2, 'after the filling, 16 leaves "Do leczenia"');
   console.log('ERRORS', p.errs);
   ok(!p.errs.length, 'no page errors');
   await ctx.close();
