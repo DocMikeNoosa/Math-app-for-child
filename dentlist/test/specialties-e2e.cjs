@@ -117,7 +117,8 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await shot(p, '01e-ws-orto');
   await p.click('#ws-tabs [data-ttab=dx]'); await p.waitForTimeout(200);
   ok((await p.textContent('#ws-tab')).includes('Badanie ortodontyczne') && (await p.locator('details.pulp-more').count()) === 1, 'orthodontic examination (pulp tests folded away)');
-  await p.click('label.chip:has(input[data-arr="t.sx.orto.pos"][value="rot"])'); await p.fill('[data-b="t.sx.orto.rot"]', '20'); await pick('t.sx.orto.contact', 'open'); await p.waitForTimeout(200);
+  await p.click('label.chip:has(input[data-arr="t.sx.orto.pos"][value="rot"])'); await p.fill('[data-b="t.sx.orto.rot"]', '20'); await pick('t.sx.orto.contact', 'open'); await p.waitForTimeout(300);
+  ok((await p.locator('[data-seg="t.sx.orto.contact"] button.on[data-v=open]').count()) === 1, 'orthodontic examination: the chosen answer stays highlighted');
   await shot(p, '01f-ws-orto-exam');
   await p.click('#ws-tabs [data-ttab=mat]'); await p.waitForTimeout(200);
   ok((await p.locator('[data-act=mat-spec].on[data-spec=orto]').count()) === 1 && (await p.textContent('.cat-chips')).includes('Wyciągi'), 'orthodontic materials and equipment (brackets, wires, elastics, scanners…)');

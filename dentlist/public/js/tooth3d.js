@@ -177,11 +177,11 @@ export class Tooth3D {
   /** What other specialties did to the tooth: fillings, crowns and veneers, post, gingiva, sealant, pulpotomy. */
   extras(ti, W, D, H, L, ex, crown) {
     const add = (geo, mat, x, y, z, sx = 1, sy = 1, sz = 1, order = 4) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.renderOrder = order; this.group.add(m); return m; };
-    const blob = new THREE.SphereGeometry(1, 40, 24);
+    const blob = new THREE.SphereGeometry(1, 40, 24), bz = ti.upper ? -1 : 1; // buccal side faces the viewer for upper and lower teeth
     const composite = new THREE.MeshPhysicalMaterial({ color: 0x9fb2ff, emissive: 0x3349e0, emissiveIntensity: 0.5, roughness: 0.18, clearcoat: 1 });
     const temp = new THREE.MeshStandardMaterial({ color: 0xf1e9d2, roughness: 0.7 });
     const surfAt = { O: [0, H * 0.97, 0, W * 0.27, 0.55, D * 0.25], I: [0, H * 0.97, 0, W * 0.3, 0.5, D * 0.18], M: [-W * 0.47, H * 0.62, 0, 0.42, H * 0.24, D * 0.26], D: [W * 0.47, H * 0.62, 0, 0.42, H * 0.24, D * 0.26],
-      V: [0, H * 0.55, D * 0.46, W * 0.26, H * 0.22, 0.6], B: [0, H * 0.55, D * 0.46, W * 0.26, H * 0.22, 0.6], L: [0, H * 0.55, -D * 0.46, W * 0.26, H * 0.22, 0.6], P: [0, H * 0.55, -D * 0.46, W * 0.26, H * 0.22, 0.6] };
+      V: [0, H * 0.55, bz * D * 0.46, W * 0.26, H * 0.22, 0.6], B: [0, H * 0.55, bz * D * 0.46, W * 0.26, H * 0.22, 0.6], L: [0, H * 0.55, -bz * D * 0.46, W * 0.26, H * 0.22, 0.6], P: [0, H * 0.55, -bz * D * 0.46, W * 0.26, H * 0.22, 0.6] };
     for (const f of ex.fill || []) { const a = surfAt[f]; if (a) add(blob, composite, a[0], a[1], a[2], a[3], a[4], a[5]); }
     if (ex.tempFill) add(blob, temp, 0, H * 0.97, 0, W * 0.25, 0.5, D * 0.23);
     if (ex.seal) add(blob, new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, roughness: 0.1, clearcoat: 1, emissive: 0xffb27a, emissiveIntensity: 0.12 }), 0, H * 0.99, 0, W * 0.3, 0.35, D * 0.28);
@@ -191,7 +191,7 @@ export class Tooth3D {
       const mat = k === 'steel' ? new THREE.MeshPhysicalMaterial({ color: 0xc9ced6, metalness: 1, roughness: 0.22, clearcoat: 0.4 })
         : k === 'temp' ? new THREE.MeshPhysicalMaterial({ color: 0xf2e6c6, roughness: 0.45, clearcoat: 0.3 })
         : new THREE.MeshPhysicalMaterial({ color: 0xfdfdf9, roughness: 0.16, clearcoat: 1, clearcoatRoughness: 0.05, sheen: 0.4, sheenColor: new THREE.Color(0xd9ccff) });
-      if (k === 'veneer') add(blob, mat, 0, H * 0.55, D * 0.42, W * 0.5, H * 0.47, 0.9, 5);
+      if (k === 'veneer') add(blob, mat, 0, H * 0.55, bz * D * 0.42, W * 0.5, H * 0.47, 0.9, 5);
       else if (k === 'inlay') add(blob, mat, 0, H * 0.95, 0, W * 0.36, 0.9, D * 0.34, 5);
       else { crown.material = mat; crown.scale.setScalar(1.03); }
       if (k !== 'inlay' && k !== 'veneer') add(new THREE.TorusGeometry(1, 0.06, 10, 64), new THREE.MeshStandardMaterial({ color: 0xbba3ff, emissive: 0x8a6af0, emissiveIntensity: 0.6 }), 0, 0.15, 0, W * 0.47, D * 0.47, 1, 6).rotation.x = Math.PI / 2;
@@ -202,15 +202,15 @@ export class Tooth3D {
       // orthodontics: bracket with a segment of arch wire on the buccal face (lingual: on the inside), band, button, attachment
       const steel = new THREE.MeshPhysicalMaterial({ color: 0xc9ced6, metalness: 1, roughness: 0.2, clearcoat: 0.5 });
       const ceramic = new THREE.MeshPhysicalMaterial({ color: 0xf3efe6, roughness: 0.25, clearcoat: 1 });
-      const k = ex.ortho, zf = k === 'ling' ? -1 : 1, y = H * 0.55, z = (D / 2) * 0.98 * zf;
+      const k = ex.ortho, zf = (k === 'ling' ? -1 : 1) * bz, y = H * 0.55, z = (D / 2) * 0.98 * zf;
       if (['metal', 'ceram', 'sl', 'ling', 'tube'].includes(k)) {
         const bw = k === 'tube' ? W * 0.42 : W * 0.32, mat = k === 'ceram' ? ceramic : steel;
         add(new THREE.BoxGeometry(bw, H * 0.24, 0.9), mat, 0, y, z + 0.35 * zf, 1, 1, 1, 6);
         if (k !== 'tube') for (const dy of [-1, 1]) add(new THREE.BoxGeometry(bw * 1.08, 0.28, 0.5), mat, 0, y + dy * H * 0.09, z + 0.85 * zf, 1, 1, 1, 6);
         add(new THREE.CylinderGeometry(0.14, 0.14, W * 1.9, 12), steel, 0, y, z + 0.75 * zf, 1, 1, 1, 7).rotation.z = Math.PI / 2;
-      } else if (k === 'button') add(new THREE.CylinderGeometry(0.7, 0.7, 0.6, 24), steel, 0, y, z + 0.3, 1, 1, 1, 6).rotation.x = Math.PI / 2;
+      } else if (k === 'button') add(new THREE.CylinderGeometry(0.7, 0.7, 0.6, 24), steel, 0, y, z + 0.3 * zf, 1, 1, 1, 6).rotation.x = Math.PI / 2;
       else if (k === 'band') add(new THREE.CylinderGeometry(1, 1, H * 0.42, 64, 1, true), new THREE.MeshPhysicalMaterial({ color: 0xc9ced6, metalness: 1, roughness: 0.25, side: THREE.DoubleSide }), 0, H * 0.42, 0, W * 0.52, 1, D * 0.52, 6);
-      else if (k === 'attach') add(new THREE.BoxGeometry(W * 0.22, H * 0.16, 0.7), new THREE.MeshPhysicalMaterial({ color: 0x9fb2ff, emissive: 0x3349e0, emissiveIntensity: 0.4, roughness: 0.2, clearcoat: 1 }), 0, y, z + 0.2, 1, 1, 1, 6);
+      else if (k === 'attach') add(new THREE.BoxGeometry(W * 0.22, H * 0.16, 0.7), new THREE.MeshPhysicalMaterial({ color: 0x9fb2ff, emissive: 0x3349e0, emissiveIntensity: 0.4, roughness: 0.2, clearcoat: 1 }), 0, y, z + 0.2 * zf, 1, 1, 1, 6);
     }
     for (const sd of ex.ipr || []) { const m = add(new THREE.PlaneGeometry(D * 0.7, H * 0.55), new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffb340, emissiveIntensity: 0.6, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }), (sd === 'M' ? -1 : 1) * W * 0.51, H * 0.6, 0, 1, 1, 1, 8); m.rotation.y = Math.PI / 2; }
     if (ex.gum) {
