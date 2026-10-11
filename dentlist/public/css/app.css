@@ -37,7 +37,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .btn:disabled { opacity: 0.42; cursor: default; }
 .btn-primary { border: none; color: #03141a; background: linear-gradient(135deg, #7af0e1, #5ab8ff 55%, #7f8cff); box-shadow: 0 12px 34px -12px rgba(94, 200, 255, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.45); }
 .btn-primary:hover:not(:disabled) { color: #03141a; background: linear-gradient(135deg, #8ff5e8, #6cc2ff 55%, #8e99ff); box-shadow: 0 16px 44px -12px rgba(94, 200, 255, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.55); }
-.btn-soft { background: linear-gradient(135deg, rgba(var(--acc-rgb), 0.16), rgba(var(--acc2-rgb), 0.08)); border-color: rgba(var(--acc-rgb), 0.35); color: #bff7ef; }
+/* buttons keep the original EndoList glass look in every specialty; only the contour takes the specialty hue */
+.btn-soft { background: linear-gradient(135deg, rgba(94, 230, 214, 0.16), rgba(98, 169, 255, 0.08)); border-color: rgba(var(--acc-rgb), 0.35); color: #bff7ef; }
 .btn-soft:hover:not(:disabled) { border-color: rgba(var(--acc-rgb), 0.7); color: #e2fffb; }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--dim); }
 .btn-ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); color: var(--strong); border-color: var(--line); }
@@ -695,9 +696,6 @@ section.asst-flash { box-shadow: 0 0 0 2px rgba(var(--acc-rgb), 0.7), 0 0 40px -
 
 /* whole screen in the colour of the specialty: page, panels and lines come from SPECS[].bg (set in applyTheme);
    endodontics keeps the original EndoList navy and aqua. */
-:root[data-spec]:not([data-spec="endo"]) .btn-primary { color: #0b0d12; background: linear-gradient(135deg, var(--accent-hi), var(--accent) 55%, var(--accent-2)); box-shadow: 0 12px 34px -12px rgba(var(--acc-rgb), 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.45); }
-:root[data-spec]:not([data-spec="endo"]) .btn-primary:hover:not(:disabled) { background: linear-gradient(135deg, var(--accent-hi), var(--accent-hi) 30%, var(--accent)); box-shadow: 0 16px 44px -12px rgba(var(--acc-rgb), 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.55); }
-:root[data-spec]:not([data-spec="endo"]) .btn-soft { color: var(--accent-hi); }
 :root[data-spec]:not([data-spec="endo"]) .tp-num, :root[data-spec]:not([data-spec="endo"]) .vt-num { background-image: linear-gradient(135deg, var(--accent-hi), var(--accent)); }
 
 /* tooth card: side rail with every specialty */

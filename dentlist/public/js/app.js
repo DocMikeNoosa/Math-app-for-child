@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.6';
+export const APP_VERSION = '1.0.7';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
