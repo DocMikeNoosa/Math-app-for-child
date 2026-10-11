@@ -22,7 +22,7 @@ services:
               count: all
               capabilities: [gpu]
   comfyui:
-    image: yanwk/comfyui-boot:${COMFY_TAG_GPU:-cu130-slim}
+    image: yanwk/comfyui-boot:${COMFY_TAG_GPU:-cu130-slim-v2}
     environment:
       - CLI_ARGS=${COMFY_ARGS_GPU:---listen 0.0.0.0}
     deploy:
@@ -33,4 +33,8 @@ services:
               count: all
               capabilities: [gpu]
   comfyui-models:
-    image: yanwk/comfyui-boot:${COMFY_TAG_GPU:-cu130-slim}
+    image: yanwk/comfyui-boot:${COMFY_TAG_GPU:-cu130-slim-v2}
+  comfyui-prepare:
+    image: yanwk/comfyui-boot:${COMFY_TAG_GPU:-cu130-slim-v2}
+    environment:
+      - COMFY_IMAGE=yanwk/comfyui-boot:${COMFY_TAG_GPU:-cu130-slim-v2}

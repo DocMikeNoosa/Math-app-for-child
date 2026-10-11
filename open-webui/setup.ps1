@@ -149,7 +149,7 @@ if ($Images -or $Video) {
             [void][double]::TryParse($parts[0].Trim(), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$cap)
             [void][int]::TryParse(($parts[1].Trim() -split '\.')[0], [ref]$drv)
         }
-        if ($cap -ge 7.5 -and $drv -ge 580) { $env:COMFY_TAG_GPU = 'cu130-slim' }
+        if ($cap -ge 7.5 -and $drv -ge 580) { $env:COMFY_TAG_GPU = 'cu130-slim-v2' }
         elseif ($cap -ge 12) { Fail "Your graphics card needs a newer NVIDIA driver (you have $drv, need 580 or newer). Update it with the NVIDIA App or from nvidia.com/drivers, restart, then run this again." }
         elseif ($cap -gt 0) { $env:COMFY_TAG_GPU = 'cu126-slim' }
         Write-Host "Graphics card compute capability $cap, driver $drv -> ComfyUI build $env:COMFY_TAG_GPU"
@@ -161,6 +161,9 @@ if ($Images -or $Video) {
     $loaded = Invoke-Native { docker exec ollama ollama ps } | Select-Object -Skip 1 | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ }
     foreach ($m in $loaded) { Invoke-Native { docker exec ollama ollama stop $m } | Out-Null }
 
+    Invoke-Native { docker compose @files --profile images stop comfyui } | Out-Null
+    docker compose @files --profile images run --rm comfyui-prepare
+    if ($LASTEXITCODE -ne 0) { Fail 'Could not prepare ComfyUI - see the messages above.' }
     docker compose @files --profile images up -d comfyui
     if ($LASTEXITCODE -ne 0) { Fail 'Could not start ComfyUI - see the messages above.' }
     Write-Host 'Downloading picture/video models (about 10 GB for pictures, 18 GB more for video)...'

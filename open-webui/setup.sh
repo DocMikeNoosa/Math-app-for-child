@@ -125,7 +125,7 @@ else
     if [[ $gpu -eq 1 && -z "${COMFY_TAG_GPU:-}" ]]; then
       IFS=', ' read -r cap drv < <(nvidia-smi --query-gpu=compute_cap,driver_version --format=csv,noheader | head -1)
       capx=$(awk -v c="$cap" 'BEGIN{print int(c*10)}'); drvx=${drv%%.*}
-      if (( capx >= 75 && drvx >= 580 )); then export COMFY_TAG_GPU=cu130-slim
+      if (( capx >= 75 && drvx >= 580 )); then export COMFY_TAG_GPU=cu130-slim-v2
       elif (( capx >= 120 )); then die "your graphics card needs NVIDIA driver 580 or newer (you have $drv)."
       else export COMFY_TAG_GPU=cu126-slim; fi
       echo "Graphics card compute capability $cap, driver $drv -> ComfyUI build $COMFY_TAG_GPU"
@@ -133,6 +133,8 @@ else
     export COMFY_DOWNLOADS COMFY_WORKFLOWS
     # Free the GPU: unload chat models sitting in memory.
     for m in $(docker exec ollama ollama ps 2>/dev/null | tail -n +2 | awk '{print $1}'); do docker exec ollama ollama stop "$m" >/dev/null 2>&1 || true; done
+    docker compose "${files[@]}" --profile images stop comfyui >/dev/null 2>&1 || true
+    docker compose "${files[@]}" --profile images run --rm comfyui-prepare || die "could not prepare ComfyUI."
     docker compose "${files[@]}" --profile images up -d comfyui
     docker compose "${files[@]}" --profile images run --rm comfyui-models \
       || die "some picture/video models failed to download - run the same command again to resume."

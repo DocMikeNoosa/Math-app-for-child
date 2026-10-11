@@ -79,6 +79,32 @@ services:
       - comfyui:/root
       - ./pictures:/root/ComfyUI/output
 
+  # One-shot job run before ComfyUI starts: when the ComfyUI image changes (e.g. a newer CUDA
+  # build), refresh the program files copied into the volume. Models, workflows and pictures stay.
+  comfyui-prepare:
+    image: yanwk/comfyui-boot:${COMFY_TAG:-cpu}
+    container_name: comfyui-prepare
+    profiles: ["images"]
+    environment:
+      - COMFY_IMAGE=yanwk/comfyui-boot:${COMFY_TAG:-cpu}
+    volumes:
+      - comfyui:/root
+      - ./pictures:/root/ComfyUI/output
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        have=$$(cat /root/.comfy-image 2>/dev/null || echo none)
+        if [ -f /root/ComfyUI/main.py ] && [ "$$have" != "$$COMFY_IMAGE" ]; then
+          echo ">>> updating ComfyUI program files for $$COMFY_IMAGE (models, workflows and pictures are kept)"
+          cd /root/ComfyUI || exit 1
+          for f in * .[!.]*; do
+            case "$$f" in models|user|output|input|'*'|'.[!.]*') ;; *) rm -rf -- "$$f" ;; esac
+          done
+          rm -rf /root/.local
+        fi
+        echo "$$COMFY_IMAGE" > /root/.comfy-image
+    restart: "no"
+
   # One-shot job: downloads picture/video models (official links from ComfyUI's
   # own templates) and adds ready-to-use workflows to the Workflows sidebar.
   comfyui-models:
@@ -109,7 +135,9 @@ services:
             failed="$$failed $$name"
           fi
         done
-        tpl=$$(python3 -c 'import comfyui_workflow_templates_json as m,os;print(os.path.dirname(m.__file__)+"/templates")')
+        # Newer images run ComfyUI on python3.13 while plain python3 may be an older system Python.
+        py=$$(command -v python3.13 || command -v python3)
+        tpl=$$($$py -c 'import comfyui_workflow_templates_json as m,os;print(os.path.dirname(m.__file__)+"/templates")')
         wf=/root/ComfyUI/user/default/workflows
         mkdir -p "$$wf"
         for item in $$COMFY_WORKFLOWS; do
