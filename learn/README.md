@@ -1,4 +1,28 @@
-# Aussie Learning Workbook — Year 3 & Year 4
+# Tosia's Workbook — Australian and Polish curriculum, Year/Klasa 3 and 4
+
+A homeschool workbook for the iPad and the computer with two complete programmes:
+
+- **🇦🇺 Australian Curriculum** (in English, Australian female read-aloud voice, tutor "Koa"):
+  Year 3 — 160 lessons, Year 4 — 143 lessons across English, Maths, Science, HASS, Health, The Arts and Technologies
+  (PE movement chapters left out — done at school).
+- **🇵🇱 Polska podstawa programowa** (po polsku, polski głos, asystentka „Sowa Zosia”):
+  klasa 3 — 135 lekcji, klasa 4 — 135 lekcji (polski, matematyka, przyroda, edukacja społeczna/historia, plastyka i muzyka, technika i informatyka).
+
+Each lesson runs **Learn together → Practise together → Homework on her own**, with chapter quizzes,
+★ above-grade challenges, end-of-year practice exams, a parent portal (below/on/above par, AI advice, extra work),
+voice answers, Apple Pencil handwriting, spelling and dictation practice.
+
+**Catch-up mode:** set a finish date (default: Australian Year 3 by 13 December) and the daily plan schedules exactly
+enough lessons — about 3 a day, ~40 minutes — with quick test-outs for topics already known from school.
+
+**Saving:** on-device + family cloud account (Firebase) with live merge, daily device snapshots, daily cloud backups
+and backup files. Works offline and installs on the iPad Home Screen.
+
+👉 **Setup (once): see [SETUP.md](SETUP.md).**
+
+---
+
+## Original notes (first version)
 
 A homework workbook app for **Year 3 and Year 4** covering every learning area of the
 **Australian Curriculum v9.0** that schools teach to all students, with read-aloud,

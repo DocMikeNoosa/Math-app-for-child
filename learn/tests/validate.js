@@ -1,5 +1,3 @@
-// Content validator: loads every curriculum file without a browser and expands every lesson, homework, quiz, challenge and exam.
-// Run: node tests/validate.js [au3|au4|pl3|pl4]
 // Loads core + content scripts (no UI) into a fake window and validates every lesson/quiz/challenge.
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const ROOT = path.join(__dirname, '..') + '/';

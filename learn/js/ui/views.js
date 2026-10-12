@@ -221,29 +221,54 @@
         h('div', { style: { flex: 1, minWidth: '180px' } },
           h('div.ring-num', total ? `${doneN} ${tr('of', 'z')} ${total}` : tr('All done', 'Gotowe')),
           h('div.small.muted', tr(`done today · ${today.correct || 0} correct answers`, `zrobione dziś · ${today.correct || 0} dobrych odpowiedzi`))),
-        nextItem ? h('button.btn.big', { type: 'button', onclick: () => openPlanItem(nextItem) }, LA.icon('play', 18), doneN ? tr('Continue', 'Dalej') : tr('Start today', 'Zaczynamy')) : null)));
+        nextItem ? h('button.btn.big', { type: 'button', onclick: () => openPlanItem(nextItem) }, LA.icon('play', 18), doneN ? tr('Continue', 'Dalej') : tr('Start today', 'Zaczynamy')) : null),
+      catchUpBar(prog)));
 
     const planCard = h('div.card', { style: { marginTop: '18px', paddingBottom: '10px' } },
       h('div.row', h('h2', { style: { margin: 0 } }, tr('Today’s plan', 'Plan na dziś')), h('span.spacer'), h('span.chip', `≈ ${plan.items.reduce((s, i) => s + i.minutes, 0)} min`)));
     const list = h('div.plan');
     if (!plan.items.length) list.appendChild(h('p', tr('Everything is done for this year level. Try a practice exam or the challenges!', 'Wszystko zrobione na tym poziomie. Spróbuj próbnego sprawdzianu albo zadań z gwiazdką!')));
-    const KIND = { lesson: ['book', '#007aff', tr('Learn together', 'Lekcja razem')], hw: ['pencil', '#ff9500', tr('Homework · on your own', 'Praca domowa · samodzielnie')], quiz: ['doc', '#5856d6', tr('Check-up quiz', 'Sprawdzian')], remediation: ['target', '#ff2d55', tr('Extra practice', 'Dodatkowe ćwiczenia')], review: ['repeat', '#30b0c7', tr('Quick review', 'Szybka powtórka')], spelling: ['textformat', '#af52de', tr('Spelling', 'Ortografia')] };
+    const KIND = { lesson: ['book', '#007aff', tr('Learn together', 'Lekcja razem')], hw: ['pencil', '#ff9500', tr('Homework · on your own', 'Praca domowa · samodzielnie')], quiz: ['doc', '#5856d6', tr('Check-up quiz', 'Sprawdzian')], remediation: ['target', '#ff2d55', tr('Extra practice', 'Dodatkowe ćwiczenia')], review: ['repeat', '#30b0c7', tr('Quick review', 'Szybka powtórka')], testout: ['bolt', '#ff9500', tr('Know it from school? Quick test-out — pass it and the whole chapter is done', 'Znasz to ze szkoły? Szybki test — zaliczysz go, a cały rozdział będzie zrobiony')], spelling: ['textformat', '#af52de', tr('Spelling', 'Ortografia')] };
     plan.items.forEach((it) => {
       const k = KIND[it.kind];
       list.appendChild(h('button.plan-item' + (it.done ? '.done' : ''), { type: 'button', onclick: () => openPlanItem(it) }, LA.appIcon(k[0], k[1], 44), h('div', { style: { flex: 1 } }, h('div.t', it.title), h('div.k', `${k[2]} · ${it.minutes} min`)), it.done ? h('span.chk', LA.icon('check', 16)) : h('span.go', LA.icon('chevronR', 20))));
     });
     planCard.appendChild(list);
-    if (plan.items.length && plan.items.every((i) => i.done)) planCard.appendChild(h('div.feedback.good', h('h4', tr('All done for today! Brilliant work.', 'Wszystko na dziś zrobione! Świetna robota.'))));
+    if (plan.items.length && plan.items.every((i) => i.done)) {
+      planCard.appendChild(h('div.feedback.good', h('h4', tr('All done for today! Brilliant work.', 'Wszystko na dziś zrobione! Świetna robota.'))));
+      const cu = T.catchUp(prog);
+      if (cu && cu.left > 0) planCard.appendChild(h('div.row', { style: { marginTop: '10px' } }, h('button.btn.secondary', { type: 'button', onclick: () => { T.planToday(prog, true, 1); LA.refresh(); } }, LA.icon('plus', 18), tr('Keep going — add one more lesson', 'Jeszcze jedna lekcja'))));
+    }
     planCard.appendChild(h('div.row', { style: { marginTop: '4px' } }, h('button.btn.ghost.small', { type: 'button', onclick: () => { T.planToday(prog, true); LA.refresh(); } }, LA.icon('refresh', 18), tr('Refresh plan', 'Odśwież plan'))));
     c.appendChild(planCard);
 
     c.appendChild(h('div.section-head', h('h2', tr('Subjects', 'Przedmioty'))));
     c.appendChild(subjectGrid(prog));
   }
+  function catchUpBar(prog) {
+    const cu = T.catchUp(prog);
+    if (!cu) return null;
+    const P = LA.PROGRAMMES[prog];
+    const yl = P.yearLabel(S.yearFor(prog));
+    const when = new Date(cu.target + 'T12:00:00').toLocaleDateString(prog === 'pl' ? 'pl-PL' : 'en-AU', { day: 'numeric', month: 'long' });
+    if (cu.left === 0) return h('div.catchup.done', LA.appIcon('graduation', '#34c759', 36), h('div', h('strong', tr(`${yl} complete!`, `${yl} ukończona!`)), h('div.small.muted', tr('Ready for the next year — a grown-up can switch the grade in Parent → Learners.', 'Gotowe na kolejną klasę — rodzic może zmienić klasę w: Rodzic → Uczniowie.'))));
+    if (cu.past) return h('div.catchup.warn', LA.appIcon('flag', '#ff9500', 36), h('div', h('strong', tr(`Target date passed — ${cu.left} lessons left in ${yl}`, `Termin minął — w ${yl} zostało ${cu.left} lekcji`)), h('div.small.muted', tr('Set a new date in Parent → Settings.', 'Ustaw nowy termin w: Rodzic → Ustawienia.'))));
+    const total = T.subjects(prog).reduce((a, s) => a + s.chapters.reduce((b, ch) => b + ch.lessons.length, 0), 0);
+    const pct = Math.round(100 * (1 - cu.left / Math.max(1, total)));
+    const onTrack = cu.doneToday >= cu.perDay;
+    return h('div.catchup' + (cu.level === 'heavy' ? '.warn' : ''),
+      LA.appIcon('flag', onTrack ? '#34c759' : '#007aff', 36),
+      h('div', { style: { flex: 1, minWidth: '200px' } },
+        h('strong', tr(`Finish ${yl} by ${when}`, `Ukończ ${yl} do ${when}`)),
+        h('div.small.muted', tr(`${cu.left} lessons to go · ${cu.days} study days · ${cu.perDay} a day (about ${cu.minutes} min)`, `zostało ${cu.left} lekcji · ${cu.days} dni nauki · ${cu.perDay} dziennie (ok. ${cu.minutes} min)`)),
+        h('div.bar', { style: { marginTop: '8px' } }, h('span', { style: { width: Math.max(2, pct) + '%', background: 'var(--accent)' } }))),
+      h('span.tag.' + (onTrack ? 'good' : 'info'), onTrack ? tr('On track today', 'Dziś zgodnie z planem') : tr(`${cu.todo} lesson${cu.todo === 1 ? '' : 's'} today`, `${cu.todo} lekcji dziś`)));
+  }
   function openPlanItem(it) {
     if (it.kind === 'lesson') LA.go('lesson/' + it.ref);
     else if (it.kind === 'hw') LA.go('lesson/' + it.ref, { step: 'homework' });
     else if (it.kind === 'quiz') LA.go('quiz/' + it.ref);
+    else if (it.kind === 'testout') LA.go('quiz/' + it.ref, { mode: 'testout' });
     else if (it.kind === 'remediation') LA.go('practice/rem/' + it.ref);
     else if (it.kind === 'spelling') LA.go('words', { start: 1 });
     else LA.go('practice/skill/' + it.ref, { review: 1 });
@@ -583,6 +608,7 @@
     }
     function show(results) {
       const r = T.afterQuiz(ch, results, mode);
+      if (mode === 'testout') T.markPlan('testout', ch.key);
       T.markPlan('quiz', ch.key);
       area.innerHTML = '';
       if (r.passed) UI.confetti();

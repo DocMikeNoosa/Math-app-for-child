@@ -67,7 +67,9 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++
   // AI key for AI features
   await p.evaluate(() => { LA.store.state().settings.apiKey = 'sk-test'; LA.store.saveMain(); });
   // lesson flow via Start today
-  await p.click('.hero .btn.big');
+  ok(await p.locator('.catchup').count() === 1, 'catch-up bar shows the mid-December target');
+  ok(await p.locator('.plan-item:has-text("test-out")').count() >= 1, 'plan offers a quick test-out');
+  await p.locator('.plan-item:has-text("Learn together")').first().click();
   await p.waitForTimeout(250);
   ok(await p.locator('.step-card').count() === 1, 'lesson opens on Learn together');
   for (let i = 0; i < 12 && (await p.locator('button:has-text("Next step")').count()); i++) { await p.click('button:has-text("Next step")'); await p.waitForTimeout(40); }

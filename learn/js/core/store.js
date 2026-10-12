@@ -21,6 +21,9 @@
     parentLang: 'en',
     pencilFirst: false,
     micForSpelling: false,
+    // Catch-up: finish a programme's year by a date (e.g. Australian Year 3 by mid-December before starting Year 4 in Australia)
+    target: { au: '', pl: '' },
+    studyDays: 'all', // 'all' = every day, 'mon-sat', 'weekdays'
   };
 
   function blankProgress() {
@@ -45,6 +48,13 @@
     if (typeof s.settings.rate !== 'object') s.settings.rate = { 'en-AU': +s.settings.rate || 0.92, 'pl-PL': 0.95 };
     if (typeof s.settings.minutes !== 'object') s.settings.minutes = { au: +s.settings.dailyMinutes || 30, pl: 30 };
     if (typeof s.settings.enrichment !== 'object') s.settings.enrichment = { au: true, pl: true };
+    if (typeof s.settings.target !== 'object' || !s.settings.target) s.settings.target = { au: '', pl: '' };
+    if (s.settings.targetDefaulted !== true) {
+      // first run: Australian Year 3 should be finished by mid-December (start of the Australian school year 4 in late January)
+      const now = new Date(), y = now.getFullYear();
+      if (!s.settings.target.au && now < new Date(y, 11, 13)) s.settings.target.au = y + '-12-13';
+      s.settings.targetDefaulted = true;
+    }
     s.profiles = (s.profiles || []).map((p) => {
       if (!p.au) p.au = { year: +p.year || 3, on: true };
       if (!p.pl) p.pl = { year: 3, on: true };

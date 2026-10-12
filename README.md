@@ -1,4 +1,4 @@
-> **Also in this repo:** [`learn/`](learn/README.md) — *Aussie Learning Workbook*, a Year 3 & Year 4 Australian Curriculum homework app. Open `learn/index.html`.
+> **Also in this repo:** [`learn/`](learn/README.md) — *Tosia's Workbook*, Australian and Polish curriculum (Year/Klasa 3 and 4). Setup: [`learn/SETUP.md`](learn/SETUP.md).
 
 # RyczałtRx — Medical Practice Take-Home Calculator
 

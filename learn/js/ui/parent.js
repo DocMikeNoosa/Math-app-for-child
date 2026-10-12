@@ -186,6 +186,19 @@
       pace.appendChild(h('div.card.soft.col', h('strong', LA.PROGRAMMES[prog].flag + ' ' + LA.PROGRAMMES[prog].name), sel,
         h('label.check', en, prog === 'au' ? tr('Include Health, The Arts and Technologies (about once a week each)', 'Uwzględnij Health, The Arts i Technologies (ok. raz w tygodniu)') : tr('Include Plastyka/muzyka and Technika/informatyka (about once a week)', 'Uwzględnij plastykę/muzykę i technikę/informatykę (ok. raz w tygodniu)'))));
     });
+    const tgt = h('div.card.soft.col', h('strong', tr('Catch-up: finish the year by a date', 'Nadrabianie: ukończ klasę do daty')),
+      h('p.small.muted', tr('The daily plan then schedules exactly enough lessons to finish every subject in time, and offers quick test-outs for topics she already knows from school. Leave empty for the normal school-year pace.', 'Plan dnia ułoży wtedy tyle lekcji, by zdążyć ze wszystkimi przedmiotami, i zaproponuje szybkie testy z tematów znanych ze szkoły. Puste = zwykłe tempo roku szkolnego.')));
+    ['au', 'pl'].forEach((prog) => {
+      const inp = h('input', { type: 'date', value: (st.target || {})[prog] || '', 'aria-label': 'Target ' + prog, style: { maxWidth: '220px' } });
+      const out = h('span.small.muted');
+      const info = () => { const cu = S.activeProfile() ? T.catchUp(prog) : null; out.textContent = cu ? tr(`${cu.left} lessons left · ${cu.days} study days → ${cu.perDay} a day (≈${cu.minutes} min)`, `zostało ${cu.left} lekcji · ${cu.days} dni → ${cu.perDay} dziennie (≈${cu.minutes} min)`) : ''; };
+      inp.addEventListener('change', () => { st.target = Object.assign({}, st.target, { [prog]: inp.value }); save(); if (S.activeProfile()) T.planToday(prog, true); info(); });
+      info();
+      tgt.appendChild(h('div.row', h('span', { style: { minWidth: '150px' } }, LA.PROGRAMMES[prog].flag + ' ' + LA.PROGRAMMES[prog].short), inp, h('button.btn.ghost.small', { type: 'button', onclick: () => { inp.value = ''; inp.dispatchEvent(new Event('change')); } }, tr('Clear', 'Wyczyść')), out));
+    });
+    const days = h('div.seg', [['all', tr('Every day', 'Codziennie')], ['mon-sat', tr('Mon–Sat', 'Pon–sob')], ['weekdays', tr('Weekdays', 'Dni robocze')]].map(([v, l]) => { const bb = h('button' + ((st.studyDays || 'all') === v ? '.on' : ''), { type: 'button' }, l); bb.addEventListener('click', () => { st.studyDays = v; save(); ['au', 'pl'].forEach((pp) => { if (S.activeProfile()) T.planToday(pp, true); }); LA.refresh(); }); return bb; }));
+    tgt.appendChild(h('div', h('label.field', tr('Study days', 'Dni nauki')), days));
+    pace.appendChild(tgt);
     pace.appendChild(h('p.small.muted', tr('English/Polish and Maths come every day; Science and HASS/Historia alternate; enrichment subjects come about once a week. PE is not included (it is done at school).', 'Język i matematyka są codziennie; przyroda i historia na zmianę; przedmioty dodatkowe ok. raz w tygodniu. WF nie jest uwzględniony (jest w szkole).')));
     c.appendChild(pace);
     // pencil & display

@@ -13,6 +13,19 @@
   T.PASS_CHALLENGE = 0.75;
   T.PASS_EXAM = 0.85;
 
+  /* next step in a subject, skipping lessons/quizzes already picked for today's plan */
+  T.upcoming = (subj, picked) => {
+    const start = T.startIndex(subj);
+    for (let i = start; i < subj.chapters.length; i++) {
+      const ch = subj.chapters[i];
+      if (S.isChapterPassed(ch.key)) continue;
+      const lesson = ch.lessons.find((l) => !S.isLessonDone(l.key) && !picked.has(l.key));
+      if (lesson) return { kind: 'lesson', chapter: ch, lesson };
+      if (ch.lessons.some((l) => picked.has(l.key))) continue; // quiz comes after today's lessons are done
+      if (!picked.has('quiz:' + ch.key)) return { kind: 'quiz', chapter: ch };
+    }
+    return null;
+  };
   T.subjects = (prog) => (LA.curriculum[S.ck(prog)] || { subjects: [] }).subjects;
   T.startIndex = (subj) => S.P().startPoints[subj.key] || 0;
 
@@ -26,6 +39,46 @@
       return { kind: 'quiz', chapter: ch };
     }
     return null;
+  };
+
+  /* ---------- catch-up to a target date ---------- */
+  T.target = (prog) => { const t = ((S.settings().target || {})[prog] || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : null; };
+  const isStudyDay = (d) => { const mode = S.settings().studyDays || 'all'; const w = d.getDay(); return mode === 'all' || (mode === 'mon-sat' ? w !== 0 : w !== 0 && w !== 6); };
+  T.studyDaysBetween = (from, toKey) => {
+    const end = new Date(toKey + 'T23:59:59');
+    const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+    let n = 0;
+    while (d <= end && n < 400) { if (isStudyDay(d)) n++; d.setDate(d.getDate() + 1); }
+    return n;
+  };
+  /* lessons still to do (chapters already passed or tested out count as done) */
+  T.remaining = (subj) => {
+    let n = 0;
+    const start = T.startIndex(subj);
+    subj.chapters.forEach((ch, i) => { if (i < start || S.isChapterPassed(ch.key)) return; ch.lessons.forEach((l) => { if (!S.isLessonDone(l.key)) n++; }); });
+    return n;
+  };
+  T.lessonsDoneOn = (prog, dayKey) => {
+    const pre = LA.PROGRAMMES[prog].prefix(S.yearFor(prog)) + '.';
+    const L = S.P().lessons;
+    return Object.keys(L).filter((k) => k.startsWith(pre) && L[k].done && L[k].at && U.todayKey(new Date(L[k].at)) === dayKey).length;
+  };
+  T.catchUp = (prog) => {
+    const t = T.target(prog);
+    if (!t || !S.P()) return null;
+    const enrichOn = (S.settings().enrichment || {})[prog] !== false;
+    const subs = T.subjects(prog).filter((s) => enrichOn || !s.enrichment);
+    const bySubject = subs.map((s) => ({ s, left: T.remaining(s) }));
+    const left = bySubject.reduce((a, x) => a + x.left, 0);
+    const today = new Date();
+    const doneToday = T.lessonsDoneOn(prog, U.todayKey());
+    const days = Math.max(1, T.studyDaysBetween(today, t));
+    // today's quota counts lessons already done today, so it doesn't grow during the day
+    const perDay = left + doneToday === 0 ? 0 : Math.ceil((left + doneToday) / days);
+    const todo = Math.max(0, perDay - doneToday);
+    const past = new Date(t + 'T23:59:59') < today;
+    const level = perDay <= 3 ? 'comfortable' : perDay <= 5 ? 'busy' : 'heavy';
+    return { target: t, left, days, perDay, doneToday, todo, past, level, bySubject, minutes: perDay * 14 };
   };
 
   T.subjectStats = (subj) => {
@@ -174,7 +227,7 @@
   const ALT_DAYS = [[1, 3, 5, 0], [2, 4, 6]];
   const ENRICH_DAYS = [3, 5, 6];
 
-  T.planToday = (prog, force) => {
+  T.planToday = (prog, force, extra) => {
     const P = S.P();
     const key = U.todayKey() + '|' + prog;
     if (P.homework[key] && !force) return P.homework[key];
@@ -196,13 +249,33 @@
       .forEach((k) => add({ kind: 'hw', ref: k, title: `${sname(k)}: ${LA.index.lessons[k].title}` }, MIN.hw));
 
     // 3. new lessons to learn together
+    const cu = T.catchUp(prog);
+    if (cu && !cu.past && cu.left > 0) {
+      // Catch-up mode: schedule today's quota, spread over the subjects with the most left to do
+      const queue = cu.bySubject.filter((x) => x.left > 0).map((x) => ({ s: x.s, left: x.left, taken: 0 }));
+      let need = cu.todo + (extra || 0);
+      // offer one quick test-out for a fresh chapter she may already know from school (saves a whole chapter)
+      const fresh = queue.slice().sort((a, b) => (['maths', 'matematyka'].includes(b.s.id) ? 1 : 0) - (['maths', 'matematyka'].includes(a.s.id) ? 1 : 0)).map((x) => T.nextStep(x.s)).find((st) => st && st.chapter.bridge && st && st.kind === 'lesson' && st.chapter.lessons.every((l) => !S.isLessonDone(l.key)) && !(S.chapter(st.chapter.key) && S.chapter(st.chapter.key).attempts.length) && st.chapter.lessons.length >= 3);
+      if (fresh && need > 0) add({ kind: 'testout', ref: fresh.chapter.key, title: `${sname(fresh.chapter.key)}: ${fresh.chapter.title}`, subject: fresh.chapter.subjectKey }, MIN.quiz);
+      const picked = new Set();
+      for (let guard = 0; need > 0 && guard < 60; guard++) {
+        queue.sort((a, b) => (b.left - b.taken * 3) - (a.left - a.taken * 3));
+        const q = queue[0];
+        if (!q || q.left - q.taken <= 0) break;
+        const st = T.upcoming(q.s, picked);
+        if (!st) { q.left = 0; continue; }
+        q.taken++;
+        if (st.kind === 'lesson') { picked.add(st.lesson.key); add({ kind: 'lesson', ref: st.lesson.key, title: `${q.s.name}: ${st.lesson.title}`, subject: q.s.id }, st.lesson.minutes || MIN.lesson); need--; }
+        else { picked.add('quiz:' + st.chapter.key); add({ kind: 'quiz', ref: st.chapter.key, title: `${q.s.name}: ${LA.tr('check-up quiz', 'sprawdzian')} — ${st.chapter.title}`, subject: q.s.id }, MIN.quiz); }
+      }
+    }
     const w = new Date().getDay();
     const core = subs.filter((s) => ['english', 'maths', 'polski', 'matematyka'].includes(s.id));
     const alt = subs.filter((s) => !s.enrichment && !core.includes(s));
     const enrich = (S.settings().enrichment || {})[prog] !== false ? subs.filter((s) => s.enrichment) : [];
     const todays = core.concat(alt.filter((s, i) => ALT_DAYS[i % 2].includes(w))).concat(enrich.filter((s, i) => ENRICH_DAYS[i % 3] === w));
     const others = alt.concat(enrich).filter((s) => !todays.includes(s));
-    for (const s of todays.concat(others)) {
+    for (const s of (cu && !cu.past && cu.left > 0 ? [] : todays.concat(others))) {
       if (used >= budget && items.some((i) => i.kind === 'lesson' || i.kind === 'quiz')) break;
       const step = T.nextStep(s);
       if (!step) continue;
@@ -210,7 +283,7 @@
       else add({ kind: 'quiz', ref: step.chapter.key, title: `${s.name}: ${LA.tr('check-up quiz', 'sprawdzian')} — ${step.chapter.title}`, subject: s.id }, MIN.quiz);
     }
     // catch-up: one more lesson in the subject most behind
-    if (used < budget) {
+    if (used < budget && !(cu && cu.left > 0)) {
       const most = subs.map((s) => ({ s, st: T.subjectStats(s) })).filter((x) => x.st.behind > 0).sort((a, b) => b.st.behind - a.st.behind)[0];
       if (most) {
         const step = T.nextStep(most.s);
