@@ -764,6 +764,16 @@ body.target-clinical.recording .rec-state::after { content: ' · dane kliniczne'
   .toasts { bottom: 10px; gap: 6px; max-width: calc(100vw - 16px); }
   .toast { padding: 8px 12px; font-size: 12.5px; }
 }
+/* Report toolbar: sized to the report panel itself (not the window), so the buttons never overlap.
+   When the panel is too narrow, the toolbar labels hide first (icons stay, with their tooltips). */
+.report { container-type: inline-size; }
+@container (max-width: 1010px) { .lbl-po { display: none; } }
+@container (max-width: 960px) { .report-toolbar .tb-btn span { display: none; } }
+@container (max-width: 520px) {
+  .report-toolbar .tb-sep { display: none; }
+  .report-toolbar .tb-btn { padding: 0 6px; }
+}
+@container (max-width: 490px) { .report-toolbar .btn-copy .btn-label { display: none; } }
 /* extremely narrow (≤ 440 px): keep "Nowy opis" visible */
 @media (max-width: 440px) {
   .report-toolbar .tb-sep { display: none; }

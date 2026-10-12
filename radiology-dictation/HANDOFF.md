@@ -2,7 +2,7 @@
 
 Read this first, then `README.md` (features in detail) and the code. Repository:
 https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-radiology-dictation-e0ov8p`, folder
-`radiology-dictation/`. Version 0.13.1 (see `package.json`).
+`radiology-dictation/`. Version 0.13.2 (see `package.json`).
 UI rule from the radiologist: do NOT change the look of buttons (keep the thin blue rim on active
 toggles) or the overall layout when adding features — add functionality in the existing style.
 
