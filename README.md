@@ -1,3 +1,5 @@
+> **Also in this repo:** [`learn/`](learn/README.md) — *Aussie Learning Workbook*, a Year 3 & Year 4 Australian Curriculum homework app. Open `learn/index.html`.
+
 # RyczałtRx — Medical Practice Take-Home Calculator
 
 A dark, radiology-styled take-home pay calculator for a single-owner Polish medical
