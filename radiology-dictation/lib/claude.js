@@ -40,6 +40,14 @@ LANGUAGES:
 - task "translate": only translate current_report into output_language — do not add, remove or reinterpret anything; corrections must be empty.
 - Write corrections and warnings in Polish.
 
+ENGLISH DICTATION → POLISH REPORT (input_language "en", output_language "pl") — as important as Polish dictation; the radiologist dictates better in English and relies on you to produce a report a Polish radiologist would have written himself:
+- Do not translate word for word. Understand the finding, then write it the way a Polish radiologist writes it, in the radiologist's own Polish style (style_profile, own_samples, the template's wording). Polish word order and syntax, not English: e.g. "There is a 5 mm stone in the distal left ureter with mild upstream hydronephrosis" → "W dystalnym odcinku moczowodu lewego złóg wielkości 5 mm z niewielkim poszerzeniem UKM powyżej." — not "Jest 5 mm kamień w dystalnym lewym moczowodzie…".
+- Use standard Polish radiological terminology and abbreviations: haemorrhage → krwawienie / krwiak (as appropriate), subdural haematoma → krwiak podtwardówkowy, midline shift → przemieszczenie struktur linii pośrodkowej, mass effect → efekt masy, hydronephrosis → poszerzenie UKM / wodonercze, free fluid → wolny płyn, free air → wolne powietrze, consolidation → zagęszczenie miąższu płuca / konsolidacja, ground glass → zmiany typu matowej szyby, fat stranding → zatarcie / pasmowate zagęszczenia tkanki tłuszczowej, unremarkable → bez zmian / prawidłowy (as the template says), HU → j.H., "no evidence of" → "bez cech" / "nie stwierdza się" (follow the radiologist's preference).
+- "glossary" (EN → PL terms the radiologist approved) is binding: always use the Polish term given there.
+- "translation_examples" are the radiologist's own earlier English dictations with the Polish text he finally signed: study them closely — how he renders English phrasing in Polish, his sentence structure, abbreviations and conclusion style — and do the same.
+- Numbers, units, sides, levels and locations are carried over exactly (decimal comma in Polish: 2.5 → 2,5; "5 by 4 mm" → "5 x 4 mm"; "L4-5" → "L4/L5"; segments "segment 4" → "segment IV" only if that is the radiologist's style).
+- If an English word was misheard by speech recognition and the intended term is not certain, keep the meaning conservative and add a warning in Polish quoting the English fragment.
+
 Your job:
 EMERGENCY PRIORITIES — the radiologist is an emergency radiologist; rank every finding into one of four tiers and use the tiers for the order of the body and of the conclusion:
 - TIER 1 — life-threatening / needs immediate action: e.g. ruptured or leaking aneurysm, active bleeding / extravasation, aortic dissection, tension or large pneumothorax, free intraperitoneal air (perforation), bowel ischaemia, intracranial haemorrhage with mass effect or herniation, acute large-vessel occlusion / acute infarct, central pulmonary embolism, testicular / ovarian torsion, obstructed infected kidney.
@@ -173,12 +181,17 @@ export function outputModeFor({ report, outputLang = 'pl', translate = false }) 
  * The user turn as two content blocks: the template (stable per template → cached together with
  * the system prompt) and the per-request part. Both are JSON objects.
  */
-export function buildUserContent({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], clinical = '', profile = null, samples = [], inputLang = 'pl', outputLang = 'pl', translate = false }) {
+export function buildUserContent({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], clinical = '', profile = null, samples = [], translations = [], inputLang = 'pl', outputLang = 'pl', translate = false }) {
   // the learned preferences change rarely → part of the cached block
   const fixed = { template: { header: template.header, body: template.body, conclusion: template.conclusion } };
   if (styleExamples.length && !translate) fixed.style_examples = styleExamples;
   if (learned && !translate) fixed.learned = learned;
-  if (profile && !translate) fixed.style_profile = profile;
+  if (profile && !translate) fixed.style_profile = { rules: profile.rules, phrases: profile.phrases };
+  // English dictation → Polish report: the radiologist's glossary and his own EN → PL examples
+  if (inputLang === 'en' && outputLang === 'pl' && !translate) {
+    if (profile?.glossary?.length) fixed.glossary = profile.glossary;
+    if (translations.length) fixed.translation_examples = translations;
+  }
   if (samples.length && !translate) fixed.own_samples = samples;
   const variable = {
     task: translate ? 'translate' : 'merge',
@@ -258,7 +271,7 @@ function getClient() {
 }
 
 /** Build the request for a speed mode. */
-export function buildRequest({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, inputLang, outputLang, translate, mode = 'fast' }) {
+export function buildRequest({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate, mode = 'fast' }) {
   const m = MODES[mode] || MODES.fast;
   const params = {
     model: MODEL,
@@ -269,7 +282,7 @@ export function buildRequest({ template, report, dictation, instruction, style, 
       effort: process.env.CLAUDE_EFFORT || m.effort,
       format: { type: 'json_schema', schema: outputModeFor({ report, outputLang, translate }) === 'edits' ? EDITS_SCHEMA : OUTPUT_SCHEMA },
     },
-    messages: [{ role: 'user', content: buildUserContent({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, inputLang, outputLang, translate }) }],
+    messages: [{ role: 'user', content: buildUserContent({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate }) }],
   };
   const betas = [];
   if (USE_FALLBACKS) {
@@ -289,8 +302,8 @@ async function send(req) {
   return req.beta ? getClient().beta.messages.create(req.params, req.options) : getClient().messages.create(req.params, req.options);
 }
 
-export async function formatWithClaude({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], clinical = '', profile = null, samples = [], inputLang = 'pl', outputLang = 'pl', translate = false, mode = 'fast' }) {
-  const args = { template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, inputLang, outputLang, translate };
+export async function formatWithClaude({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], clinical = '', profile = null, samples = [], translations = [], inputLang = 'pl', outputLang = 'pl', translate = false, mode = 'fast' }) {
+  const args = { template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate };
   let response;
   try {
     try {

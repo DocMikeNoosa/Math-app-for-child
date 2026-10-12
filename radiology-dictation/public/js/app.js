@@ -23,7 +23,7 @@ const els = Object.fromEntries(
     'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo', 'learnSummary', 'clinical', 'clinicalMic', 'langFlow',
     'learnBtn', 'learnDot', 'learnModal', 'closeLearn', 'learnOn', 'learnProfileSummary', 'learnText', 'learnLang', 'learnAdd', 'learnSamples',
     'learnAnalyze', 'learnStatus', 'learnQSec', 'learnQuestions', 'learnRules', 'learnRuleInput', 'learnRuleAdd', 'learnPhrases', 'learnAuto', 'learnForget',
-    'cpToggle', 'cpCount', 'cpoints',
+    'cpToggle', 'cpCount', 'cpoints', 'enVariant', 'pairEn', 'pairPl', 'pairAdd', 'pairList', 'pairCount', 'glossEn', 'glossPl', 'glossAdd', 'glossList',
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
@@ -57,6 +57,8 @@ const state = {
   reportId: newId(), // identifies this report in today's list
   lastAI: null, // the report as the AI produced it (for style learning)
   recordKey: null, // keyboard key bound to start / stop dictation (e.g. F9 sent by a PowerMic)
+  enVariant: 'en-US', // English speech recognition: en-US or en-GB
+  enDictations: [], // English dictations of this report (→ EN→PL learning pairs)
 };
 function newId() { return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; }
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -106,6 +108,7 @@ function load() {
     els.bgProcess.checked = saved.bgProcess !== false;
     els.learnStyle.checked = saved.learnStyle !== false;
     state.recordKey = typeof saved.recordKey === 'string' ? saved.recordKey : null;
+    state.enVariant = saved.enVariant === 'en-GB' ? 'en-GB' : 'en-US';
     state.recent = (saved.recent || []).filter((id) => getTemplate(id));
     state.ignore = Array.isArray(saved.ignore) ? saved.ignore : [];
   } catch { /* storage unavailable — start fresh */ }
@@ -118,7 +121,7 @@ function save() {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify({
         report: state.report, dictation: els.dictation.value, style: els.stylePrefs.value, clinical: els.clinical.value,
-        bgProcess: els.bgProcess.checked, learnStyle: els.learnStyle.checked, recordKey: state.recordKey, reportId: state.reportId,
+        bgProcess: els.bgProcess.checked, learnStyle: els.learnStyle.checked, recordKey: state.recordKey, reportId: state.reportId, enVariant: state.enVariant,
         recent: state.recent, ignore: state.ignore,
         inputLang: state.inputLang, outputLang: state.outputLang, aiMode: state.aiMode,
       }));
@@ -263,6 +266,7 @@ function selectTemplate(id) {
   state.ignore = [];
   if (wasEdited) archiveCurrent();
   state.reportId = newId();
+  state.enDictations = [];
   state.lastAI = null;
   commit(reportFromTemplate(t), { source: 'Szablon' });
   if (!state.prepareAfterPick) toast(wasEdited ? `${t.title} — „Cofnij” przywróci poprzedni opis` : t.title, 'info');
@@ -352,13 +356,13 @@ function renderClinical() {
 
 // ---------------------------------------------------------------- learning module ("Nauka AI")
 const PROFILE_KEY = 'radvox.profile.v1';
-let profile = { rules: [], phrases: [], summary: '', questions: [], answers: [], samples: [], analyzedAt: 0, itemsAtAnalysis: 0 };
+let profile = { rules: [], phrases: [], glossary: [], summary: '', questions: [], answers: [], samples: [], analyzedAt: 0, itemsAtAnalysis: 0 };
 let learnSampleLang = 'pl';
 function loadProfile() {
   try {
     const saved = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null');
     if (saved && typeof saved === 'object') profile = { ...profile, ...saved };
-    for (const k of ['rules', 'phrases', 'questions', 'answers', 'samples']) if (!Array.isArray(profile[k])) profile[k] = [];
+    for (const k of ['rules', 'phrases', 'glossary', 'questions', 'answers', 'samples']) if (!Array.isArray(profile[k])) profile[k] = [];
   } catch { /* ignore */ }
 }
 function saveProfile() {
@@ -367,7 +371,7 @@ function saveProfile() {
   if (!els.learnModal.hidden) renderLearn();
 }
 const learnedItems = () => styleExamples.length + learned.conclusionRemoved.length + learned.conclusionAdded.length + learned.restored.length
-  + Object.values(learned.reports).reduce((a, r) => a + r.length, 0) + profile.samples.length + profile.answers.length;
+  + Object.values(learned.reports).reduce((a, r) => a + r.length, 0) + profile.samples.length + profile.answers.length + (learned.translations || []).length;
 function renderLearnDot() {
   const pending = profile.questions.length > 0 || learnedItems() - (profile.itemsAtAnalysis || 0) >= 8;
   els.learnDot.hidden = !pending;
@@ -380,6 +384,18 @@ function addSample(text, lang = 'pl', kind = 'przykład', title = '') {
   profile.samples = [...profile.samples.filter((x) => x.text !== clean && !(kind === 'szablon' && x.kind === 'szablon' && x.title === title)), { text: clean.slice(0, 8000), lang, kind, title, at: Date.now() }].slice(-40);
   saveProfile();
   return true;
+}
+/** The analysis' glossary plus every term the radiologist added by hand (his entries win). */
+function mergeGlossary(fromAI, current) {
+  const manual = current.filter((g) => g.manual);
+  const key = (g) => g.en.trim().toLowerCase();
+  return [...fromAI.filter((g) => !manual.some((m) => key(m) === key(g))), ...manual].slice(-80);
+}
+/** EN→PL pairs for a request: same template first, newest first, at most 6. */
+function translationsFor(templateId) {
+  const all = (learned.translations || []).slice().reverse();
+  const same = all.filter((x) => x.templateId === templateId);
+  return [...same, ...all.filter((x) => x.templateId !== templateId)].slice(0, 6).map(({ en, pl }) => ({ en: en.slice(0, 3000), pl: pl.slice(0, 4000) }));
 }
 /** Up to 3 of the radiologist's own texts in the report language, sent with each request. */
 function samplesFor(lang) {
@@ -401,6 +417,12 @@ function renderLearn() {
   els.learnPhrases.innerHTML = profile.phrases.length
     ? profile.phrases.map((x, i) => `<li><span class="txt"><span class="sit">${esc(x.situation)}</span>${esc(x.preferred)}</span><button class="x-btn" data-del-phrase="${i}" title="Usuń">${X}</button></li>`).join('')
     : '<li class="learn-empty">—</li>';
+  const tr = learned.translations || [];
+  els.pairCount.textContent = tr.length ? `Pary EN → PL: ${tr.length} (${tr.filter((x) => x.manual).length} dodane ręcznie)` : 'Brak par — zapiszą się same, gdy skopiujesz opis podyktowany po angielsku.';
+  els.pairList.innerHTML = tr.slice().reverse().slice(0, 12).map((x, i) => `<li><span class="learn-tag">EN→PL</span><span class="txt" title="${esc(`${x.en}\n→\n${x.pl}`.slice(0, 900))}">${esc(x.en.replace(/\s+/g, ' ').slice(0, 70))} → ${esc(x.pl.replace(/\s+/g, ' ').slice(0, 90))}</span><button class="x-btn" data-del-pair="${tr.length - 1 - i}" title="Usuń parę">${X}</button></li>`).join('');
+  els.glossList.innerHTML = profile.glossary.length
+    ? profile.glossary.map((g, i) => `<li><span class="txt"><span class="arrow-en">${esc(g.en)} →</span> ${esc(g.pl)}</span><button class="x-btn" data-del-gloss="${i}" title="Usuń">${X}</button></li>`).join('')
+    : '<li class="learn-empty">Słownik jest pusty — AI uzupełni go przy analizie stylu albo dodaj termin sam.</li>';
   els.learnQSec.hidden = !profile.questions.length;
   els.learnQuestions.innerHTML = profile.questions.map((q, i) => `<div class="learn-q" data-q="${i}">
       <div class="q">${esc(q.question)}</div>
@@ -425,6 +447,8 @@ async function analyzeStyle() {
     conclusionAdded: learned.conclusionAdded,
     restored: learned.restored,
     answers: profile.answers,
+    translations: (learned.translations || []).map(({ en, pl }) => ({ en, pl })),
+    glossary: profile.glossary.map(({ en, pl }) => ({ en, pl })),
     profile: { rules: profile.rules, phrases: profile.phrases },
   };
   els.learnAnalyze.disabled = true;
@@ -434,9 +458,9 @@ async function analyzeStyle() {
     const res = await fetch('/api/learn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
-    profile = { ...profile, rules: data.rules || [], phrases: data.phrases || [], summary: data.summary || '', questions: data.questions || [], analyzedAt: Date.now(), itemsAtAnalysis: learnedItems() };
+    profile = { ...profile, rules: data.rules || [], phrases: data.phrases || [], glossary: mergeGlossary(data.glossary || [], profile.glossary), summary: data.summary || '', questions: data.questions || [], analyzedAt: Date.now(), itemsAtAnalysis: learnedItems() };
     saveProfile();
-    els.learnStatus.textContent = `Gotowe: ${profile.rules.length} reguł, ${profile.phrases.length} sformułowań${profile.questions.length ? `, ${profile.questions.length} ${profile.questions.length === 1 ? 'pytanie' : 'pytania'} poniżej` : ''}. AI będzie się ich trzymać w każdym opisie.`;
+    els.learnStatus.textContent = `Gotowe: ${profile.rules.length} reguł, ${profile.phrases.length} sformułowań, ${profile.glossary.length} terminów EN→PL${profile.questions.length ? `, ${profile.questions.length} ${profile.questions.length === 1 ? 'pytanie' : 'pytania'} poniżej` : ''}. AI będzie się ich trzymać w każdym opisie.`;
     toast('Styl przeanalizowany — reguły zapisane', 'ok');
   } catch (err) {
     els.learnStatus.textContent = `Nie udało się: ${err.message}`;
@@ -659,7 +683,8 @@ function formatPayload() {
     style: els.stylePrefs.value,
     styleExamples: els.learnStyle.checked ? styleExamples.slice(-12).map(({ ai, final }) => ({ ai, final })) : [],
     learned: els.learnStyle.checked ? learnedFor(t.id) : null,
-    profile: els.learnStyle.checked && (profile.rules.length || profile.phrases.length) ? { rules: profile.rules, phrases: profile.phrases } : null,
+    profile: els.learnStyle.checked && (profile.rules.length || profile.phrases.length || profile.glossary.length) ? { rules: profile.rules, phrases: profile.phrases, glossary: profile.glossary.map(({ en, pl }) => ({ en, pl })) } : null,
+    translations: els.learnStyle.checked && state.inputLang === 'en' ? translationsFor(t.id) : [],
     samples: els.learnStyle.checked ? samplesFor(state.outputLang) : [],
     keep: state.ignore.slice(-40),
     inputLang: state.inputLang,
@@ -794,6 +819,7 @@ async function process() {
 
   commit(result.report, { baseline: before, warnings: result.warnings || [], corrections: result.corrections || [], source });
   state.lastAI = source.startsWith('Claude') ? clone(result.report) : state.lastAI;
+  if (payload.inputLang === 'en' && dictation && result.report.lang === 'pl') state.enDictations.push(dictation);
   els.dictation.value = '';
   els.instruction.value = '';
   chunkStack.length = 0;
@@ -834,6 +860,7 @@ async function newReport() {
   state.reportId = newId();
   cpHidden.clear();
   cpOffList = [];
+  state.enDictations = [];
   renderPrepState();
   if (!t && !pending) { openPicker(); return; } // already blank
   commit(blankReport(state.outputLang), { source: 'Brak szablonu' });
@@ -846,6 +873,9 @@ const AI_MODE_HINTS = {
   accurate: 'Dokładny — AI dłużej analizuje opis; wolniej, przy trudnych przypadkach.',
   turbo: 'Turbo — szybsze generowanie tekstu (ok. 2× droższe); gdy niedostępne, używany jest tryb Szybki.',
 };
+function renderEnVariant() {
+  els.enVariant.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.variant === state.enVariant)));
+}
 function renderAiMode() {
   els.aiMode.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === state.aiMode)));
   els.aiModeHint.textContent = AI_MODE_HINTS[state.aiMode];
@@ -876,7 +906,7 @@ async function setInputLang(lang) {
   if (lang === 'en' && !state.ai) return toast('Dyktowanie po angielsku wymaga AI (Claude).', 'warn');
   if (state.recording) await stopRecording();
   state.inputLang = lang;
-  dictationEngine.lang = lang === 'en' ? 'en-US' : 'pl-PL';
+  dictationEngine.lang = lang === 'en' ? state.enVariant : 'pl-PL';
   renderLangToggles();
   save();
   toast(lang === 'en' ? 'Dyktowanie: angielski (opis powstaje w wybranym języku opisu)' : 'Dyktowanie: polski', 'info');
@@ -1546,7 +1576,18 @@ function learnFromEdits() {
     const last = (id) => learned.reports[id][learned.reports[id].length - 1]?.at || 0;
     if (ids.length > 40) delete learned.reports[ids.sort((a, b) => last(a) - last(b))[0]];
   }
-  if (!pairs.length && !concl.removed.length && !concl.added.length && !changed) return;
+  // English dictation → the Polish text the radiologist signed: an EN→PL learning pair
+  let pairAdded = false;
+  if (state.enDictations.length && final.lang === 'pl') {
+    const t = template();
+    const tpl = new Set(t ? [...splitSentences(t.body), ...t.conclusion.split('\n').map(stripB)] : []);
+    const own = [...splitSentences(final.body), ...final.conclusion.split('\n').map(stripB)].filter((x) => x && !tpl.has(x));
+    if (own.length) {
+      learned.translations = [...(learned.translations || []).filter((x) => x.id !== state.reportId), { id: state.reportId, templateId: final.templateId, en: state.enDictations.join('\n'), pl: own.join('\n'), at: Date.now() }].slice(-30);
+      pairAdded = true;
+    }
+  }
+  if (!pairs.length && !concl.removed.length && !concl.added.length && !changed && !pairAdded) return;
   saveStyle();
   const n = pairs.length + concl.removed.length + concl.added.length;
   toast(n ? `Zapamiętano ${n} ${n === 1 ? 'Twoją poprawkę' : 'Twoich poprawek'} — AI uwzględni je w następnych opisach` : 'Zapamiętano układ Twojego opisu', 'info', 2600);
@@ -1554,7 +1595,7 @@ function learnFromEdits() {
 
 // What the app learned, sent to the AI (only for the current template's example reports).
 const LEARNED_KEY = 'radvox.learned.v1';
-let learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {} };
+let learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {}, translations: [] };
 function loadLearned() {
   try {
     const saved = JSON.parse(localStorage.getItem(LEARNED_KEY) || 'null');
@@ -1564,6 +1605,7 @@ function loadLearned() {
         conclusionAdded: Array.isArray(saved.conclusionAdded) ? saved.conclusionAdded : [],
         restored: Array.isArray(saved.restored) ? saved.restored : [],
         reports: saved.reports && typeof saved.reports === 'object' ? saved.reports : {},
+        translations: Array.isArray(saved.translations) ? saved.translations : [],
       };
     }
   } catch { /* ignore */ }
@@ -1646,7 +1688,7 @@ async function checkStatus() {
     state.inputLang = 'pl';
     state.outputLang = state.report.lang;
   }
-  dictationEngine.lang = state.inputLang === 'en' ? 'en-US' : 'pl-PL';
+  dictationEngine.lang = state.inputLang === 'en' ? state.enVariant : 'pl-PL';
   renderLangToggles();
   setBusy(false);
 }
@@ -1701,7 +1743,7 @@ function bind() {
   els.clearStyle.addEventListener('click', () => {
     if (!window.confirm('Zapomnieć wszystko, czego RadVox nauczył się z Twoich poprawek?')) return;
     styleExamples = [];
-    learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {} };
+    learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {}, translations: [] };
     saveStyle();
   });
   els.styleList.addEventListener('click', (e) => {
@@ -1721,6 +1763,8 @@ function bind() {
     if (ds.delSample !== undefined) { profile.samples.splice(Number(ds.delSample), 1); saveProfile(); return; }
     if (ds.delRule !== undefined) { profile.rules.splice(Number(ds.delRule), 1); saveProfile(); return; }
     if (ds.delPhrase !== undefined) { profile.phrases.splice(Number(ds.delPhrase), 1); saveProfile(); return; }
+    if (ds.delGloss !== undefined) { profile.glossary.splice(Number(ds.delGloss), 1); saveProfile(); return; }
+    if (ds.delPair !== undefined) { learned.translations.splice(Number(ds.delPair), 1); saveStyle(); renderLearn(); return; }
     if (ds.qOpt !== undefined) { els.learnQuestions.querySelector(`[data-q-text="${ds.qOpt}"]`).value = ds.text; return; }
     if (ds.qSave !== undefined) { answerQuestion(Number(ds.qSave)); return; }
     if (ds.qSkip !== undefined) { answerQuestion(Number(ds.qSkip), true); }
@@ -1739,6 +1783,37 @@ function bind() {
     else toast('Wklej najpierw tekst opisu lub sformułowania.', 'warn');
   });
   els.learnAnalyze.addEventListener('click', analyzeStyle);
+  els.pairAdd.addEventListener('click', () => {
+    const en = scrubIdentifiers(els.pairEn.value.trim());
+    const pl = scrubIdentifiers(els.pairPl.value.trim());
+    if (!en || !pl) { toast('Wpisz tekst angielski i swoją polską wersję.', 'warn'); return; }
+    learned.translations = [...(learned.translations || []), { id: newId(), manual: true, en, pl, at: Date.now() }].slice(-30);
+    els.pairEn.value = '';
+    els.pairPl.value = '';
+    saveStyle();
+    renderLearn();
+    toast('Para EN → PL zapisana — AI użyje jej przy angielskim dyktacie', 'ok');
+  });
+  const addGloss = () => {
+    const en = els.glossEn.value.trim();
+    const pl = els.glossPl.value.trim();
+    if (!en || !pl) { toast('Wpisz termin angielski i polski.', 'warn'); return; }
+    profile.glossary = [...profile.glossary.filter((g) => g.en.toLowerCase() !== en.toLowerCase()), { en, pl, manual: true }].slice(-80);
+    els.glossEn.value = '';
+    els.glossPl.value = '';
+    saveProfile();
+    els.glossEn.focus();
+  };
+  els.glossAdd.addEventListener('click', addGloss);
+  els.glossPl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addGloss(); } });
+  els.enVariant.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-variant]');
+    if (!b) return;
+    state.enVariant = b.dataset.variant;
+    if (state.inputLang === 'en') dictationEngine.lang = state.enVariant;
+    renderEnVariant();
+    save();
+  });
   const addRule = () => {
     const v = els.learnRuleInput.value.trim();
     if (!v) return;
@@ -1751,9 +1826,9 @@ function bind() {
   els.learnOn.addEventListener('change', () => { els.learnStyle.checked = els.learnOn.checked; save(); toast(els.learnOn.checked ? 'AI używa Twojego stylu' : 'AI nie używa Twojego stylu (nauka wyłączona)', 'info'); });
   els.learnForget.addEventListener('click', () => {
     if (!window.confirm('Zapomnieć wszystko: przykłady, reguły, sformułowania, odpowiedzi i zapamiętane poprawki?')) return;
-    profile = { rules: [], phrases: [], summary: '', questions: [], answers: [], samples: [], analyzedAt: 0, itemsAtAnalysis: 0 };
+    profile = { rules: [], phrases: [], glossary: [], summary: '', questions: [], answers: [], samples: [], analyzedAt: 0, itemsAtAnalysis: 0 };
     styleExamples = [];
-    learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {} };
+    learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {}, translations: [] };
     saveStyle();
     saveProfile();
   });
@@ -1982,6 +2057,7 @@ function init() {
   renderSnippets();
   renderReport();
   renderAiMode();
+  renderEnVariant();
   renderStyle();
   renderTodayCount();
   tickClock();

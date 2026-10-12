@@ -389,6 +389,14 @@
       <div class="field">
         <div class="field-head"><label>Rozpoznawanie mowy</label></div>
         <p class="hint" id="speechInfo"></p>
+        <div class="btn-row">
+          <div class="seg" id="enVariant" role="group" aria-label="Wariant angielskiego">
+            <span class="seg-lbl">Angielski</span>
+            <button type="button" data-variant="en-GB" aria-pressed="false">UK</button>
+            <button type="button" data-variant="en-US" aria-pressed="true">US</button>
+          </div>
+        </div>
+        <p class="hint">Wybierz akcent, którym dyktujesz po angielsku — rozpoznawanie będzie dokładniejsze.</p>
       </div>
       <div class="field">
         <div class="field-head"><label>Polecenia głosowe</label></div>
@@ -460,6 +468,20 @@
             <button class="btn btn-small" id="learnAdd">Dodaj przykład</button>
           </div>
           <ul class="learn-samples" id="learnSamples"></ul>
+        </section>
+
+        <section class="learn-sec">
+          <h4>Angielski → polski</h4>
+          <p class="hint">Dyktujesz po angielsku, opis ma być po polsku? Każdy taki opis, który skopiujesz, zostaje zapamiętany jako para „Twój angielski dyktat → Twój podpisany polski tekst” i uczy AI. Możesz też dodać parę ręcznie i ustalić własny słownik terminów.</p>
+          <div class="pair-grid">
+            <textarea id="pairEn" rows="3" lang="en" spellcheck="true" placeholder="English: e.g. 5 mm stone in the distal left ureter with mild upstream hydronephrosis"></textarea>
+            <textarea id="pairPl" rows="3" lang="pl" spellcheck="true" placeholder="Twoja polska wersja: np. W dystalnym odcinku moczowodu lewego złóg 5 mm z niewielkim poszerzeniem UKM."></textarea>
+          </div>
+          <div class="btn-row"><span class="hint" id="pairCount"></span><span class="grow"></span><button class="btn btn-small" id="pairAdd">Dodaj parę</button></div>
+          <ul class="learn-samples" id="pairList"></ul>
+          <h4 class="sub">Słownik EN → PL</h4>
+          <div class="btn-row gloss-add"><input id="glossEn" type="text" lang="en" placeholder="EN: fat stranding" autocomplete="off" /><input id="glossPl" type="text" lang="pl" placeholder="PL: pasmowate zagęszczenia tkanki tłuszczowej" autocomplete="off" /><button class="btn btn-small" id="glossAdd">Dodaj</button></div>
+          <ul class="learn-phrases" id="glossList"></ul>
         </section>
 
         <section class="learn-sec">

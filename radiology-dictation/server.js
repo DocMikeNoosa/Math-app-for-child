@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
-import { analyzeStyle, cleanLearnInput, cleanProfile } from './lib/learn.js';
+import { analyzeStyle, cleanLearnInput, cleanProfile, cleanTranslations } from './lib/learn.js';
 import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -90,6 +90,7 @@ async function handleFormat(req, res) {
       clinical: String(body.clinical || '').slice(0, 2000),
       profile: cleanProfile(body.profile),
       samples: strList(body.samples, 6, 3000),
+      translations: cleanTranslations(body.translations, 6),
       inputLang: lang(body.inputLang),
       outputLang: lang(body.outputLang),
       translate,
@@ -139,7 +140,7 @@ async function handleLearn(req, res) {
     return sendJson(res, 400, { error: 'Nieprawidłowy JSON.' });
   }
   const input = cleanLearnInput(body);
-  const evidence = input.samples.length + input.edits.length + input.conclusion_removed.length + input.conclusion_added.length + input.answers.length;
+  const evidence = input.samples.length + input.edits.length + input.conclusion_removed.length + input.conclusion_added.length + input.answers.length + input.translations.length + input.glossary_current.length;
   if (!evidence) return sendJson(res, 400, { error: 'Brak materiału do nauki — dodaj przykłady swoich opisów.' });
   try {
     sendJson(res, 200, await analyzeStyle(input));

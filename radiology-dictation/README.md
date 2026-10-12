@@ -202,6 +202,25 @@ for the AI, and set personal style rules under ⚙.
 
   Every change can be undone ("Cofnij") and is learned when you copy the report.
 
+## English dictation → Polish report (v0.13)
+
+Dictating in English with a Polish report is treated as a first-class path:
+- **AI rules for EN → PL**: no word-for-word translation. Claude writes the finding as a Polish
+  radiologist would, in your Polish style, with Polish word order and standard Polish terminology
+  and abbreviations. Numbers, sides and levels are carried over exactly (decimal comma, "5 x 4
+  mm", L4/L5); unclear English fragments become a warning quoting the English.
+- **Learning from every EN → PL report**: when you copy (or finish with "Nowy opis") a report you
+  dictated in English, RadVox stores the pair "your English dictation → the Polish text you
+  signed". The 6 most relevant pairs (same template first) go with every English dictation.
+- **Nauka AI → "Angielski → polski"**:
+  - add pairs by hand (English text plus your Polish version);
+  - keep your own **EN → PL glossary** (e.g. "fat stranding → pasmowate zagęszczenia tkanki
+    tłuszczowej"), which is binding for the AI;
+  - "Analizuj mój styl" also builds the glossary from your pairs. Terms you added yourself are
+    always kept.
+- **English accent** (⚙ → Rozpoznawanie mowy → Angielski UK / US) for better recognition.
+- The "EN → PL" badge on "Przygotuj opis" shows the direction.
+
 ## Classifications and consultation line
 
 - **Classifications**: when the dictation gives the data a standard system needs, Claude adds the

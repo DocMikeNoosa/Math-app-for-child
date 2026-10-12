@@ -343,3 +343,29 @@ test('format: style profile and own samples go into the cached block', async () 
   assert.deepEqual(cached.style_profile.rules, ['Reguła']);
   assert.deepEqual(cached.own_samples, ['Mój opis.']);
 });
+
+test('format: English dictation → Polish report carries the glossary and EN→PL examples; Polish dictation does not', async () => {
+  const t = getTemplate('ct_head_normal');
+  const profile = { rules: ['R'], phrases: [], glossary: [{ en: 'subdural haematoma', pl: 'krwiak podtwardówkowy' }] };
+  const translations = [{ en: 'small left subdural haematoma 5 mm', pl: 'Niewielki krwiak podtwardówkowy nad lewą półkulą grubości 5 mm.' }];
+  nextReply = editsReply([], t.conclusion);
+  await post({ templateId: t.id, report: reportFromTemplate(t), dictation: 'left subdural haematoma 6 mm', inputLang: 'en', outputLang: 'pl', profile, translations });
+  let cached = JSON.parse(lastRequest.body.messages[0].content[0].text);
+  assert.deepEqual(cached.glossary, profile.glossary);
+  assert.deepEqual(cached.translation_examples, translations);
+  assert.match(lastRequest.body.system[0].text, /ENGLISH DICTATION → POLISH REPORT/);
+  nextReply = editsReply([], t.conclusion);
+  await post({ templateId: t.id, report: reportFromTemplate(t), dictation: 'krwiak', inputLang: 'pl', outputLang: 'pl', profile, translations });
+  cached = JSON.parse(lastRequest.body.messages[0].content[0].text);
+  assert.equal(cached.glossary, undefined);
+  assert.equal(cached.translation_examples, undefined);
+});
+
+test('learn: EN→PL pairs count as material; the glossary comes back', async () => {
+  nextReply = { json: message(JSON.stringify({ rules: [], phrases: [], questions: [], glossary: [{ en: 'fat stranding', pl: 'pasmowate zagęszczenia tkanki tłuszczowej' }], summary: '' })) };
+  const res = await fetch(`${appUrl}/api/learn`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ translations: [{ en: 'fat stranding', pl: 'pasmowate zagęszczenia' }] }) });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.glossary[0].en, 'fat stranding');
+  assert.equal(JSON.parse(lastRequest.body.messages[0].content).translations.length, 1);
+});
