@@ -166,6 +166,42 @@ for the AI, and set personal style rules under ⚙.
   line (e.g. "Bez cech zapalenia wyrostka robaczkowego."), but only if the body supports it.
   Memory / dementia clinical details make atrophy relevant.
 
+## Learning module "Nauka AI" and conclusion points (v0.12)
+
+- **Languages are clearly marked**:
+  - "Mówię PL | EN" next to the dictation;
+  - "Opis po PL | EN" next to the report;
+  - a "PL → EN" badge on "Przygotuj opis".
+- **Nauka AI** (graduation-cap button in the top bar; an orange dot means there are questions or
+  enough new material to analyse):
+  1. Paste your own reports, fragments or phrases (PL or EN). PESEL is removed.
+  2. **Analizuj mój styl**: Claude studies the samples and all your corrections, and writes:
+     - up to 25 concrete style rules;
+     - up to 30 preferred phrasings;
+     - up to 3 questions about what is unclear. Each question has a suggested phrase that you
+       rewrite in your own words.
+  3. Rules can be edited, deleted or added by hand.
+
+  The profile (rules + phrases) and up to 3 of your own samples go with every report request
+  (prompt-cached).
+
+  Automatic learning continues:
+  - wording you change;
+  - conclusion lines removed or added;
+  - restored template sentences;
+  - finished reports (on "Kopiuj opis" and on "Nowy opis");
+  - your template edits, which are added as samples.
+
+  The switch in the panel turns style use on or off. `lib/learn.js`, `POST /api/learn`.
+- **Conclusion points** (under the conclusion, "Punkty"):
+  - every conclusion line with a tick (untick = take it out, it stays offered), edit ✎ and
+    delete ✕;
+  - **suggested points** you can tick in: findings from the description that are not in the
+    conclusion (age-related ones are marked "przewlekłe / incydentalne"), the template's normal
+    lines and the default normal line.
+
+  Every change can be undone ("Cofnij") and is learned when you copy the report.
+
 ## Classifications and consultation line
 
 - **Classifications**: when the dictation gives the data a standard system needs, Claude adds the

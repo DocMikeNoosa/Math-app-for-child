@@ -2,7 +2,7 @@
 
 Read this first, then `README.md` (features in detail) and the code. Repository:
 https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-radiology-dictation-e0ov8p`, folder
-`radiology-dictation/`. Version 0.11.0 (see `package.json`).
+`radiology-dictation/`. Version 0.12.0 (see `package.json`).
 
 ## The person and the goal
 - Owner: a Polish radiologist, not technical — explain things in short, simple steps.
@@ -32,7 +32,7 @@ https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-rad
   `polish-text.js` (spoken numbers/units/punctuation), `voice-commands.js`, `style-learning.js`,
   `mic-button.js` (Nuance PowerMic via WebHID + key binding).
 - Windows install: `Zainstaluj RadVox (Windows).bat` → desktop icon (`launcher/RadVox.ps1`, no console).
-- Tests: `npm test` (85 unit tests). UI was tested with Playwright + a mock Claude server (scripts not in
+- Tests: `npm test` (88 unit tests). UI was tested with Playwright + a mock Claude server (scripts not in
   the repo).
 
 ## Report rules the radiologist asked for (keep these)
@@ -76,6 +76,15 @@ https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-rad
    sometimes narrow and full-height. Below 760 px: a slim dictation strip on top and the report
    filling the rest with its own scroll. Clinical details can be dictated with the mic inside the
    box, or by voice ("dane kliniczne …" until "koniec danych klinicznych").
+5d. LEARNING + CONCLUSION POINTS (v0.12):
+   - "Nauka AI" panel: the user pastes their own reports or phrases. `POST /api/learn`
+     (`lib/learn.js`) asks Claude for a style profile (rules, preferred phrases) plus at most 3
+     clarification questions, each with a suggested phrase the user rewrites.
+   - The profile and own samples are sent with every report (cached block). Every edit is still
+     learned automatically.
+   - Under the conclusion, "Punkty": tick/untick, edit or delete each line; tick in suggested
+     points (findings not in the conclusion, template normal lines).
+   - Languages are clearly labelled ("Mówię", "Opis po", and a "PL → EN" badge).
 6. Classifications (Fleischner, Bosniak, TI-RADS, LI-RADS, ASPECTS, Fazekas) only from dictated data;
    otherwise a warning naming what is missing.
 7. Workflow: app opens **blank** (choose a template); stopping dictation does NOT make the report — the

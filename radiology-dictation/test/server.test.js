@@ -312,3 +312,34 @@ test('format: clinical details reach the AI (variable block); prompt has the eme
   assert.match(system, /TIER 1/);
   assert.match(system, /metastases/);
 });
+
+test('learn: style analysis returns rules, phrases and at most 3 questions; input is cleaned', async () => {
+  const reply = { rules: ['R1', 'R2'], phrases: [{ situation: 's', preferred: 'p' }], questions: [1, 2, 3, 4].map((i) => ({ question: `Q${i}`, suggestion: `S${i}`, options: [] })), summary: 'ok' };
+  nextReply = { json: message(JSON.stringify(reply)) };
+  const res = await fetch(`${appUrl}/api/learn`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ samples: [{ text: 'Bez cech krwawienia wewnątrzczaszkowego.', lang: 'pl' }, { text: '' }], edits: [{ ai: 'a', final: 'b' }], profile: { rules: ['stara reguła'] } }),
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.deepEqual(data.rules, ['R1', 'R2']);
+  assert.equal(data.questions.length, 3);
+  const sent = JSON.parse(lastRequest.body.messages[0].content);
+  assert.equal(sent.samples.length, 1);
+  assert.deepEqual(sent.current_profile.rules, ['stara reguła']);
+  assert.match(lastRequest.body.system, /study how one radiologist/);
+});
+
+test('learn: nothing to learn from → 400', async () => {
+  const res = await fetch(`${appUrl}/api/learn`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(res.status, 400);
+});
+
+test('format: style profile and own samples go into the cached block', async () => {
+  const t = getTemplate('ct_head_normal');
+  nextReply = editsReply([], t.conclusion);
+  await post({ templateId: t.id, report: reportFromTemplate(t), dictation: 'krwiak', profile: { rules: ['Reguła'], phrases: [{ situation: 's', preferred: 'p' }] }, samples: ['Mój opis.'] });
+  const cached = JSON.parse(lastRequest.body.messages[0].content[0].text);
+  assert.deepEqual(cached.style_profile.rules, ['Reguła']);
+  assert.deepEqual(cached.own_samples, ['Mój opis.']);
+});

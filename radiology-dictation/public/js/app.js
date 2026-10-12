@@ -1,9 +1,9 @@
 import { TEMPLATES, GROUPS, REGIONS, SNIPPETS, SNIPPET_GROUPS, SECTION_LABELS, getTemplate, regionLabel, templatesByRegion, reportFromTemplate, reportToText, setUserTemplates, isBuiltin, builtinRaw, rawOf, cleanRaw, parseTemplate } from './templates.js';
 import { convertSpokenFor, tidy, scrubIdentifiers, wordDiff } from './polish-text.js';
-import { localMerge, findConflicts, applyConflicts, splitSentences } from './crosscheck.js';
+import { localMerge, findConflicts, applyConflicts, splitSentences, analyseFinding, isIncidental, shortenFinding, defaultConclusion } from './crosscheck.js';
 import { Dictation, LevelMeter, speechSupported } from './speech.js';
 import { parseVoiceCommands, dropLastSentence, dropLastWord, COMMAND_LABELS } from './voice-commands.js';
-import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, addUnique } from './style-learning.js';
+import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, addUnique, similarity } from './style-learning.js';
 import { MicButton } from './mic-button.js';
 
 const $ = (id) => document.getElementById(id);
@@ -20,7 +20,10 @@ const els = Object.fromEntries(
     'tplDelete', 'tplDuplicate', 'tplCancel', 'tplSave',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
-    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo', 'learnSummary', 'clinical', 'clinicalMic',
+    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo', 'learnSummary', 'clinical', 'clinicalMic', 'langFlow',
+    'learnBtn', 'learnDot', 'learnModal', 'closeLearn', 'learnOn', 'learnProfileSummary', 'learnText', 'learnLang', 'learnAdd', 'learnSamples',
+    'learnAnalyze', 'learnStatus', 'learnQSec', 'learnQuestions', 'learnRules', 'learnRuleInput', 'learnRuleAdd', 'learnPhrases', 'learnAuto', 'learnForget',
+    'cpToggle', 'cpCount', 'cpoints',
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
@@ -196,6 +199,7 @@ function renderReport() {
   els.bodyText.innerHTML = highlighted(base?.body, r.body);
   els.conclusion.innerHTML = highlighted(base?.conclusion, r.conclusion);
   els.conclusion.parentElement.classList.toggle('changed', Boolean(base && base.conclusion !== r.conclusion));
+  renderCPoints();
   renderPanels();
   renderMeta();
 }
@@ -333,6 +337,7 @@ function onEditBlur() {
     if (!state.source.includes('edycja')) state.source = `${state.source} + edycja`;
     renderMeta();
     renderConflicts();
+    renderCPoints();
   }
   editSnapshot = null;
 }
@@ -343,6 +348,232 @@ function renderClinical() {
   el.style.height = 'auto';
   el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   el.closest('.clinical-box').classList.toggle('filled', Boolean(el.value.trim()));
+}
+
+// ---------------------------------------------------------------- learning module ("Nauka AI")
+const PROFILE_KEY = 'radvox.profile.v1';
+let profile = { rules: [], phrases: [], summary: '', questions: [], answers: [], samples: [], analyzedAt: 0, itemsAtAnalysis: 0 };
+let learnSampleLang = 'pl';
+function loadProfile() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null');
+    if (saved && typeof saved === 'object') profile = { ...profile, ...saved };
+    for (const k of ['rules', 'phrases', 'questions', 'answers', 'samples']) if (!Array.isArray(profile[k])) profile[k] = [];
+  } catch { /* ignore */ }
+}
+function saveProfile() {
+  try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch { toast('Nie udało się zapisać — pamięć przeglądarki pełna?', 'err'); }
+  renderLearnDot();
+  if (!els.learnModal.hidden) renderLearn();
+}
+const learnedItems = () => styleExamples.length + learned.conclusionRemoved.length + learned.conclusionAdded.length + learned.restored.length
+  + Object.values(learned.reports).reduce((a, r) => a + r.length, 0) + profile.samples.length + profile.answers.length;
+function renderLearnDot() {
+  const pending = profile.questions.length > 0 || learnedItems() - (profile.itemsAtAnalysis || 0) >= 8;
+  els.learnDot.hidden = !pending;
+  els.learnBtn.title = pending ? 'Nauka AI — są nowe pytania lub materiał do analizy' : 'Nauka AI — Twój styl opisów';
+}
+/** A pasted report / phrase, or an edited template (kind 'szablon'). */
+function addSample(text, lang = 'pl', kind = 'przykład', title = '') {
+  const clean = scrubIdentifiers(String(text || '').replace(/\r/g, '').trim());
+  if (!clean) return false;
+  profile.samples = [...profile.samples.filter((x) => x.text !== clean && !(kind === 'szablon' && x.kind === 'szablon' && x.title === title)), { text: clean.slice(0, 8000), lang, kind, title, at: Date.now() }].slice(-40);
+  saveProfile();
+  return true;
+}
+/** Up to 3 of the radiologist's own texts in the report language, sent with each request. */
+function samplesFor(lang) {
+  const own = profile.samples.filter((x) => x.kind !== 'szablon');
+  const same = own.filter((x) => x.lang === lang);
+  return (same.length ? same : own).slice(-3).map((x) => x.text.slice(0, 2500));
+}
+function renderLearn() {
+  els.learnOn.checked = els.learnStyle.checked;
+  els.learnProfileSummary.textContent = profile.summary ? `${profile.summary}${profile.analyzedAt ? ` (analiza: ${new Date(profile.analyzedAt).toLocaleDateString('pl-PL')})` : ''}` : '';
+  els.learnLang.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === learnSampleLang)));
+  const X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  els.learnSamples.innerHTML = profile.samples.length
+    ? profile.samples.slice().reverse().map((x, i) => `<li><span class="learn-tag">${x.kind === 'szablon' ? 'SZABLON' : x.lang.toUpperCase()}</span><span class="txt" title="${esc(x.text.slice(0, 600))}">${esc(x.title ? `${x.title}: ` : '')}${esc(x.text.replace(/\s+/g, ' ').slice(0, 160))}</span><button class="x-btn" data-del-sample="${profile.samples.length - 1 - i}" title="Usuń przykład">${X}</button></li>`).join('')
+    : '<li class="learn-empty">Brak przykładów — wklej kilka swoich opisów.</li>';
+  els.learnRules.innerHTML = profile.rules.length
+    ? profile.rules.map((r, i) => `<li><span class="txt" contenteditable="true" data-rule="${i}" spellcheck="true">${esc(r)}</span><button class="x-btn" data-del-rule="${i}" title="Usuń regułę">${X}</button></li>`).join('')
+    : '<li class="learn-empty">Jeszcze brak reguł — dodaj przykłady i kliknij „Analizuj mój styl”, albo dopisz regułę sam.</li>';
+  els.learnPhrases.innerHTML = profile.phrases.length
+    ? profile.phrases.map((x, i) => `<li><span class="txt"><span class="sit">${esc(x.situation)}</span>${esc(x.preferred)}</span><button class="x-btn" data-del-phrase="${i}" title="Usuń">${X}</button></li>`).join('')
+    : '<li class="learn-empty">—</li>';
+  els.learnQSec.hidden = !profile.questions.length;
+  els.learnQuestions.innerHTML = profile.questions.map((q, i) => `<div class="learn-q" data-q="${i}">
+      <div class="q">${esc(q.question)}</div>
+      <textarea data-q-text="${i}" rows="2" spellcheck="true" lang="pl">${esc(q.suggestion)}</textarea>
+      ${q.options?.length ? `<div class="opts">${q.options.map((o) => `<button class="chip-btn" data-q-opt="${i}" data-text="${esc(o)}">${esc(o)}</button>`).join('')}</div>` : ''}
+      <div class="btn-row"><button class="btn btn-small btn-primary" data-q-save="${i}">Zapisz moją wersję</button><button class="btn btn-small" data-q-skip="${i}">Pomiń</button></div>
+    </div>`).join('');
+  const n = learnedItems();
+  els.learnAuto.textContent = `Zapamiętane: poprawki sformułowań ${styleExamples.length} · usunięte z wniosków ${learned.conclusionRemoved.length} · dodane do wniosków ${learned.conclusionAdded.length} · przywrócone zdania ${learned.restored.length} · Twoje gotowe opisy ${Object.values(learned.reports).reduce((a, r) => a + r.length, 0)} · przykłady ${profile.samples.length} · odpowiedzi ${profile.answers.length}. ${n - (profile.itemsAtAnalysis || 0) > 0 ? `Nowe od ostatniej analizy: ${n - (profile.itemsAtAnalysis || 0)}.` : ''}`;
+}
+function openLearn(open = true) {
+  if (open) renderLearn();
+  els.learnModal.hidden = !open;
+  if (open) setTimeout(() => els.learnText.focus(), 0);
+}
+async function analyzeStyle() {
+  if (!state.ai) { toast('Analiza stylu wymaga AI (Claude) — brak klucza API.', 'warn'); return; }
+  const body = {
+    samples: profile.samples.map(({ text, lang }) => ({ text, lang })),
+    edits: styleExamples.map(({ ai, final }) => ({ ai, final })),
+    conclusionRemoved: learned.conclusionRemoved,
+    conclusionAdded: learned.conclusionAdded,
+    restored: learned.restored,
+    answers: profile.answers,
+    profile: { rules: profile.rules, phrases: profile.phrases },
+  };
+  els.learnAnalyze.disabled = true;
+  els.learnAnalyze.classList.add('busy');
+  els.learnStatus.textContent = 'AI analizuje Twój styl… (zwykle 20–60 s)';
+  try {
+    const res = await fetch('/api/learn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
+    profile = { ...profile, rules: data.rules || [], phrases: data.phrases || [], summary: data.summary || '', questions: data.questions || [], analyzedAt: Date.now(), itemsAtAnalysis: learnedItems() };
+    saveProfile();
+    els.learnStatus.textContent = `Gotowe: ${profile.rules.length} reguł, ${profile.phrases.length} sformułowań${profile.questions.length ? `, ${profile.questions.length} ${profile.questions.length === 1 ? 'pytanie' : 'pytania'} poniżej` : ''}. AI będzie się ich trzymać w każdym opisie.`;
+    toast('Styl przeanalizowany — reguły zapisane', 'ok');
+  } catch (err) {
+    els.learnStatus.textContent = `Nie udało się: ${err.message}`;
+    toast(`Analiza nie powiodła się: ${err.message}`, 'err', 5000);
+  } finally {
+    els.learnAnalyze.disabled = false;
+    els.learnAnalyze.classList.remove('busy');
+  }
+}
+function answerQuestion(i, skip = false) {
+  const q = profile.questions[i];
+  if (!q) return;
+  if (!skip) {
+    const final = els.learnQuestions.querySelector(`[data-q-text="${i}"]`).value.trim();
+    if (!final) { toast('Wpisz swoją wersję albo kliknij „Pomiń”.', 'warn'); return; }
+    profile.answers = [...profile.answers, { question: q.question, suggestion: q.suggestion, final }].slice(-30);
+    // the answer is also an exact phrase pair the report AI sees with every request
+    if (final !== q.suggestion) styleExamples = addStyleExamples(styleExamples, [{ ai: q.suggestion, final }]);
+    profile.phrases = [...profile.phrases.filter((p) => p.preferred !== final), { situation: q.question.slice(0, 160), preferred: final }].slice(-30);
+    saveStyle();
+  }
+  profile.questions.splice(i, 1);
+  saveProfile();
+  if (!skip) toast('Zapisano — AI będzie tak pisać', 'ok', 2200);
+}
+
+// ---------------------------------------------------------------- conclusion points
+let cpOpen = true;
+let cpEditing = -1;
+const cpHidden = new Set(); // points deleted for this report (not suggested again)
+let cpOffList = []; // points unticked in this report — offered again exactly as they were
+
+/** Conclusion lines: { main: [stripped lines], recs: 'recommendation paragraph' }. */
+function splitConclusion(text) {
+  const [main, ...recs] = String(text || '').split(/\n\n(?=[^\n]*$)/);
+  const looksRec = recs.length && !/^\s*(?:[-–•]|\d+[.)])\s/.test(recs[0]);
+  return {
+    main: (looksRec ? main : String(text || '')).split('\n').map((l) => stripB(l)).filter(Boolean),
+    recs: looksRec ? recs.join('\n\n').trim() : '',
+  };
+}
+function joinConclusion(main, recs) {
+  const t = template();
+  const body = main.map((l, i) => (t?.bullet === 'number' ? `${i + 1}. ${l}` : `- ${l}`)).join('\n');
+  return [body, recs].filter(Boolean).join('\n\n');
+}
+/** Points the radiologist may want: findings of the body not in the conclusion, template lines. */
+function conclusionCandidates() {
+  const t = template();
+  if (!t) return [];
+  const { main, recs } = splitConclusion(state.report.conclusion);
+  const present = (x) => main.some((m) => m === x || similarity(m, x) >= 0.5) || recs.includes(x);
+  const tplBody = new Set(splitSentences(t.body));
+  const out = cpOffList.filter((x) => !present(x)).map((text) => ({ text, tag: 'wyłączone' }));
+  const offered = (x) => out.some((o) => o.text === x || similarity(o.text, x) >= 0.5);
+  for (const sentence of splitSentences(state.report.body)) {
+    if (tplBody.has(sentence)) continue;
+    const f = analyseFinding(sentence);
+    if (!f.concepts.size) continue;
+    const short = shortenFinding(sentence);
+    if (short && !present(short) && !present(sentence) && !offered(short)) out.push({ text: short, tag: isIncidental(f) ? 'przewlekłe / incydentalne' : 'z opisu' });
+  }
+  for (const line of t.conclusion.split('\n').map(stripB).filter(Boolean)) if (!present(line) && !offered(line)) out.push({ text: line, tag: 'szablon' });
+  const def = defaultConclusion(t);
+  if (!present(def) && !offered(def)) out.push({ text: def, tag: 'norma' });
+  return out.filter((o) => !cpHidden.has(o.text)).filter((o, i, a) => a.findIndex((x) => x.text === o.text) === i).slice(0, 8);
+}
+function renderCPoints() {
+  if (!els.cpoints) return;
+  const blank = !template();
+  els.cpToggle.hidden = blank;
+  if (blank) { els.cpoints.innerHTML = ''; return; }
+  const { main, recs } = splitConclusion(state.report.conclusion);
+  const cands = conclusionCandidates();
+  els.cpCount.textContent = cands.length ? `Punkty · ${cands.length} propozycji` : 'Punkty';
+  els.cpToggle.setAttribute('aria-expanded', String(cpOpen));
+  els.cpoints.classList.toggle('closed', !cpOpen);
+  const CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  const X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  const PEN = '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
+  const row = (text, i, on, tag = '') => `<div class="cp-row${on ? '' : ' off'}">
+      <button class="cp-check" aria-pressed="${on}" ${on ? `data-cp-off="${i}"` : `data-cp-on="${esc(text)}"`} title="${on ? 'Wyłącz z wniosków' : 'Dodaj do wniosków'}">${on ? CHECK : ''}</button>
+      <span class="cp-text">${on && cpEditing === i ? `<input data-cp-input="${i}" value="${esc(text)}" />` : `${esc(text)}${tag ? `<span class="cp-tag">${esc(tag)}</span>` : ''}`}</span>
+      ${on ? `<button class="x-btn edit" data-cp-edit="${i}" title="Edytuj punkt">${PEN}</button>` : ''}
+      <button class="x-btn" ${on ? `data-cp-del="${i}"` : `data-cp-hide="${esc(text)}"`} title="Usuń punkt">${X}</button>
+    </div>`;
+  els.cpoints.innerHTML = [
+    ...main.map((l, i) => row(l, i, true)),
+    recs ? row(recs, 'rec', true, 'zalecenie') : '',
+    cands.length ? '<div class="cp-head">Proponowane — kliknij, aby dodać</div>' : '',
+    ...cands.map((c) => row(c.text, -1, false, c.tag)),
+  ].join('');
+  if (cpEditing >= 0) { const inp = els.cpoints.querySelector('[data-cp-input]'); inp?.focus(); inp?.select(); }
+}
+function setConclusion(main, recs) {
+  const next = { ...state.report, conclusion: joinConclusion(main, recs) };
+  commit(next, { baseline: clone(state.report), warnings: state.warnings, corrections: state.corrections, source: state.source });
+}
+function cpAction(e) {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const { main, recs } = splitConclusion(state.report.conclusion);
+  const ds = b.dataset;
+  if (ds.cpOff !== undefined) {
+    cpOffList = [...cpOffList.filter((x) => x !== (ds.cpOff === 'rec' ? recs : main[Number(ds.cpOff)])), ds.cpOff === 'rec' ? recs : main[Number(ds.cpOff)]];
+    if (ds.cpOff === 'rec') setConclusion(main, '');
+    else { main.splice(Number(ds.cpOff), 1); setConclusion(main, recs); }
+  } else if (ds.cpDel !== undefined) {
+    const text = ds.cpDel === 'rec' ? recs : main[Number(ds.cpDel)];
+    cpHidden.add(text);
+    if (ds.cpDel === 'rec') setConclusion(main, '');
+    else { main.splice(Number(ds.cpDel), 1); setConclusion(main, recs); }
+    toast('Punkt usunięty z wniosków — AI zapamięta to po skopiowaniu opisu', 'info', 2400);
+  } else if (ds.cpHide !== undefined) {
+    cpHidden.add(ds.cpHide);
+    renderCPoints();
+  } else if (ds.cpOn !== undefined) {
+    const text = ds.cpOn;
+    cpOffList = cpOffList.filter((x) => x !== text);
+    if (/konsultacj|consultation/i.test(text) && !analyseFinding(text).concepts.size) { setConclusion(main, recs ? `${recs} ${text}` : text); return; }
+    // pathology points go before the normal ("Bez …") lines
+    const isPath = analyseFinding(text).concepts.size > 0;
+    const firstNormal = main.findIndex((l) => !analyseFinding(l).concepts.size);
+    if (isPath && firstNormal >= 0) main.splice(firstNormal, 0, text); else main.push(text);
+    setConclusion(main, recs);
+  } else if (ds.cpEdit !== undefined) {
+    cpEditing = ds.cpEdit === 'rec' ? -1 : Number(ds.cpEdit);
+    renderCPoints();
+  }
+}
+function cpCommitEdit(input) {
+  const i = Number(input.dataset.cpInput);
+  const { main, recs } = splitConclusion(state.report.conclusion);
+  const v = input.value.trim();
+  cpEditing = -1;
+  if (!v) main.splice(i, 1); else main[i] = /[.!?]$/.test(v) ? v : `${v}.`;
+  setConclusion(main, recs);
 }
 
 // ---------------------------------------------------------------- original template: view, copy, restore
@@ -428,6 +659,8 @@ function formatPayload() {
     style: els.stylePrefs.value,
     styleExamples: els.learnStyle.checked ? styleExamples.slice(-12).map(({ ai, final }) => ({ ai, final })) : [],
     learned: els.learnStyle.checked ? learnedFor(t.id) : null,
+    profile: els.learnStyle.checked && (profile.rules.length || profile.phrases.length) ? { rules: profile.rules, phrases: profile.phrases } : null,
+    samples: els.learnStyle.checked ? samplesFor(state.outputLang) : [],
     keep: state.ignore.slice(-40),
     inputLang: state.inputLang,
     outputLang: state.outputLang,
@@ -588,7 +821,7 @@ async function newReport() {
     if (!window.confirm(`${what}\nZakończyć ten opis i zacząć nowy?`)) return;
   }
   if (state.recording) await stopRecording();
-  if (!pristine) archiveCurrent();
+  if (!pristine) { learnFromEdits(); archiveCurrent(); }
   els.dictation.value = '';
   els.instruction.value = '';
   els.clinical.value = '';
@@ -599,6 +832,8 @@ async function newReport() {
   state.copied = null;
   state.lastAI = null;
   state.reportId = newId();
+  cpHidden.clear();
+  cpOffList = [];
   renderPrepState();
   if (!t && !pending) { openPicker(); return; } // already blank
   commit(blankReport(state.outputLang), { source: 'Brak szablonu' });
@@ -627,6 +862,9 @@ function renderLangToggles() {
   });
   mark(els.inLang, state.inputLang);
   mark(els.outLang, state.outputLang);
+  els.langFlow.textContent = `${state.inputLang.toUpperCase()} → ${state.outputLang.toUpperCase()}`;
+  els.langFlow.classList.toggle('cross', state.inputLang !== state.outputLang || state.outputLang === 'en');
+  els.langFlow.title = `Mówisz po ${state.inputLang === 'en' ? 'angielsku' : 'polsku'} → opis po ${state.outputLang === 'en' ? 'angielsku' : 'polsku'}`;
   els.dictation.lang = state.inputLang;
   els.dictation.placeholder = state.inputLang === 'en'
     ? 'Dictate or type in English… e.g. “left subdural haematoma, 8 mm thick, otherwise unremarkable”'
@@ -914,6 +1152,7 @@ function saveEditor() {
   else userTemplates.custom.push(raw);
   saveUserTemplates();
   if (pristineBefore) commit(reportFromTemplate(getTemplate(raw.id)), { source: 'Szablon' });
+  addSample(raw.text, 'pl', 'szablon', raw.title);
   renderTemplateButton();
   if (!els.picker.hidden) renderPicker();
   closeEditor();
@@ -1472,6 +1711,64 @@ function bind() {
     saveStyle();
   });
 
+  // learning module
+  els.learnBtn.addEventListener('click', () => openLearn(true));
+  els.closeLearn.addEventListener('click', () => openLearn(false));
+  els.learnModal.addEventListener('click', (e) => {
+    if (e.target === els.learnModal) return openLearn(false);
+    const ds = e.target.closest('button')?.dataset || {};
+    if (ds.lang) { learnSampleLang = ds.lang; els.learnText.lang = ds.lang; renderLearn(); return; }
+    if (ds.delSample !== undefined) { profile.samples.splice(Number(ds.delSample), 1); saveProfile(); return; }
+    if (ds.delRule !== undefined) { profile.rules.splice(Number(ds.delRule), 1); saveProfile(); return; }
+    if (ds.delPhrase !== undefined) { profile.phrases.splice(Number(ds.delPhrase), 1); saveProfile(); return; }
+    if (ds.qOpt !== undefined) { els.learnQuestions.querySelector(`[data-q-text="${ds.qOpt}"]`).value = ds.text; return; }
+    if (ds.qSave !== undefined) { answerQuestion(Number(ds.qSave)); return; }
+    if (ds.qSkip !== undefined) { answerQuestion(Number(ds.qSkip), true); }
+  });
+  els.learnRules.addEventListener('focusout', (e) => {
+    const el = e.target.closest('[data-rule]');
+    if (!el) return;
+    const v = el.innerText.trim();
+    const i = Number(el.dataset.rule);
+    if (v === profile.rules[i]) return;
+    if (v) profile.rules[i] = v; else profile.rules.splice(i, 1);
+    saveProfile();
+  });
+  els.learnAdd.addEventListener('click', () => {
+    if (addSample(els.learnText.value, learnSampleLang)) { els.learnText.value = ''; toast('Przykład dodany — kliknij „Analizuj mój styl”, gdy dodasz kilka', 'ok', 3000); }
+    else toast('Wklej najpierw tekst opisu lub sformułowania.', 'warn');
+  });
+  els.learnAnalyze.addEventListener('click', analyzeStyle);
+  const addRule = () => {
+    const v = els.learnRuleInput.value.trim();
+    if (!v) return;
+    profile.rules = [...profile.rules, v].slice(-25);
+    els.learnRuleInput.value = '';
+    saveProfile();
+  };
+  els.learnRuleAdd.addEventListener('click', addRule);
+  els.learnRuleInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addRule(); } });
+  els.learnOn.addEventListener('change', () => { els.learnStyle.checked = els.learnOn.checked; save(); toast(els.learnOn.checked ? 'AI używa Twojego stylu' : 'AI nie używa Twojego stylu (nauka wyłączona)', 'info'); });
+  els.learnForget.addEventListener('click', () => {
+    if (!window.confirm('Zapomnieć wszystko: przykłady, reguły, sformułowania, odpowiedzi i zapamiętane poprawki?')) return;
+    profile = { rules: [], phrases: [], summary: '', questions: [], answers: [], samples: [], analyzedAt: 0, itemsAtAnalysis: 0 };
+    styleExamples = [];
+    learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {} };
+    saveStyle();
+    saveProfile();
+  });
+
+  // conclusion points
+  els.cpToggle.addEventListener('click', () => { cpOpen = !cpOpen; try { localStorage.setItem('radvox.cpOpen', cpOpen ? '1' : '0'); } catch { /* ignore */ } renderCPoints(); });
+  els.cpoints.addEventListener('click', cpAction);
+  els.cpoints.addEventListener('keydown', (e) => {
+    const inp = e.target.closest('[data-cp-input]');
+    if (!inp) return;
+    if (e.key === 'Enter') { e.preventDefault(); cpCommitEdit(inp); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cpEditing = -1; renderCPoints(); }
+  });
+  els.cpoints.addEventListener('focusout', (e) => { const inp = e.target.closest('[data-cp-input]'); if (inp && cpEditing >= 0) cpCommitEdit(inp); });
+
   // original template
   els.origBtn.addEventListener('click', () => openOriginal(true));
   els.closeOrig.addEventListener('click', () => openOriginal(false));
@@ -1654,7 +1951,7 @@ function bind() {
   document.addEventListener('keydown', (e) => {
     if (!els.picker.hidden || !els.tplEditor.hidden) return; // picker / editor handle their own keys
     const typing = isTyping(document.activeElement);
-    if (e.key === 'Escape') { openSettings(false); openHelp(false); openToday(false); openOriginal(false); toggleSnippets(false); return; }
+    if (e.key === 'Escape') { openSettings(false); openHelp(false); openToday(false); openOriginal(false); openLearn(false); toggleSnippets(false); return; }
     if (e.key === 'F2') { e.preventDefault(); toggleRecording(); return; }
     if (e.altKey && (e.key === 'n' || e.key === 'N' || e.code === 'KeyN')) { e.preventDefault(); newReport(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); process(); return; }
@@ -1678,6 +1975,8 @@ function bind() {
 function init() {
   loadStyle();
   loadLearned();
+  loadProfile();
+  try { cpOpen = localStorage.getItem('radvox.cpOpen') !== '0'; } catch { /* ignore */ }
   loadToday();
   load();
   renderSnippets();
@@ -1692,6 +1991,7 @@ function init() {
   mic.restore();
   renderPrepState();
   renderClinical();
+  renderLearnDot();
   if (!speechSupported) {
     els.speechBadge.hidden = false;
     els.speechInfo.textContent = 'Ta przeglądarka nie obsługuje rozpoznawania mowy (Web Speech API). Użyj Chrome lub Edge, albo wpisuj tekst ręcznie.';
@@ -1707,4 +2007,4 @@ function init() {
 init();
 
 // Exposed for automated UI tests.
-window.__radvox = { restoreSentence, openOriginal, learned: () => learned, state, process, copyReport, selectTemplate, newReport, runVoiceCommand, onFinal: (t) => dictationEngine.onFinal(t), prefetch, styleExamples: () => styleExamples, today: () => today, mic };
+window.__radvox = { profile: () => profile, conclusionCandidates, restoreSentence, openOriginal, learned: () => learned, state, process, copyReport, selectTemplate, newReport, runVoiceCommand, onFinal: (t) => dictationEngine.onFinal(t), prefetch, styleExamples: () => styleExamples, today: () => today, mic };

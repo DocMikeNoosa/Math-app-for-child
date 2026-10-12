@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
+import { analyzeStyle, cleanLearnInput, cleanProfile } from './lib/learn.js';
 import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +88,8 @@ async function handleFormat(req, res) {
       learned: cleanLearned(body.learned),
       keep: strList(body.keep, 40, 600),
       clinical: String(body.clinical || '').slice(0, 2000),
+      profile: cleanProfile(body.profile),
+      samples: strList(body.samples, 6, 3000),
       inputLang: lang(body.inputLang),
       outputLang: lang(body.outputLang),
       translate,
@@ -126,6 +129,27 @@ export function cleanLearned(l) {
   return Object.values(out).some((v) => v.length) ? out : null;
 }
 
+async function handleLearn(req, res) {
+  if (!aiAvailable()) return sendJson(res, 503, { error: 'Brak klucza API — AI niedostępne.', code: 'no_api_key' });
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (err) {
+    if (err instanceof ClaudeError) return sendJson(res, err.status, { error: err.message });
+    return sendJson(res, 400, { error: 'Nieprawidłowy JSON.' });
+  }
+  const input = cleanLearnInput(body);
+  const evidence = input.samples.length + input.edits.length + input.conclusion_removed.length + input.conclusion_added.length + input.answers.length;
+  if (!evidence) return sendJson(res, 400, { error: 'Brak materiału do nauki — dodaj przykłady swoich opisów.' });
+  try {
+    sendJson(res, 200, await analyzeStyle(input));
+  } catch (err) {
+    if (err instanceof ClaudeError) return sendJson(res, err.status, { error: err.message });
+    console.error(err);
+    sendJson(res, 500, { error: 'Błąd serwera.' });
+  }
+}
+
 async function serveStatic(req, res) {
   const url = new URL(req.url, 'http://localhost');
   let rel = decodeURIComponent(url.pathname);
@@ -159,6 +183,7 @@ export function createServer() {
         return sendJson(res, 200, { ai: aiAvailable(), model: aiAvailable() ? MODEL : null, version: VERSION, dir: APP_DIR });
       }
       if (req.url === '/api/format' && req.method === 'POST') return await handleFormat(req, res);
+      if (req.url === '/api/learn' && req.method === 'POST') return await handleLearn(req, res);
       if (req.method === 'GET' || req.method === 'HEAD') return await serveStatic(req, res);
       res.writeHead(405);
       res.end();
