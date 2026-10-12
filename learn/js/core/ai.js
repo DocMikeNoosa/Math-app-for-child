@@ -87,7 +87,7 @@
     const prog = opts.prog || LA.state.prog || 'au';
     const lang = opts.parent ? (S.settings().parentLang || 'en') : LA.PROGRAMMES[prog].lang;
     refreshMode();
-    if (AI.mode === 'none') throw new Error(lang === 'pl' ? 'Asystent AI jest niedostępny. Otwórz aplikację na claude.ai lub dodaj klucz API w panelu rodzica.' : 'The AI helper is not available. Open the app on claude.ai, or add an API key in the Parent area.');
+    if (AI.mode === 'none') throw new Error(lang === 'pl' ? 'Asystent AI jest wyłączony. Rodzic może go włączyć w: Rodzic → Ustawienia.' : 'The AI helper is off. A grown-up can switch it on in Parent → Settings.');
     const rules = persona(prog, opts) + (opts.system ? '\n\n' + opts.system : '');
     if (AI.mode === 'claude') {
       const input = [{ role: 'user', content: rules }].concat(messages.map((m) => ({ role: m.role, content: String(m.content || '').slice(0, 12000) || '…' })));

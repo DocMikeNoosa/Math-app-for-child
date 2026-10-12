@@ -81,4 +81,39 @@
   };
   SP.toggle = (btn, text, lang) => { if (currentBtn === btn) { SP.stop(); return; } SP.say(text, { button: btn, lang }); };
   SP.voiceName = (lang) => { const v = SP.pickVoice(lang); return v ? v.name : null; };
+  /* ---------- listening (microphone → text) ----------
+     Uses the browser's speech recognition (Safari on iPad/iPhone/Mac, Chrome, Edge). Needs HTTPS (or localhost)
+     and the person's permission the first time. Returns a stop() function. */
+  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  SP.canListen = () => !!Rec && (window.isSecureContext !== false);
+  let activeRec = null;
+  SP.listen = (opts) => {
+    opts = opts || {};
+    if (!SP.canListen()) { if (opts.onError) opts.onError('unsupported'); return () => {}; }
+    SP.stop();
+    if (activeRec) { try { activeRec.abort(); } catch (e) { /* ignore */ } }
+    const r = new Rec();
+    activeRec = r;
+    r.lang = opts.lang || SP.langNow();
+    r.interimResults = true;
+    r.continuous = !!opts.continuous;
+    r.maxAlternatives = 3;
+    let finalText = '';
+    let ended = false;
+    r.onresult = (ev) => {
+      let interim = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const res = ev.results[i];
+        if (res.isFinal) {
+          finalText += res[0].transcript;
+          if (opts.onResult) opts.onResult(finalText.trim(), true, Array.from(res).map((a) => a.transcript.trim()));
+        } else interim += res[0].transcript;
+      }
+      if (interim && opts.onResult) opts.onResult((finalText + interim).trim(), false);
+    };
+    r.onerror = (ev) => { if (opts.onError) opts.onError(ev.error || 'error'); };
+    r.onend = () => { ended = true; if (activeRec === r) activeRec = null; if (opts.onEnd) opts.onEnd(finalText.trim()); };
+    try { r.start(); } catch (e) { if (opts.onError) opts.onError('busy'); }
+    return () => { if (!ended) { try { r.stop(); } catch (e) { /* ignore */ } } };
+  };
 })();

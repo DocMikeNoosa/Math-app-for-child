@@ -36,22 +36,22 @@
 
   const SUBJECT_META = {
     au: {
-      english: { name: 'English', icon: '📖', color: '#ff8a65' },
-      maths: { name: 'Mathematics', icon: '🔢', color: '#5aa9ff' },
-      science: { name: 'Science', icon: '🔬', color: '#3ccf91' },
-      hass: { name: 'HASS', long: 'Humanities and Social Sciences', icon: '🗺️', color: '#a48bff' },
-      hpe: { name: 'Health', long: 'Health (from Health and PE)', icon: '🧡', color: '#f6b73c', enrichment: true },
-      arts: { name: 'The Arts', icon: '🎨', color: '#ef7fa7', enrichment: true },
-      tech: { name: 'Technologies', icon: '💡', color: '#2fd0c0', enrichment: true },
+      english: { name: 'English', icon: '📖', glyph: 'abc', color: '#ff9500' },
+      maths: { name: 'Mathematics', icon: '🔢', glyph: 'sum', color: '#007aff' },
+      science: { name: 'Science', icon: '🔬', glyph: 'flask', color: '#34c759' },
+      hass: { name: 'HASS', long: 'Humanities and Social Sciences', icon: '🗺️', glyph: 'globe', color: '#5856d6' },
+      hpe: { name: 'Health', long: 'Health (from Health and PE)', icon: '🧡', glyph: 'heart', color: '#ff2d55', enrichment: true },
+      arts: { name: 'The Arts', icon: '🎨', glyph: 'palette', color: '#af52de', enrichment: true },
+      tech: { name: 'Technologies', icon: '💡', glyph: 'cpu', color: '#30b0c7', enrichment: true },
     },
     pl: {
-      polski: { name: 'Język polski', icon: '📕', color: '#ff7a6b' },
-      matematyka: { name: 'Matematyka', icon: '➗', color: '#5aa9ff' },
-      przyroda: { name: 'Przyroda', icon: '🌿', color: '#3ccf91' },
-      spoleczna: { name: 'Edukacja społeczna', icon: '🏛️', color: '#a48bff' },
-      historia: { name: 'Historia', icon: '🏰', color: '#a48bff' },
-      sztuka: { name: 'Plastyka i muzyka', icon: '🎼', color: '#ef7fa7', enrichment: true },
-      technika: { name: 'Technika i informatyka', icon: '🛠️', color: '#2fd0c0', enrichment: true },
+      polski: { name: 'Język polski', icon: '📕', glyph: 'abc', color: '#ff3b30' },
+      matematyka: { name: 'Matematyka', icon: '➗', glyph: 'sum', color: '#007aff' },
+      przyroda: { name: 'Przyroda', icon: '🌿', glyph: 'leaf', color: '#34c759' },
+      spoleczna: { name: 'Edukacja społeczna', icon: '🏛️', glyph: 'columns', color: '#5856d6' },
+      historia: { name: 'Historia', icon: '🏰', glyph: 'castle', color: '#a2845e' },
+      sztuka: { name: 'Plastyka i muzyka', icon: '🎼', glyph: 'music', color: '#af52de', enrichment: true },
+      technika: { name: 'Technika i informatyka', icon: '🛠️', glyph: 'wrench', color: '#30b0c7', enrichment: true },
     },
   };
   LA.SUBJECT_META = SUBJECT_META;

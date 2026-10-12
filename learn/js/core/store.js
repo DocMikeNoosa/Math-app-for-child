@@ -1,4 +1,4 @@
-/* Persistent state. Saved in this browser (localStorage) and, when running on claude.ai, synced to the cloud by cloud.js. */
+/* Persistent state. Saved in this browser (localStorage, mirrored to IndexedDB by backup.js) and synced to the family cloud account by cloud.js. */
 (function () {
   'use strict';
   const LA = window.LA;
@@ -15,11 +15,12 @@
     minutes: { au: 30, pl: 30 },
     enrichment: { au: true, pl: true }, // Health / Arts / Technologies (AU) and Sztuka / Technika (PL) in homework, once a week
     pin: '',
-    theme: 'dark',
+    theme: 'light',
     bigText: false,
     spacing: false,
     parentLang: 'en',
     pencilFirst: false,
+    micForSpelling: false,
   };
 
   function blankProgress() {
@@ -257,11 +258,22 @@
   }
 
   S.exportJSON = () => JSON.stringify(Object.assign({}, state, { settings: Object.assign({}, state.settings, { apiKey: '' }) }), null, 1);
-  S.importJSON = (txt) => {
-    const s = JSON.parse(txt);
+  /* Bring in a backup. Default = MERGE (learners are added, finished work from both copies is kept, nothing is lost).
+     replace:true swaps everything for the backup (only from the Parent area, after a safety snapshot). */
+  S.importJSON = (txt, opts) => {
+    const s = typeof txt === 'string' ? JSON.parse(txt) : txt;
     if (!s || !Array.isArray(s.profiles) || typeof s.progress !== 'object') throw new Error('This file is not a backup from this app.');
     const key = state.settings.apiKey;
-    state = migrate(s);
+    const inc = migrate(JSON.parse(JSON.stringify(s)));
+    if (opts && opts.replace) state = inc;
+    else {
+      const mergeP = (LA.cloud && LA.cloud.mergeProgress) || ((a, b) => a || b);
+      const ids = new Set(state.profiles.map((p) => p.id));
+      inc.profiles.forEach((p) => { if (!ids.has(p.id)) state.profiles.push(p); });
+      Object.keys(inc.progress).forEach((pid) => { state.progress[pid] = mergeP(state.progress[pid], inc.progress[pid]); });
+      if (!state.active) state.active = inc.active || (state.profiles[0] || {}).id || null;
+      state = migrate(state);
+    }
     if (!state.settings.apiKey) state.settings.apiKey = key;
     changed('all');
     persist();

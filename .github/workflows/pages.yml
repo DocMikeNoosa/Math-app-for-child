@@ -1,0 +1,31 @@
+# Publishes the repository to GitHub Pages on every push to main.
+# The workbook is then at https://<user>.github.io/<repo>/learn/
+# One-time: GitHub → Settings → Pages → Source: "GitHub Actions".
+name: Publish to GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the app scripts parse
+        run: for f in $(find learn/js -name '*.js') learn/sw.js; do node --check "$f"; done
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4

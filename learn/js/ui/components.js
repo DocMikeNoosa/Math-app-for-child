@@ -30,10 +30,46 @@
   const h = UI.h;
 
   UI.speakBtn = (getText, label, lang) => {
-    const b = h('button.speak', { type: 'button', title: tr('Read this out loud', 'Przeczytaj na głos'), 'aria-label': tr('Read aloud', 'Przeczytaj') }, h('span.wave', '🔊'), label === '' ? null : (label || tr('Read to me', 'Przeczytaj mi')));
+    const b = h('button.speak', { type: 'button', title: tr('Read this out loud', 'Przeczytaj na głos'), 'aria-label': tr('Read aloud', 'Przeczytaj') }, h('span.wave', LA.icon('speaker', 18)), label === '' ? null : (label || tr('Read to me', 'Przeczytaj mi')));
     b.addEventListener('click', (e) => { e.stopPropagation(); SP.toggle(b, typeof getText === 'function' ? getText() : getText, lang); });
     if (!SP.available()) b.disabled = true;
     return b;
+  };
+
+  /* Microphone button: speak an answer. onText(text, isFinal, alternatives). */
+  UI.micBtn = (lang, onText, opts) => {
+    opts = opts || {};
+    const b = h('button.mic-btn', { type: 'button', title: tr('Say it', 'Powiedz'), 'aria-label': tr('Answer with your voice', 'Odpowiedz głosem') }, LA.icon('mic', 24));
+    let stop = null;
+    const reset = () => { b.classList.remove('listening'); stop = null; };
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (stop) { stop(); return; }
+      if (!SP.canListen()) {
+        UI.toast(tr('Voice input isn’t available in this browser. On iPad use Safari; or tap the microphone on the keyboard.', 'Wprowadzanie głosem nie działa w tej przeglądarce. Na iPadzie użyj Safari albo mikrofonu na klawiaturze.'), 5000);
+        return;
+      }
+      b.classList.add('listening');
+      stop = SP.listen({ lang: lang || SP.langNow(), continuous: !!opts.continuous,
+        onResult: (t, fin, alts) => onText(t, fin, alts || [t]),
+        onError: (err) => {
+          reset();
+          if (err === 'not-allowed' || err === 'service-not-allowed') UI.toast(tr('Please allow the microphone (Settings → Safari → Microphone), then try again.', 'Zezwól na mikrofon (Ustawienia → Safari → Mikrofon) i spróbuj ponownie.'), 5000);
+          else if (err === 'no-speech') UI.toast(tr('I didn’t hear anything — try again a bit louder.', 'Nic nie usłyszałam — spróbuj jeszcze raz, trochę głośniej.'));
+          else if (err === 'language-not-supported') UI.toast(tr('This language isn’t available for voice input on this device.', 'Ten język nie jest dostępny dla mowy na tym urządzeniu.'));
+          else if (err !== 'aborted') UI.toast(tr('Voice input stopped — try again.', 'Mowa przerwana — spróbuj ponownie.'));
+        },
+        onEnd: () => reset() });
+    });
+    return b;
+  };
+  /* Voice is allowed for spelling-type answers only if the grown-up switched it on (speech recognition spells words for you). */
+  UI.micAllowed = (q) => {
+    if (q.dictation) return false;
+    if (q.type === 'mc' || q.numeric) return true;
+    const subj = LA.subjectOf(q.skill || '');
+    if (subj && ['english', 'polski'].includes(subj.id)) return !!S.settings().micForSpelling;
+    return true;
   };
 
   UI.modal = (title, body, actions) => {
@@ -82,7 +118,7 @@
     const prog = opts.prog || LA.state.prog;
     const icon = LA.PROGRAMMES[prog].tutorIcon;
     const body = h('div.thinking.muted', tr('Thinking', 'Myślę'));
-    const box = h('div.ai-box', h('div.who', icon + ' ' + title), body);
+    const box = h('div.ai-box', h('div.who', LA.icon('sparkles', 18), title), body);
     let full = '';
     fn((t) => { full = t; body.className = ''; body.innerHTML = U.fmt(t); })
       .then((t) => {
@@ -183,19 +219,19 @@
       if (tags.childNodes.length) wrap.appendChild(tags);
       if (q.listen) {
         const lb = findListen(q, opts.ctx);
-        if (lb) wrap.appendChild(h('div.row', { style: { margin: '6px 0' } }, UI.speakBtn(() => U.plain(lb.text), tr('🎧 Play the listening passage', '🎧 Odtwórz nagranie'), voice)));
+        if (lb) wrap.appendChild(h('div.row', { style: { margin: '6px 0' } }, UI.speakBtn(() => U.plain(lb.text), tr('Play the listening passage', 'Odtwórz nagranie'), voice)));
       }
       if (q.dictation) {
-        const play = h('button.big-play', { type: 'button', 'aria-label': tr('Play the word', 'Odtwórz wyraz') }, '▶');
+        const play = h('button.big-play', { type: 'button', 'aria-label': tr('Play the word', 'Odtwórz wyraz') }, LA.icon('play', 30));
         play.addEventListener('click', () => SP.say(qSpeech(q), { lang: voice, rate: 0.8 }));
-        wrap.appendChild(h('div.dictation-play', play, h('div', h('div.display', { style: { fontWeight: 800 } }, tr('Dictation', 'Dyktando')), h('div.small.muted', tr('Press play, listen, then write the word.', 'Naciśnij ▶, posłuchaj i napisz wyraz.')))));
+        wrap.appendChild(h('div.dictation-play', play, h('div', h('div.display', { style: { fontWeight: 650 } }, tr('Dictation', 'Dyktando')), h('div.small.muted', tr('Press play, listen, then write the word.', 'Naciśnij „odtwórz”, posłuchaj i napisz wyraz.')))));
       } else wrap.appendChild(h('div.q-text', { html: U.fmt(q.q) }));
       if (q.svg) wrap.appendChild(h('div.visual', { html: q.svg }));
       const area = h('div');
       wrap.appendChild(area);
       const fb = h('div');
       let tries = 0, firstCorrect = null, firstGiven = null, locked = false;
-      const nextBtn = h('button.btn.big', { type: 'button' }, i + 1 < questions.length ? tr('Next →', 'Dalej →') : tr('Finish ✓', 'Koniec ✓'));
+      const nextBtn = h('button.btn.big', { type: 'button' }, i + 1 < questions.length ? tr('Next', 'Dalej') : tr('Finish', 'Koniec'), LA.icon(i + 1 < questions.length ? 'chevronR' : 'check', 20));
       nextBtn.addEventListener('click', () => finishQuestion(q, firstGiven, !!firstCorrect));
 
       function submit(given) {
@@ -214,13 +250,13 @@
         if (ok) {
           locked = true;
           area.querySelectorAll('button,input,textarea').forEach((b) => (b.disabled = true));
-          fb.appendChild(h('div.feedback.good', h('h4', U.pick(tr(['✅ Correct!', '🌟 Great job!', '🎉 Yes! Well done!', '👍 Spot on!'], ['✅ Dobrze!', '🌟 Świetnie!', '🎉 Brawo!', '👍 Doskonale!']))), q.explain && tries > 1 ? h('div', { html: U.fmt(q.explain) }) : null));
+          fb.appendChild(h('div.feedback.good', h('h4.row', { style: { gap: '8px' } }, LA.icon('checkCircle', 22), U.pick(tr(['Correct!', 'Great job!', 'Yes — well done!', 'Spot on!'], ['Dobrze!', 'Świetnie!', 'Brawo!', 'Doskonale!']))), q.explain && tries > 1 ? h('div', { html: U.fmt(q.explain) }) : null));
           fb.appendChild(h('div.row', { style: { marginTop: '12px' } }, nextBtn));
           setTimeout(() => nextBtn.focus(), 30);
         } else if (tries < 2) {
           const msg = slip ? tr('So close! Check the spelling.', 'Prawie! Sprawdź pisownię.') : tr('Not quite — have another go!', 'Jeszcze nie — spróbuj jeszcze raz!');
           fb.appendChild(h('div.feedback' + (slip ? '.warn' : '.bad'), h('h4', msg), h('div', hint(q, slip))));
-          if (AI.available()) fb.appendChild(h('button.btn.secondary.small', { type: 'button', style: { marginTop: '8px' }, onclick: (e) => e.target.replaceWith(UI.aiBox(tr('Hint', 'Podpowiedź'), (on) => AI.hint(q, opts.ctx, on))) }, tr('💡 Ask for a hint', '💡 Poproś o podpowiedź')));
+          if (AI.available()) fb.appendChild(h('button.btn.secondary.small', { type: 'button', style: { marginTop: '8px' }, onclick: (e) => e.target.replaceWith(UI.aiBox(tr('Hint', 'Podpowiedź'), (on) => AI.hint(q, opts.ctx, on))) }, tr('Ask for a hint', 'Poproś o podpowiedź')));
           const inp = area.querySelector('.answer-input');
           if (inp) { inp.select(); inp.focus(); }
         } else {
@@ -247,23 +283,33 @@
           box.appendChild(b);
         });
         area.appendChild(box);
-        const say = h('input', { type: 'text', placeholder: tr('…or say / type your answer', '…albo powiedz / wpisz odpowiedź'), 'aria-label': tr('Say or type your answer', 'Powiedz lub wpisz odpowiedź'), autocomplete: 'off' });
-        const matchSay = () => {
-          const v = U.normText(say.value);
-          if (!v) return;
+        const say = h('input', { type: 'text', placeholder: tr('…or say your answer', '…albo powiedz odpowiedź'), 'aria-label': tr('Say or type your answer', 'Powiedz lub wpisz odpowiedź'), autocomplete: 'off' });
+        const matchOne = (raw) => {
+          const v = U.normText(raw).replace(/[.!?,]+$/, '');
+          if (!v) return -1;
           let k = q.options.findIndex((o) => U.normText(U.plain(o)) === v);
-          if (k < 0 && /^[a-e]$/.test(v)) k = 'abcde'.indexOf(v);
+          const letter = v.replace(/^(letter|answer|odpowiedź|litera)\s+/, '');
+          if (k < 0 && /^[a-e]$/.test(letter)) k = 'abcde'.indexOf(letter);
+          const NUM = { one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9', ten: '10', jeden: '1', dwa: '2', trzy: '3', cztery: '4', pięć: '5', sześć: '6', siedem: '7', osiem: '8', dziewięć: '9', dziesięć: '10', true: 'true', prawda: 'prawda', fałsz: 'fałsz', false: 'false' };
+          if (k < 0 && NUM[v]) k = q.options.findIndex((o) => U.normText(U.plain(o)) === NUM[v]);
           if (k < 0) k = q.options.findIndex((o) => { const t = U.normText(U.plain(o)); return t.length > 2 && (v.includes(t) || t.includes(v)); });
-          if (k >= 0 && k < q.options.length) submit(k); else UI.toast(tr('I couldn’t match that to a choice — tap one instead.', 'Nie pasuje do żadnej odpowiedzi — dotknij jednej z nich.'));
+          return k;
+        };
+        const matchSay = (alts) => {
+          const list = (alts && alts.length ? alts : [say.value]).filter(Boolean);
+          for (const a of list) { const k = matchOne(a); if (k >= 0 && k < q.options.length) { submit(k); return; } }
+          if (list.length) UI.toast(tr('I couldn’t match that to a choice — tap one instead.', 'Nie pasuje do żadnej odpowiedzi — dotknij jednej z nich.'));
         };
         say.addEventListener('keydown', (e) => { if (e.key === 'Enter') matchSay(); });
-        area.appendChild(h('div.say-row', say, h('button.btn.secondary.small', { type: 'button', onclick: matchSay }, 'OK')));
+        const mic = UI.micBtn(voice, (t, fin, alts) => { say.value = t; if (fin) matchSay(alts); });
+        area.appendChild(h('div.say-row', mic, say, h('button.btn.secondary.small', { type: 'button', onclick: () => matchSay() }, 'OK')));
       } else if (q.type === 'input') {
         const inp = h('input.answer-input', { type: 'text', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', autocorrect: 'off', placeholder: q.dictation ? tr('Write the word', 'Napisz wyraz') : tr('Your answer', 'Twoja odpowiedź'), 'aria-label': tr('Your answer', 'Twoja odpowiedź') });
         const go = h('button.btn', { type: 'button' }, tr('Check', 'Sprawdź'));
         go.addEventListener('click', () => submit(inp.value));
         inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(inp.value); });
-        const penBtn = h('button.icon-btn', { type: 'button', title: tr('Write with Apple Pencil', 'Pisz rysikiem'), 'aria-label': tr('Write with Apple Pencil', 'Pisz rysikiem') }, '✍️');
+        const penBtn = h('button.icon-btn', { type: 'button', title: tr('Write with Apple Pencil', 'Pisz rysikiem'), 'aria-label': tr('Write with Apple Pencil', 'Pisz rysikiem') }, LA.icon('pencil', 22));
+        const micB = UI.micAllowed(q) ? UI.micBtn(voice, (t, fin) => { inp.value = q.numeric ? t.replace(/[^\d,.:\-\/ ]/g, '').trim() || t : t.replace(/[.!?]$/, ''); if (fin) inp.focus(); }) : null;
         const penArea = h('div', { style: { marginTop: '12px' } });
         penBtn.addEventListener('click', () => {
           if (penArea.childNodes.length) { penArea.innerHTML = ''; return; }
@@ -271,7 +317,7 @@
             onRead: (r) => { const old = penArea.querySelector('.feedback'); if (old) old.remove(); penArea.appendChild(UI.confirmReading(r, (v) => { inp.value = v; submit(v); })); },
             onNoAI: () => UI.toast(tr('Reading handwriting needs the AI tutor. You can also write straight into the answer box with Apple Pencil (Scribble).', 'Odczyt pisma wymaga asystenta AI. Możesz też pisać rysikiem prosto w polu odpowiedzi (Scribble).'), 4500) }));
         });
-        area.appendChild(h('div.answer-row', inp, penBtn, go));
+        area.appendChild(h('div.answer-row', inp, micB, penBtn, go));
         area.appendChild(penArea);
         if (S.settings().pencilFirst) setTimeout(() => penBtn.click(), 50);
         else setTimeout(() => { try { inp.focus({ preventScroll: true }); } catch (e) { inp.focus(); } }, 40);
@@ -310,8 +356,8 @@
     wc.textContent = `${count()} ${tr('words', 'słów')}`;
     const typeArea = h('div', ta);
     const penArea = h('div.hidden');
-    const bType = h('button.on', { type: 'button' }, tr('⌨️ Type', '⌨️ Klawiatura'));
-    const bPen = h('button', { type: 'button' }, tr('✍️ Apple Pencil', '✍️ Rysik'));
+    const bType = h('button.on', { type: 'button' }, LA.icon('keyboard', 20), tr('Type', 'Klawiatura'));
+    const bPen = h('button', { type: 'button' }, LA.icon('pencil', 20), tr('Apple Pencil', 'Rysik'));
     bType.addEventListener('click', () => { bType.classList.add('on'); bPen.classList.remove('on'); typeArea.classList.remove('hidden'); penArea.classList.add('hidden'); });
     bPen.addEventListener('click', () => {
       bPen.classList.add('on'); bType.classList.remove('on'); typeArea.classList.add('hidden'); penArea.classList.remove('hidden');
@@ -327,13 +373,14 @@
       fbArea.innerHTML = '';
       fbArea.appendChild(UI.aiBox(tr('Feedback', 'Ocena'), (on) => AI.writingFeedback(q.q, ta.value, q.checklist, prog, on)));
     });
-    const done = h('button.btn.good', { type: 'button' }, tr('I’m finished ✓', 'Skończone ✓'));
+    const done = h('button.btn.good', { type: 'button' }, LA.icon('check', 20), tr('I’m finished', 'Skończone'));
     done.addEventListener('click', () => {
       const wp = penArea.querySelector('.write-panel');
       if (count() < Math.min(q.minWords || 10, 10) && !(wp && !wp.pad.isEmpty())) { fbArea.innerHTML = ''; fbArea.appendChild(h('div.feedback.bad', tr(`Try to write at least ${Math.min(q.minWords || 10, 10)} words.`, `Napisz co najmniej ${Math.min(q.minWords || 10, 10)} słów.`))); return; }
       onFinish();
     });
-    return h('div.col', h('div.seg', bType, bPen), typeArea, penArea, h('div.row', wc, h('span.spacer'), UI.speakBtn(() => ta.value || tr('You have not written anything yet.', 'Jeszcze nic nie napisałeś/aś.'), tr('Read my writing back', 'Przeczytaj mój tekst'))), checks, h('div.row', aiBtn, done), fbArea);
+    const wMic = UI.micAllowed(Object.assign({ type: 'write' }, q)) ? UI.micBtn(LA.PROGRAMMES[prog].voice, (t, fin) => { if (fin) { ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + t; upd(); } }, { continuous: true }) : null;
+    return h('div.col', h('div.row', h('div.seg', bType, bPen), h('span.spacer'), wMic), typeArea, penArea, h('div.row', wc, h('span.spacer'), UI.speakBtn(() => ta.value || tr('You have not written anything yet.', 'Jeszcze nic nie napisałeś/aś.'), tr('Read my writing back', 'Przeczytaj mój tekst'))), checks, h('div.row', aiBtn, done), fbArea);
   }
 
   /* ---------- tutor chat ---------- */
@@ -347,19 +394,20 @@
     const send = h('button.btn.small', { type: 'button' });
     const quick = h('div.quick');
     const head = h('div.tutor-head');
-    panel.append(head, msgs, quick, h('div.tutor-input', input, send));
+    const tmic = UI.micBtn(null, (t, fin) => { input.value = t; if (fin) ask(t); });
+    panel.append(head, msgs, quick, h('div.tutor-input', tmic, input, send));
     document.body.append(fab, panel);
 
     function render() {
       const prog = LA.state.prog;
       const P = LA.PROGRAMMES[prog];
       const chat = chats[prog];
-      fab.textContent = P.tutorIcon;
+      fab.innerHTML = LA.iconSVG('sparkles', 28);
       fab.title = tr('Ask Koa', 'Zapytaj Sowę Zosię');
       head.innerHTML = '';
       head.append(h('span.av', P.tutorIcon), h('span', P.tutor), h('span.spacer'),
         h('button.btn.ghost.small', { type: 'button', onclick: () => { chats[prog] = []; render(); } }, tr('Clear', 'Wyczyść')),
-        h('button.btn.ghost.small', { type: 'button', 'aria-label': tr('Close', 'Zamknij'), onclick: () => panel.classList.add('hidden') }, '✕'));
+        h('button.btn.ghost.small', { type: 'button', 'aria-label': tr('Close', 'Zamknij'), onclick: () => panel.classList.add('hidden') }, LA.icon('xmark', 20)));
       input.placeholder = tr('Ask Koa a question…', 'Zadaj pytanie Sowie Zosi…');
       send.textContent = tr('Send', 'Wyślij');
       msgs.innerHTML = '';
@@ -370,7 +418,7 @@
           ? `Cześć${p ? ' ' + p.name : ''}! Jestem **Sowa Zosia**. ${ctx && ctx.title ? `Widzę, że uczysz się: **${ctx.title}**. ` : ''}Zapytaj mnie o cokolwiek z nauki — wytłumaczę, dam przykład albo zrobię ci mały quiz.`
           : `G'day${p ? ' ' + p.name : ''}! I'm **Koa**. ${ctx && ctx.title ? `I can see you're working on **${ctx.title}**. ` : ''}Ask me anything about your learning — I can explain, give examples or quiz you. You can ask me in Polish too!`;
         msgs.appendChild(h('div.msg.assistant', { html: U.fmt(hi) }));
-        if (!AI.available()) msgs.appendChild(h('div.msg.assistant', { html: U.fmt(tr('To chat with me, open this app on **claude.ai** (signed in), or a grown-up can add an AI key in **Parent → Settings**. The 🔊 buttons still read everything out loud.', 'Aby ze mną rozmawiać, otwórz aplikację na **claude.ai** (po zalogowaniu) albo poproś rodzica o klucz AI w **Rodzic → Ustawienia**. Przyciski 🔊 czytają wszystko na głos.')) }));
+        if (!AI.available()) msgs.appendChild(h('div.msg.assistant', { html: U.fmt(tr('To chat with me, a grown-up needs to switch on the AI tutor in **Parent → Settings**. The speaker buttons still read everything out loud.', 'Aby ze mną rozmawiać, rodzic musi włączyć asystenta AI w **Rodzic → Ustawienia**. Przyciski z głośnikiem nadal czytają wszystko na głos.')) }));
       }
       chat.forEach((m) => {
         const el = h('div.msg.' + m.role, { html: U.fmt(m.content) });
@@ -392,7 +440,7 @@
       chat.push({ role: 'user', content: text });
       input.value = '';
       render();
-      if (!AI.available()) { chat.push({ role: 'assistant', content: tr('I need the AI switched on first (open on claude.ai, or Parent → Settings). Meanwhile, try the 🔊 buttons and re-read the lesson — you can do it!', 'Najpierw trzeba włączyć AI (claude.ai albo Rodzic → Ustawienia). Na razie użyj przycisków 🔊 i przeczytaj lekcję jeszcze raz — dasz radę!') }); render(); return; }
+      if (!AI.available()) { chat.push({ role: 'assistant', content: tr('I need the AI switched on first (Parent → Settings). Meanwhile, use the speaker buttons and re-read the lesson — you can do it!', 'Najpierw trzeba włączyć AI (Rodzic → Ustawienia). Na razie użyj przycisków z głośnikiem i przeczytaj lekcję jeszcze raz — dasz radę!') }); render(); return; }
       const bubble = h('div.msg.assistant', h('span.thinking', tr('Thinking', 'Myślę')));
       msgs.appendChild(bubble);
       msgs.scrollTop = msgs.scrollHeight;
@@ -409,7 +457,7 @@
     fab.addEventListener('click', () => { panel.classList.toggle('hidden'); if (!panel.classList.contains('hidden')) { render(); input.focus(); } });
     UI.tutor.open = (prefill) => { panel.classList.remove('hidden'); render(); if (prefill) ask(prefill); };
     UI.tutor.setVisible = (v) => { fab.classList.toggle('hidden', !v); if (!v) panel.classList.add('hidden'); };
-    UI.tutor.refresh = () => { fab.textContent = LA.PROGRAMMES[LA.state.prog].tutorIcon; if (!panel.classList.contains('hidden')) render(); };
+    UI.tutor.refresh = () => { if (!panel.classList.contains('hidden')) render(); };
     render();
   };
 })();

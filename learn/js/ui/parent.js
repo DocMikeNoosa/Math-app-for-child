@@ -22,20 +22,21 @@
       const msg = h('div.small');
       const go = () => { if (inp.value === st.pin) { unlocked = true; LA.refresh(); } else { msg.textContent = tr('That PIN is not right.', 'Nieprawidłowy PIN.'); inp.value = ''; } };
       inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-      c.appendChild(h('div.card.col', { style: { maxWidth: '420px', margin: '40px auto' } }, h('h1', tr('👪 Grown-ups only', '👪 Tylko dla dorosłych')), h('p', tr('Enter the parent PIN.', 'Wpisz PIN rodzica.')), inp, msg, h('button.btn', { type: 'button', onclick: go }, tr('Unlock', 'Odblokuj'))));
+      c.appendChild(h('div.card.col', { style: { maxWidth: '420px', margin: '40px auto' } }, h('h1', tr('Grown-ups only', 'Tylko dla dorosłych')), h('p', tr('Enter the parent PIN.', 'Wpisz PIN rodzica.')), inp, msg, h('button.btn', { type: 'button', onclick: go }, tr('Unlock', 'Odblokuj'))));
       setTimeout(() => inp.focus(), 30);
       return;
     }
-    const tabs = [['overview', tr('Progress', 'Postępy')], ['assign', tr('Extra tutor work', 'Dodatkowa praca')], ['settings', tr('Settings', 'Ustawienia')], ['learners', tr('Learners', 'Uczniowie')], ['data', tr('Backup', 'Kopia')]];
+    const tabs = [['overview', tr('Progress', 'Postępy')], ['assign', tr('Extra tutor work', 'Dodatkowa praca')], ['settings', tr('Settings', 'Ustawienia')], ['learners', tr('Learners', 'Uczniowie')], ['cloud', tr('Cloud & backup', 'Chmura i kopie')]];
     const seg = h('div.seg', tabs.map(([k, l]) => h('button' + (k === tab ? '.on' : ''), { type: 'button', onclick: () => LA.go('parent/' + k, null, { replace: true }) }, l)));
-    c.append(h('div.row', h('h1', { style: { margin: 0 } }, tr('👪 Parent portal', '👪 Panel rodzica')), h('span.spacer'), h('div.seg', [['en', 'EN'], ['pl', 'PL']].map(([k, l]) => h('button' + ((st.parentLang || 'en') === k ? '.on' : ''), { type: 'button', onclick: () => { S.setSetting('parentLang', k); LA.refresh(); } }, l)))),
+    c.append(h('div.row', h('h1', { style: { margin: 0 } }, tr('Parent portal', 'Panel rodzica')), h('span.spacer'), h('div.seg', [['en', 'EN'], ['pl', 'PL']].map(([k, l]) => h('button' + ((st.parentLang || 'en') === k ? '.on' : ''), { type: 'button', onclick: () => { S.setSetting('parentLang', k); LA.refresh(); } }, l)))),
       h('div', { style: { margin: '14px 0 18px' } }, seg));
     const p = S.activeProfile();
-    if (!p && tab !== 'learners' && tab !== 'settings' && tab !== 'data') { c.appendChild(h('div.card', h('p', tr('Add a learner first.', 'Najpierw dodaj ucznia.')), h('button.btn', { type: 'button', onclick: () => LA.go('welcome') }, tr('Add learner', 'Dodaj ucznia')))); return; }
+    if (tab === 'data') tab = 'cloud';
+    if (!p && tab !== 'learners' && tab !== 'settings' && tab !== 'cloud') { c.appendChild(h('div.card', h('p', tr('Add a learner first.', 'Najpierw dodaj ucznia.')), h('button.btn', { type: 'button', onclick: () => LA.go('welcome') }, tr('Add learner', 'Dodaj ucznia')))); return; }
     if (tab === 'assign') return assign(c);
     if (tab === 'settings') return settings(c);
     if (tab === 'learners') return learners(c);
-    if (tab === 'data') return data(c);
+    if (tab === 'cloud') return data(c);
     return overview(c);
   };
 
@@ -75,6 +76,13 @@
     const p = S.activeProfile();
     const P = S.P();
     const week = P.log.filter((l) => Date.now() - l.at < 7 * 86400000).reduce((s, l) => s + (l.minutes || 0), 0);
+    const lastExp = S.settings().lastExport || 0;
+    if (!LA.cloud.user || Date.now() - lastExp > 30 * 86400000) {
+      c.appendChild(h('div.card.row', { style: { marginBottom: '16px', background: 'var(--warn-soft)' } }, LA.appIcon('cloud', '#ff9500', 38),
+        h('div', { style: { flex: 1, minWidth: '200px' } }, h('strong', !LA.cloud.user ? tr('Work is only on this device', 'Praca jest tylko na tym urządzeniu') : tr('Time for a monthly backup file', 'Czas na comiesięczny plik kopii')),
+          h('div.small.muted', !LA.cloud.user ? tr('Sign in to the family cloud account so it syncs and is backed up every day.', 'Zaloguj się do konta rodzinnego, aby synchronizować i codziennie robić kopię.') : tr('An extra copy you keep in Files or iCloud Drive.', 'Dodatkowa kopia w Plikach lub iCloud Drive.'))),
+        h('button.btn.small', { type: 'button', onclick: () => LA.go('parent/cloud', null, { replace: true }) }, tr('Open', 'Otwórz'))));
+    }
     c.appendChild(h('div.grid.three', h('div.stat', h('div.n', String(P.streak.count || 0)), h('div.muted.small', tr('day streak', 'dni z rzędu'))), h('div.stat', h('div.n', '≈' + week), h('div.muted.small', tr('minutes this week', 'minut w tym tygodniu'))), h('div.stat', h('div.n', String(S.openRemediation().length)), h('div.muted.small', tr('extra-practice tasks open', 'otwartych zadań dodatkowych'))), h('div.stat', h('div.n', String(Object.keys(P.spelling).filter((w) => !P.spelling[w].mastered).length)), h('div.muted.small', tr('tricky words', 'trudnych wyrazów')))));
     ['au', 'pl'].forEach((prog) => {
       if (!p[prog].on) return;
@@ -86,7 +94,7 @@
           subs.map((s) => { const st = T.subjectStats(s), par = T.par(s); return h('tr', h('td', s.icon + ' ' + s.name), h('td', `${st.done}/${st.lessons}`), h('td', `${st.passed}/${st.chapters}`), h('td', st.behind ? h('span.tag.warn', `−${st.behind}`) : h('span.tag.good', tr('on time', 'w terminie'))), h('td', par.accuracy != null ? Math.round(par.accuracy * 100) + '%' : '—'), h('td', h('span.par.' + par.level, par.label))); }))),
         h('p.tiny.muted', tr('Level compares quiz scores and answers with the pass marks, and counts ★ above-par questions. Pace compares chapters passed with how far through the school year it is.', 'Poziom porównuje wyniki z progiem zaliczenia i uwzględnia zadania z gwiazdką. Tempo porównuje zaliczone rozdziały z postępem roku szkolnego.')));
       const adv = h('div.col', { style: { marginTop: '10px' } }, h('h3', tr('Advice', 'Porady')), h('ul', adviceOffline(prog).map((a) => h('li', { html: U.fmtInline(a) }))));
-      if (AI.available()) adv.appendChild(h('button.btn.secondary', { type: 'button', onclick: (e) => e.target.replaceWith(UI.aiBox(tr('Teacher’s assessment', 'Ocena nauczyciela'), (on) => AI.parentAdvice(summaryFor(prog), on), { prog })) }, tr('✨ Ask the AI teacher: below, on or above par — and how to improve', '✨ Zapytaj AI: poniżej, na czy powyżej poziomu — i jak poprawić')));
+      if (AI.available()) adv.appendChild(h('button.btn.secondary', { type: 'button', onclick: (e) => e.target.replaceWith(UI.aiBox(tr('Teacher’s assessment', 'Ocena nauczyciela'), (on) => AI.parentAdvice(summaryFor(prog), on), { prog })) }, tr('Ask the AI teacher: below, on or above par — and how to improve', 'Zapytaj AI: poniżej, na czy powyżej poziomu — i jak poprawić')));
       else adv.appendChild(h('p.small.muted', tr('Open the app on claude.ai (or add an API key in Settings) for a detailed AI assessment.', 'Otwórz aplikację na claude.ai (lub dodaj klucz API) po szczegółową ocenę AI.')));
       card.appendChild(adv);
       const weak = T.weakSkills(prog, 10);
@@ -142,7 +150,7 @@
     const saved = h('span.small.muted');
     const save = () => { S.saveMain(); S.saveNow(); saved.textContent = tr('✓ Saved', '✓ Zapisano'); setTimeout(() => (saved.textContent = ''), 1800); };
     // AI
-    const aiStatus = AI.mode === 'claude' ? tr('Using Claude through your claude.ai account (no key needed).', 'Korzysta z Claude przez twoje konto claude.ai (bez klucza).') : AI.mode === 'apikey' ? tr('Using your Anthropic API key.', 'Korzysta z twojego klucza API Anthropic.') : tr('Not available yet. Open the app from claude.ai, or add an API key below.', 'Jeszcze niedostępny. Otwórz aplikację z claude.ai albo dodaj poniżej klucz API.');
+    const aiStatus = AI.mode === 'claude' ? tr('Using Claude through claude.ai.', 'Korzysta z Claude przez claude.ai.') : AI.mode === 'apikey' ? tr('On — using your Anthropic API key.', 'Włączony — korzysta z twojego klucza API Anthropic.') : tr('Off. Add an Anthropic API key below to switch on the tutor chat, explanations, AI-made practice, handwriting reading and the progress assessment.', 'Wyłączony. Dodaj poniżej klucz API Anthropic, aby włączyć rozmowę z asystentem, wyjaśnienia, ćwiczenia AI, odczyt pisma i ocenę postępów.');
     const aiOn = h('input', { type: 'checkbox', checked: st.aiEnabled !== false ? true : null });
     aiOn.addEventListener('change', () => { st.aiEnabled = aiOn.checked; save(); });
     const key = h('input', { type: 'password', placeholder: 'sk-ant-…', value: st.apiKey || '', autocomplete: 'off', 'aria-label': 'API key' });
@@ -151,8 +159,8 @@
     model.addEventListener('change', () => { st.model = model.value; save(); });
     const test = h('div.small');
     c.appendChild(h('div.card.col', h('h2', tr('AI tutor', 'Asystent AI')), h('p.small', aiStatus), h('label.check', aiOn, tr('AI features on', 'Funkcje AI włączone')),
-      window.claude ? null : h('div.col', h('div', h('label.field', tr('Anthropic API key (only when not using claude.ai)', 'Klucz API Anthropic (tylko poza claude.ai)')), key, h('div.hint', tr('Stored only in this browser and sent only to api.anthropic.com. Billed to your Anthropic account.', 'Przechowywany tylko w tej przeglądarce i wysyłany wyłącznie do api.anthropic.com.'))), h('div', h('label.field', 'Model'), model)),
-      h('div.row', h('button.btn.secondary.small', { type: 'button', onclick: () => { test.textContent = tr('Testing…', 'Testuję…'); AI.call([{ role: 'user', content: 'Say a one-sentence hello to a Year 3 student.' }], { tier: 'quick', prog: 'au' }).then((t) => (test.textContent = '✓ ' + t)).catch((e) => (test.textContent = '⚠️ ' + e.message)); } }, tr('Test the AI', 'Testuj AI')), test)));
+      h('div.col', h('div', h('label.field', tr('Anthropic API key', 'Klucz API Anthropic')), key, h('div.hint', tr('Get one at console.anthropic.com → API keys (usage is billed to your Anthropic account). It is sent only to api.anthropic.com and, when you are signed in to the family cloud, kept in your private cloud space so every device has it.', 'Klucz uzyskasz na console.anthropic.com → API keys (opłaty na twoim koncie Anthropic). Wysyłany jest tylko do api.anthropic.com, a po zalogowaniu do chmury rodzinnej przechowywany w twojej prywatnej przestrzeni, by działał na każdym urządzeniu.'))), h('div', h('label.field', 'Model'), model)),
+      h('div.row', h('button.btn.secondary.small', { type: 'button', onclick: () => { test.textContent = tr('Testing…', 'Testuję…'); AI.call([{ role: 'user', content: 'Say a one-sentence hello to a Year 3 student.' }], { tier: 'quick', prog: 'au' }).then((t) => (test.textContent = '✓ ' + t)).catch((e) => (test.textContent = '' + e.message)); } }, tr('Test the AI', 'Testuj AI')), test)));
     // voices
     const voiceCard = h('div.card.col', { style: { marginTop: '14px' } }, h('h2', tr('Read-aloud voices', 'Głosy lektora')),
       h('p.small.muted', tr('Uses the iPad’s own voices (works offline). For the most natural voices: Settings → Accessibility → Spoken Content → Voices → English (Australia) → Karen (Enhanced) and Polish → Zosia (Enhanced).', 'Korzysta z głosów iPada (działa offline). Najbardziej naturalne: Ustawienia → Dostępność → Mowa → Głosy → angielski (Australia) → Karen (rozszerzony) oraz polski → Zosia (rozszerzony).')));
@@ -162,7 +170,7 @@
       sel.addEventListener('change', () => { st.voice = Object.assign({}, st.voice, { [lang]: sel.value }); save(); });
       const rate = h('input', { type: 'range', min: 0.6, max: 1.25, step: 0.05, value: (st.rate || {})[lang] || 0.92, 'aria-label': 'Speed' });
       rate.addEventListener('change', () => { st.rate = Object.assign({}, st.rate, { [lang]: +rate.value }); save(); });
-      voiceCard.appendChild(h('div.card.soft.col', h('strong', label), sel, h('div', h('label.field.small', tr('Speed', 'Tempo')), rate), h('div.row', h('button.btn.secondary.small', { type: 'button', onclick: () => SP.say(sample, { lang }) }, tr('▶ Test', '▶ Test')), list.length ? null : h('span.small.muted', tr('No voice for this language found on this device.', 'Brak głosu dla tego języka na tym urządzeniu.')))));
+      voiceCard.appendChild(h('div.card.soft.col', h('strong', label), sel, h('div', h('label.field.small', tr('Speed', 'Tempo')), rate), h('div.row', h('button.btn.secondary.small', { type: 'button', onclick: () => SP.say(sample, { lang }) }, tr('Test', 'Test')), list.length ? null : h('span.small.muted', tr('No voice for this language found on this device.', 'Brak głosu dla tego języka na tym urządzeniu.')))));
     });
     const auto = h('input', { type: 'checkbox', checked: st.autoRead ? true : null });
     auto.addEventListener('change', () => { st.autoRead = auto.checked; save(); });
@@ -183,15 +191,18 @@
     // pencil & display
     const pen = h('input', { type: 'checkbox', checked: st.pencilFirst ? true : null });
     pen.addEventListener('change', () => { st.pencilFirst = pen.checked; save(); });
-    const theme = h('div.seg', [['dark', tr('Dark', 'Ciemny')], ['light', tr('Light', 'Jasny')], ['auto', tr('Match iPad', 'Jak iPad')]].map(([v, l]) => { const b = h('button' + ((st.theme || 'dark') === v ? '.on' : ''), { type: 'button' }, l); b.addEventListener('click', () => { st.theme = v; save(); LA.refresh(); }); return b; }));
+    const micSp = h('input', { type: 'checkbox', checked: st.micForSpelling ? true : null });
+    micSp.addEventListener('change', () => { st.micForSpelling = micSp.checked; save(); });
+    const theme = h('div.seg', [['light', tr('Light', 'Jasny')], ['dark', tr('Dark', 'Ciemny')]].map(([v, l]) => { const b = h('button' + ((st.theme === 'dark' ? 'dark' : 'light') === v ? '.on' : ''), { type: 'button' }, l); b.addEventListener('click', () => { st.theme = v; save(); LA.refresh(); }); return b; }));
     const big = h('input', { type: 'checkbox', checked: st.bigText ? true : null });
     big.addEventListener('change', () => { st.bigText = big.checked; save(); LA.refresh(); });
     const sp = h('input', { type: 'checkbox', checked: st.spacing ? true : null });
     sp.addEventListener('change', () => { st.spacing = sp.checked; save(); LA.refresh(); });
     const hwCount = h('span.small.muted');
     LA.hand.sampleCount().then((n) => (hwCount.textContent = tr(`${n} handwriting samples learnt`, `${n} zapamiętanych próbek pisma`)));
-    c.appendChild(h('div.card.col', { style: { marginTop: '14px' } }, h('h2', tr('Apple Pencil and display', 'Apple Pencil i wygląd')),
+    c.appendChild(h('div.card.col', { style: { marginTop: '14px' } }, h('h2', tr('Pencil, voice and display', 'Rysik, głos i wygląd')),
       h('label.check', pen, tr('Open the handwriting pad first for typed answers', 'Najpierw otwieraj pole do pisania rysikiem')),
+      h('label.check', micSp, tr('Allow the microphone for spelling and English/Polish written answers (off by default — speech recognition spells the word for her)', 'Zezwól na mikrofon przy ortografii i odpowiedziach pisemnych z języka (domyślnie wyłączone — rozpoznawanie mowy samo literuje wyraz)')),
       h('div.row', hwCount, h('button.btn.ghost.small', { type: 'button', onclick: () => UI.confirm(tr('Forget handwriting samples?', 'Usunąć próbki pisma?'), tr('The tutor will start learning her handwriting again from scratch.', 'Asystent zacznie uczyć się pisma od nowa.'), () => { LA.hand.clearSamples(); LA.refresh(); }) }, tr('Reset', 'Wyczyść'))),
       h('div', h('label.field', tr('Theme', 'Motyw')), theme), h('label.check', big, tr('Larger text', 'Większy tekst')), h('label.check', sp, tr('Extra letter spacing (helps some readers)', 'Większe odstępy między literami'))));
     // PIN
@@ -223,37 +234,101 @@
     c.appendChild(h('button.btn', { type: 'button', onclick: () => { S.state().active = null; LA.go('welcome'); } }, tr('+ Add a learner', '+ Dodaj ucznia')));
   }
 
-  /* ---------- backup ---------- */
+  /* ---------- cloud & backup ---------- */
   function data(c) {
+    const cloud = LA.cloud;
     const msg = h('div.small');
+    const card = (...kids) => h('div.card.col', { style: { marginTop: '16px' } }, ...kids);
+    // 1. account
+    const acct = card(h('div.row', LA.appIcon('cloud', '#007aff', 40), h('h2', { style: { margin: 0 } }, tr('Family cloud account', 'Rodzinne konto w chmurze'))));
+    if (!cloud.configured()) {
+      const ta = h('textarea', { placeholder: '{ "apiKey": "…", "authDomain": "…", "projectId": "…", "appId": "…" }', style: { minHeight: '120px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '0.8em' }, 'aria-label': 'Firebase config' });
+      acct.append(h('p', tr('Cloud sync is not set up yet. Work is saved on this device (with automatic daily snapshots). To log in from the iPad and the computer, create a free Firebase project and paste its web config here — the step-by-step guide is in SETUP.md (about 10 minutes, once).', 'Synchronizacja nie jest jeszcze ustawiona. Praca zapisuje się na tym urządzeniu (z codziennymi kopiami). Aby logować się z iPada i komputera, załóż darmowy projekt Firebase i wklej tu jego konfigurację — instrukcja krok po kroku jest w SETUP.md (ok. 10 minut, jednorazowo).')),
+        ta, h('div.row', h('button.btn', { type: 'button', onclick: () => {
+          const raw = ta.value.trim();
+          try {
+            const m = raw.match(/\{[\s\S]*\}/);
+            if (!m) throw new Error('no object');
+            const obj = Function('"use strict";return (' + m[0] + ')')();
+            if (!obj.apiKey || !obj.projectId) throw new Error('missing');
+            cloud.setConfig(obj); location.reload();
+          } catch (e) { UI.toast(tr('That doesn’t look like a Firebase config — paste the whole firebaseConfig = { … } block.', 'To nie wygląda na konfigurację Firebase — wklej cały blok firebaseConfig = { … }.'), 4500); }
+        } }, tr('Connect', 'Połącz'))));
+    } else if (!cloud.user) {
+      const email = h('input', { type: 'email', placeholder: 'family@example.com', autocomplete: 'username', 'aria-label': 'Email' });
+      const pw = h('input', { type: 'password', placeholder: tr('Password (6+ characters)', 'Hasło (min. 6 znaków)'), autocomplete: 'current-password', 'aria-label': 'Password' });
+      const out = h('div.small');
+      const run = async (fn, okMsg) => { out.textContent = tr('Working…', 'Chwileczkę…'); try { await fn(); out.textContent = okMsg || ''; setTimeout(() => LA.refresh(), 400); } catch (e) { out.textContent = e.message; } };
+      acct.append(h('p', tr('Sign in with the same family email on every device (iPad, computer). Progress from all devices is merged — nothing is overwritten.', 'Zaloguj się tym samym rodzinnym e-mailem na każdym urządzeniu. Postępy ze wszystkich urządzeń są łączone — nic nie zostaje nadpisane.')),
+        cloud.ready() ? null : h('p.small.muted', cloud.detail),
+        h('div', h('label.field', 'Email'), email), h('div', h('label.field', tr('Password', 'Hasło')), pw),
+        h('div.row', h('button.btn', { type: 'button', onclick: () => run(() => cloud.signIn(email.value, pw.value)) }, tr('Sign in', 'Zaloguj')),
+          h('button.btn.secondary', { type: 'button', onclick: () => run(() => cloud.signUp(email.value, pw.value)) }, tr('Create family account', 'Załóż konto rodzinne')),
+          h('button.btn.ghost', { type: 'button', onclick: () => run(() => cloud.resetPassword(email.value), tr('Password reset email sent.', 'Wysłano e-mail do zmiany hasła.')) }, tr('Forgot password', 'Nie pamiętam hasła'))), out);
+    } else {
+      acct.append(h('div.list-row', { style: { padding: '6px 0' } }, h('span.sync.' + cloud.status, { style: { padding: 0, margin: 0 } }, h('span.led')), h('div', { style: { flex: 1 } }, h('strong', cloud.user.email), h('div.small.muted', cloud.detail || tr('Signed in. Every change uploads within a few seconds.', 'Zalogowano. Każda zmiana wysyła się w kilka sekund.')))),
+        h('div.row', h('button.btn.secondary.small', { type: 'button', onclick: async () => { await cloud.backupNow(); S.saveNow(); UI.toast(tr('Synced and backed up', 'Zsynchronizowano i zapisano kopię')); LA.refresh(); } }, LA.icon('refresh', 18), tr('Sync and back up now', 'Synchronizuj i zrób kopię')),
+          h('button.btn.ghost.small', { type: 'button', onclick: () => UI.confirm(tr('Sign out of this device?', 'Wylogować to urządzenie?'), tr('Work stays saved on this device and in the cloud.', 'Praca zostaje na urządzeniu i w chmurze.'), async () => { await cloud.signOut(); LA.refresh(); }, tr('Sign out', 'Wyloguj')) }, tr('Sign out', 'Wyloguj'))));
+    }
+    c.appendChild(acct);
+
+    // 2. how work is protected
+    c.appendChild(card(h('h2', tr('How work is protected', 'Jak chroniona jest praca')),
+      h('div.list', [
+        ['checkCircle', '#34c759', tr('Saved instantly on this device', 'Zapis od razu na urządzeniu'), tr('Every answer is stored immediately, and mirrored in a second on-device database.', 'Każda odpowiedź zapisuje się od razu i ma kopię w drugiej bazie na urządzeniu.')],
+        ['repeat', '#007aff', tr('Daily snapshots on this device', 'Codzienne kopie na urządzeniu'), tr('One per day for 30 days, plus one before every sync or restore.', 'Jedna dziennie przez 30 dni oraz przed każdą synchronizacją lub przywróceniem.')],
+        ['cloudCheck', '#5856d6', tr('Cloud sync + dated cloud backups', 'Chmura + codzienne kopie w chmurze'), tr('When signed in: live sync between devices and a dated copy every day, kept for 60 days.', 'Po zalogowaniu: synchronizacja między urządzeniami i kopia każdego dnia, przechowywana 60 dni.')],
+        ['download', '#ff9500', tr('Backup files you keep', 'Pliki kopii u ciebie'), tr('Save a file to Files/iCloud Drive any time (a reminder appears each month).', 'Zapisz plik w Plikach/iCloud Drive w dowolnej chwili (przypomnienie co miesiąc).')],
+      ].map(([ic, col, t, d]) => h('div.list-row', LA.appIcon(ic, col, 34), h('div', h('strong', t), h('div.small.muted', d)))))));
+
+    // 3. restore points
+    const snapBox = h('div.col', h('div.small.muted', tr('Loading…', 'Wczytywanie…')));
+    const fmtWhen = (t) => new Date(t).toLocaleString(LA.lang() === 'pl' ? 'pl-PL' : 'en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const reasonTxt = (r) => ({ daily: tr('Daily', 'Dzienna'), 'before-sync': tr('Before sync', 'Przed synchronizacją'), 'before-restore': tr('Before restore', 'Przed przywróceniem'), 'before-import': tr('Before import', 'Przed importem'), manual: tr('Manual', 'Ręczna') }[r] || r);
+    (async () => {
+      const list = LA.backup ? await LA.backup.list() : [];
+      snapBox.innerHTML = '';
+      if (!list.length) snapBox.appendChild(h('div.small.muted', tr('No snapshots yet — the first one is made today.', 'Brak kopii — pierwsza powstanie dziś.')));
+      list.slice(0, 12).forEach((sn) => snapBox.appendChild(h('div.list-row', { style: { padding: '10px 0' } }, h('div', { style: { flex: 1 } }, h('strong', fmtWhen(sn.at)), h('div.small.muted', reasonTxt(sn.reason) + ' · ' + Math.round(sn.size / 1024) + ' KB')),
+        h('button.btn.secondary.small', { type: 'button', onclick: () => UI.confirm(tr('Bring back this snapshot?', 'Przywrócić tę kopię?'), tr('It is merged with the current work — anything finished since then is kept.', 'Zostanie połączona z obecną pracą — to, co zrobiono później, zostaje.'), async () => { await LA.backup.restore(sn.id); UI.toast(tr('Snapshot merged back in', 'Kopia przywrócona')); LA.refresh(); }, tr('Restore', 'Przywróć')) }, tr('Restore', 'Przywróć')))));
+      if (cloud.available()) {
+        const days = await cloud.listBackups().catch(() => []);
+        if (days.length) {
+          snapBox.appendChild(h('h3', { style: { marginTop: '14px' } }, tr('Cloud backups', 'Kopie w chmurze')));
+          days.slice(0, 14).forEach((d) => snapBox.appendChild(h('div.list-row', { style: { padding: '10px 0' } }, h('div', { style: { flex: 1 } }, h('strong', d), h('div.small.muted', tr('Daily cloud copy', 'Dzienna kopia w chmurze'))),
+            h('button.btn.secondary.small', { type: 'button', onclick: () => UI.confirm(tr('Bring back the copy from ', 'Przywrócić kopię z ') + d + '?', tr('It is merged with the current work — nothing current is lost.', 'Zostanie połączona z obecną pracą — nic nie zginie.'), async () => { await cloud.restoreBackup(d); UI.toast(tr('Cloud copy merged back in', 'Przywrócono kopię z chmury')); LA.refresh(); }, tr('Restore', 'Przywróć')) }, tr('Restore', 'Przywróć')))));
+        }
+      }
+    })();
+    c.appendChild(card(h('h2', tr('Restore points', 'Punkty przywracania')), h('p.small.muted', tr('Restoring never deletes newer work: it merges the old copy back in.', 'Przywracanie nie usuwa nowszej pracy: stara kopia jest dołączana.')), snapBox));
+
+    // 4. files
     const file = h('input', { type: 'file', accept: '.json,application/json', 'aria-label': 'Backup file' });
     file.addEventListener('change', () => {
       const f = file.files[0];
       if (!f) return;
-      const r = new FileReader();
-      r.onload = () => { try { S.importJSON(r.result); msg.textContent = tr('✓ Backup restored.', '✓ Przywrócono kopię.'); } catch (e) { msg.textContent = '⚠️ ' + e.message; } };
-      r.readAsText(f);
+      const rd = new FileReader();
+      rd.onload = async () => { try { if (LA.backup) await LA.backup.snapshot('before-import'); S.importJSON(rd.result); msg.textContent = tr('Backup file merged in.', 'Plik kopii został dołączony.'); } catch (e) { msg.textContent = '' + e.message; } };
+      rd.readAsText(f);
     });
-    const exportBtn = h('button.btn', { type: 'button' }, tr('⬇ Save a backup file', '⬇ Zapisz kopię'));
+    const exportBtn = h('button.btn', { type: 'button' }, LA.icon('download', 20), tr('Save a backup file', 'Zapisz plik kopii'));
     exportBtn.addEventListener('click', async () => {
-      const name = 'learning-workbook-backup-' + U.todayKey() + '.json';
+      const name = 'workbook-backup-' + U.todayKey() + '.json';
       const json = S.exportJSON();
       try {
-        const dl = window.claude ? await window.claude.use('downloads') : null;
-        if (dl) { await dl.save({ filename: name, data: json }); msg.textContent = tr('✓ Saved.', '✓ Zapisano.'); return; }
-      } catch (e) { if (e && e.code === 'declined') return; }
-      try {
-        const a = h('a', { href: URL.createObjectURL(new Blob([json], { type: 'application/json' })), download: name });
-        document.body.appendChild(a); a.click(); a.remove();
-      } catch (e) { msg.textContent = '⚠️ ' + e.message; }
+        const blob = new Blob([json], { type: 'application/json' });
+        const f = typeof File === 'function' ? new File([blob], name, { type: 'application/json' }) : null;
+        if (f && navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: name }); }
+        else { const a = h('a', { href: URL.createObjectURL(blob), download: name }); document.body.appendChild(a); a.click(); a.remove(); }
+        S.setSetting('lastExport', Date.now());
+        msg.textContent = tr('Backup file ready — keep it in Files or iCloud Drive.', 'Plik gotowy — zachowaj go w Plikach lub iCloud Drive.');
+      } catch (e) { if (e && e.name !== 'AbortError') msg.textContent = '' + e.message; }
     });
-    const cloud = LA.cloud;
-    c.append(
-      h('div.card.col', h('h2', tr('Cloud saving', 'Zapis w chmurze')),
-        h('p', cloud.available() ? tr('✓ Progress is being saved to your private claude.ai space. Sign in with the same claude.ai account on another iPad or computer and open this app to continue there.', '✓ Postęp zapisuje się w prywatnej przestrzeni claude.ai. Zaloguj się na to samo konto na innym urządzeniu i otwórz aplikację, aby kontynuować.') : tr('Progress is saved in this browser. To back up to the cloud and use several devices, open the app from its claude.ai link while signed in.', 'Postęp zapisuje się w tej przeglądarce. Aby mieć kopię w chmurze i wiele urządzeń, otwórz aplikację z linku claude.ai po zalogowaniu.')),
-        h('div.small.muted', cloud.detail || '')),
-      h('div.card.col', { style: { marginTop: '14px' } }, h('h2', tr('Backup file', 'Plik kopii')), h('p.small.muted', tr('An extra copy you keep yourself (the API key is not included).', 'Dodatkowa kopia u ciebie (bez klucza API).')), exportBtn, h('div', h('label.field', tr('Restore from a backup file', 'Przywróć z pliku')), file), msg),
-      h('div.card.col', { style: { marginTop: '14px' } }, h('h2', tr('Start over', 'Zacznij od nowa')), h('p.small.muted', tr('Deletes all learners and progress on this device (the cloud copy updates too).', 'Usuwa wszystkich uczniów i postępy (także w chmurze).')),
-        h('button.btn.secondary', { type: 'button', onclick: () => UI.confirm(tr('Delete everything?', 'Usunąć wszystko?'), tr('This removes all learners and progress.', 'To usunie wszystkich uczniów i postępy.'), () => { S.state().deleted = (S.state().deleted || []).concat(S.profiles().map((p) => p.id)); S.state().profiles = []; S.state().progress = {}; S.state().active = null; S.saveMain(); S.saveNow(); unlocked = false; LA.go('welcome'); }, tr('Delete everything', 'Usuń wszystko')) }, tr('Delete all data', 'Usuń wszystkie dane'))));
+    const last = S.settings().lastExport;
+    c.appendChild(card(h('h2', tr('Backup files', 'Pliki kopii')), h('p.small.muted', (last ? tr('Last saved: ', 'Ostatnio: ') + new Date(last).toLocaleDateString() + '. ' : '') + tr('On iPad, choose “Save to Files”. Opening a file here merges it in (the API key is never included).', 'Na iPadzie wybierz „Zachowaj w Plikach”. Wczytanie pliku dołącza go (bez klucza API).')), h('div.row', exportBtn), h('div', h('label.field', tr('Merge in a backup file', 'Dołącz plik kopii')), file), msg));
+
+    // 5. danger
+    c.appendChild(card(h('h2', tr('Start over', 'Zacznij od nowa')), h('p.small.muted', tr('Deletes all learners and progress here and in the cloud. A snapshot is kept on this device first, just in case.', 'Usuwa uczniów i postępy tu i w chmurze. Wcześniej zostaje kopia na urządzeniu, na wszelki wypadek.')),
+      h('button.btn.secondary', { type: 'button', onclick: () => UI.confirm(tr('Delete everything?', 'Usunąć wszystko?'), tr('This removes all learners and progress. Type nothing — just confirm.', 'To usunie wszystkich uczniów i postępy.'), async () => { if (LA.backup) await LA.backup.snapshot('before-delete'); S.state().deleted = (S.state().deleted || []).concat(S.profiles().map((p) => p.id)); S.state().profiles = []; S.state().progress = {}; S.state().active = null; S.saveMain(); S.saveNow(); unlocked = false; LA.go('welcome'); }, tr('Delete everything', 'Usuń wszystko')) }, tr('Delete all data', 'Usuń wszystkie dane'))));
   }
 })();

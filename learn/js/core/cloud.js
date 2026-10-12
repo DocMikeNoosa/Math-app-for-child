@@ -1,7 +1,9 @@
-/* Cloud sync through the claude.ai artifact "db" capability.
-   Each signed-in account gets a private area (data/users/<id>/…) that no one else can read.
-   Local storage stays the source for instant use; changes are pushed a few seconds later and merged
-   when another device (same claude.ai login) has made progress. Works offline: syncs when back. */
+/* Cloud sync with your own Firebase project (Authentication + Cloud Firestore).
+   One family account (email + password) signs in on every device: iPad, computer, phone.
+   The device copy is always the source for instant use (works offline); changes upload a few seconds later
+   and are MERGED with other devices — finished work is never overwritten or lost.
+   Extra safety: a dated backup copy is written to the cloud every day (kept 60 days), on top of the
+   on-device snapshots kept by backup.js and the backup files a parent can save. */
 (function () {
   'use strict';
   const LA = window.LA;
@@ -19,12 +21,24 @@
   C.onStatus = (fn) => listeners.push(fn);
   function setStatus(s, detail) { C.status = s; C.detail = detail || ''; listeners.forEach((fn) => { try { fn(s); } catch (e) { /* ignore */ } }); }
 
-  const mainPath = () => `data/users/${C.uid}/main`;
-  const progPath = (pid) => `data/users/${C.uid}/p_${pid}`;
-  const handPath = (pid) => `data/users/${C.uid}/h_${pid}`;
+  const base = () => `families/${C.uid}`;
+  const mainPath = () => `${base()}/docs/main`;
+  const progPath = (pid) => `${base()}/docs/p_${pid}`;
+  const handPath = (pid) => `${base()}/docs/h_${pid}`;
+  const secretPath = () => `${base()}/docs/secret`;
   C.handPath = handPath;
   C.available = () => !!(db && C.uid);
   C.db = () => db;
+  C.user = null; // { email }
+  let auth = null;
+  let fb = null;
+  /* Documents are stored as one JSON string — avoids Firestore's limits on nested arrays/undefined values. */
+  const pack = (body) => ({ json: JSON.stringify(body), at: Date.now() });
+  const unpack = (snap) => { if (!snap || !snap.exists) return null; const d = snap.data(); try { return d && d.json ? JSON.parse(d.json) : d; } catch (e) { return null; } };
+
+  /* content signature independent of key order */
+  const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.keys(x).sort().reduce((o, kk) => { o[kk] = x[kk]; return o; }, {}) : x));
+  C.stable = stable;
 
   /* ---------- merging ---------- */
   function byAt(a, b) { return (a && a.at) || 0; }
@@ -94,7 +108,7 @@
     const deleted = new Set([].concat(local.deleted || [], remote.deleted || []));
     const profiles = [...ids.values()].filter((p) => !deleted.has(p.id));
     const settings = Object.assign({}, newer ? Object.assign({}, local.settings, remote.settings) : Object.assign({}, remote.settings, local.settings));
-    settings.apiKey = local.settings.apiKey; // the key never leaves this device
+    settings.apiKey = local.settings.apiKey; // the key travels separately (secret doc), never inside main
     return { profiles, settings, active: local.active || remote.active, updatedAt: Math.max(local.updatedAt || 0, remote.updatedAt || 0), deleted: [...deleted].slice(-50) };
   }
 
@@ -118,19 +132,23 @@
   }
 
   /* ---------- writing ---------- */
+  /* Firestore keeps a queued write while offline and delivers it later; we don't wait forever for it. */
   async function writeDoc(path, body) {
     const json = JSON.stringify(body);
     if (lastWritten[path] === json) return;
-    while (writing[path]) { try { await writing[path]; } catch (e) { /* ignore */ } }
-    const p = (async () => {
-      try { await db.doc(path).set(body); }
-      catch (e) {
-        if (e && e.code === 'unavailable') { await new Promise((r) => setTimeout(r, 800 + Math.random() * 1200)); await db.doc(path).set(body); }
-        else throw e;
-      }
-    })();
-    writing[path] = p;
-    try { await p; lastWritten[path] = json; } finally { writing[path] = null; }
+    const p = db.doc(path).set({ json, at: Date.now() });
+    p.then(() => { lastWritten[path] = json; }, () => {});
+    let timer;
+    const slow = new Promise((_, rej) => { timer = setTimeout(() => rej(Object.assign(new Error('offline'), { code: 'unavailable' })), 10000); });
+    try { await Promise.race([p, slow]); } finally { clearTimeout(timer); }
+  }
+  /* Read the cloud copy first and merge it in, so a device never uploads over work it hasn't seen yet. */
+  async function mergeFromServer(path, apply) {
+    try {
+      const snap = await db.doc(path).get({ source: 'server' });
+      const v = unpack(snap);
+      if (v) apply(v);
+    } catch (e) { /* offline: the queued write is merged by the other devices when they see it */ }
   }
 
   const flush = U.debounce(async () => {
@@ -141,20 +159,28 @@
     setStatus('syncing');
     try {
       if (scopes.has('main') || scopes.has('all') || scopes.has('flush')) {
+        await mergeFromServer(mainPath(), (v) => applyRemoteMain(v, true));
         const settings = Object.assign({}, st.settings, { apiKey: '' });
-        await writeDoc(mainPath(), { profiles: st.profiles, settings, active: st.active, updatedAt: st.updatedAt || Date.now(), deleted: st.deleted || [], v: 2 });
+        await writeDoc(mainPath(), { profiles: st.profiles, settings, active: st.active, updatedAt: st.updatedAt || Date.now(), deleted: st.deleted || [], v: 3 });
+        if (st.settings.apiKey !== undefined) await writeDoc(secretPath(), { apiKey: st.settings.apiKey || '', model: st.settings.model || '' });
       }
       const ids = scopes.has('all') || scopes.has('flush') ? st.profiles.map((p) => p.id) : st.active ? [st.active] : [];
-      for (const id of ids) if (st.progress[id]) await writeDoc(progPath(id), { progress: compact(st.progress[id]), updatedAt: st.progress[id].updatedAt || Date.now(), v: 2 });
+      for (const id of ids) {
+        if (!st.progress[id]) continue;
+        await mergeFromServer(progPath(id), (v) => applyRemoteProgress(id, v.progress, true));
+        const cur = S.state().progress[id];
+        await writeDoc(progPath(id), { progress: compact(cur), updatedAt: cur.updatedAt || Date.now(), v: 3 });
+      }
       C.lastSync = Date.now();
       setStatus('synced');
+      dailyCloudBackup();
     } catch (e) {
       console.warn('Cloud save failed', e);
-      if (e && e.code === 'quota_exceeded') setStatus('error', 'Cloud storage is full. Old history will be trimmed automatically.');
-      else if (e && (e.code === 'invalid_argument')) setStatus('error', 'This account can view but not save. Ask the owner to give you Contributor access.');
-      else if (e && e.code === 'revoked') { setStatus('local', 'Cloud access ended for this visit. Progress is saved on this device.'); db = null; }
+      if (e && e.code === 'permission-denied') setStatus('error', 'The cloud refused the save (check the Firestore rules in the setup guide). Work is safe on this device.');
+      else if (e && e.code === 'resource-exhausted') setStatus('error', 'Cloud quota reached for today. Work is safe on this device and will upload later.');
       else setStatus('offline', 'Saved on this device. It will upload when the connection is back.');
       scopes.forEach((s) => pendingScopes.add(s));
+      setTimeout(() => { if (pendingScopes.size && C.available()) flush(); }, 20000);
     }
   }, 2500);
 
@@ -165,11 +191,53 @@
   });
   window.addEventListener('online', () => { if (C.available() && pendingScopes.size) flush(); });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && C.available() && pendingScopes.size) flush.flush(); });
+  window.addEventListener('pagehide', () => { if (C.available() && pendingScopes.size) flush.flush(); });
+
+  /* ---------- daily dated backup in the cloud (kept 60 days) ---------- */
+  let backedUpDay = '';
+  async function dailyCloudBackup(force) {
+    if (!C.available()) return;
+    const day = U.todayKey();
+    if (!force && backedUpDay === day) return;
+    backedUpDay = day;
+    try {
+      const st = S.state();
+      const col = db.collection(`${base()}/backups`);
+      await col.doc(`${day}_main`).set(pack({ profiles: st.profiles, settings: Object.assign({}, st.settings, { apiKey: '' }), active: st.active, deleted: st.deleted || [] }));
+      for (const p of st.profiles) if (st.progress[p.id]) await col.doc(`${day}_p_${p.id}`).set(pack(compact(st.progress[p.id])));
+      // prune copies older than 60 days
+      const cutoff = U.todayKey(new Date(Date.now() - 60 * 86400000));
+      const old = await col.where(fb.firestore.FieldPath.documentId(), '<', cutoff).limit(50).get();
+      old.forEach((d) => d.ref.delete().catch(() => {}));
+    } catch (e) { console.warn('cloud backup', e); backedUpDay = ''; }
+  }
+  C.backupNow = () => dailyCloudBackup(true);
+  /* List the dated cloud backups (newest first) */
+  C.listBackups = async () => {
+    if (!C.available()) return [];
+    const snap = await db.collection(`${base()}/backups`).get();
+    const days = new Set();
+    snap.forEach((d) => days.add(d.id.slice(0, 10)));
+    return [...days].sort().reverse();
+  };
+  /* Bring back a dated cloud backup by MERGING it in (nothing current is thrown away) */
+  C.restoreBackup = async (day) => {
+    const snap = await db.collection(`${base()}/backups`).where(fb.firestore.FieldPath.documentId(), '>=', day).where(fb.firestore.FieldPath.documentId(), '<', day + '~').get();
+    let main = null; const progs = {};
+    snap.forEach((d) => { const v = unpack(d); if (d.id.endsWith('_main')) main = v; else progs[d.id.split('_p_')[1]] = v; });
+    if (LA.backup) await LA.backup.snapshot('before-restore');
+    if (main) applyRemoteMain(Object.assign({ updatedAt: 0 }, main));
+    Object.keys(progs).forEach((pid) => { const st = S.state(); if (!st.progress[pid]) st.progress[pid] = S.blankProgress(); applyRemoteProgress(pid, progs[pid]); });
+    S.saveMain(); S.saveNow();
+    return Object.keys(progs).length;
+  };
 
   /* ---------- reading ---------- */
-  function applyRemoteMain(remote) {
+  const extraVsRemoteMain = (st, remote) => JSON.stringify(st.profiles.map((p) => p.id).sort()) !== JSON.stringify((remote.profiles || []).map((p) => p.id).sort());
+  function applyRemoteMain(remote, quiet) {
     if (!remote) return false;
     const st = S.state();
+    const localHasMore = extraVsRemoteMain(st, remote);
     const merged = mergeMain(st, remote);
     const before = JSON.stringify([st.profiles, st.settings, st.active]);
     st.profiles = merged.profiles.map((p) => Object.assign({ au: { year: 3, on: true }, pl: { year: 3, on: true } }, p));
@@ -179,9 +247,10 @@
     st.deleted = merged.deleted;
     st.profiles.forEach((p) => { if (!st.progress[p.id]) st.progress[p.id] = S.blankProgress(); });
     S.replaceState(st);
+    if (!quiet && localHasMore && C.available()) { pendingScopes.add('main'); flush(); }
     return before !== JSON.stringify([st.profiles, st.settings, st.active]);
   }
-  function applyRemoteProgress(pid, remote) {
+  function applyRemoteProgress(pid, remote, quiet) {
     if (!remote) return false;
     const st = S.state();
     const local = st.progress[pid];
@@ -189,36 +258,91 @@
     const changed = JSON.stringify(local) !== JSON.stringify(merged);
     st.progress[pid] = merged;
     S.replaceState(st);
+    // this device knew things the cloud copy didn't → upload the merged result so every device converges
+    if (!quiet && C.available() && stable(compact(merged)) !== stable(compact(remote))) { pendingScopes.add('all'); flush(); }
     return changed;
   }
 
+  /* ---------- Firebase loading ---------- */
+  const FB_VER = '10.14.1';
+  const loadScript = (src) => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src)); document.head.appendChild(s); });
+  C.config = () => {
+    const fromFile = window.LA_CONFIG && window.LA_CONFIG.firebase;
+    if (fromFile && fromFile.apiKey) return fromFile;
+    try { const t = localStorage.getItem('aus-learn.firebase'); return t ? JSON.parse(t) : null; } catch (e) { return null; }
+  };
+  C.setConfig = (cfg) => { try { if (cfg) localStorage.setItem('aus-learn.firebase', JSON.stringify(cfg)); else localStorage.removeItem('aus-learn.firebase'); } catch (e) { /* ignore */ } };
+  C.configured = () => !!C.config();
+
+  let onRemote = null;
   C.init = async function (onRemoteChange) {
-    if (!window.claude || typeof window.claude.use !== 'function') { setStatus('local', 'Saved on this device only. Open the app from claude.ai to back it up to the cloud.'); return false; }
+    onRemote = onRemoteChange;
+    const cfg = C.config();
+    if (!cfg) { setStatus('local', 'Saved on this device. Cloud sync is not set up yet (Parent → Cloud & backup).'); return false; }
+    if (location.protocol === 'file:') { setStatus('local', 'Saved on this device. Cloud sync needs the app’s web address (not a local file).'); return false; }
     setStatus('syncing', 'Connecting…');
     try {
-      const [dbNs, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
-      if (!dbNs || !user) { setStatus('local', 'Saved on this device only (cloud not available here).'); return false; }
-      const id = await user.id();
-      if (!id) { setStatus('local', 'Sign in to claude.ai to back up progress to the cloud.'); return false; }
-      db = dbNs;
-      C.uid = id;
-      const mainSnap = await db.doc(mainPath()).get();
-      let changed = false;
-      if (mainSnap.exists) changed = applyRemoteMain(mainSnap.data()) || changed;
-      const st = S.state();
-      for (const p of st.profiles) {
-        const snap = await db.doc(progPath(p.id)).get();
-        if (snap.exists) changed = applyRemoteProgress(p.id, snap.data().progress) || changed;
+      if (!window.firebase) {
+        const b = `https://www.gstatic.com/firebasejs/${FB_VER}/`;
+        await loadScript(b + 'firebase-app-compat.js');
+        await Promise.all([loadScript(b + 'firebase-auth-compat.js'), loadScript(b + 'firebase-firestore-compat.js')]);
       }
-      // push whatever this device has that the cloud doesn't
+      fb = window.firebase;
+      if (!fb.apps.length) fb.initializeApp(cfg);
+      auth = fb.auth();
+      const fs = fb.firestore();
+      if (cfg.emulator) { auth.useEmulator('http://127.0.0.1:9099', { disableWarnings: true }); fs.useEmulator('127.0.0.1', 8080); } // automated tests only
+      try { await fs.enablePersistence({ synchronizeTabs: true }); } catch (e) { /* another tab or unsupported — fine */ }
+      return await new Promise((resolve) => {
+        let first = true;
+        auth.onAuthStateChanged(async (user) => {
+          if (user) {
+            C.user = { email: user.email, uid: user.uid };
+            const changed = await connect(fs, user.uid);
+            if (!first && onRemote) onRemote('signin');
+            if (first) { first = false; resolve(changed); }
+          } else {
+            disconnect();
+            C.user = null;
+            setStatus('signedout', 'Not signed in — work is saved on this device only.');
+            if (!first && onRemote) onRemote('signout');
+            if (first) { first = false; resolve(false); }
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('Cloud init failed', e);
+      setStatus('offline', 'Saved on this device. Cloud not reachable right now — it will connect next time.');
+      return false;
+    }
+  };
+
+  function disconnect() { while (unsub.length) { try { unsub.pop()(); } catch (e) { /* ignore */ } } db = null; C.uid = null; }
+
+  async function connect(fs, uid) {
+    disconnect();
+    db = fs;
+    C.uid = uid;
+    let changed = false;
+    try {
+      if (LA.backup) await LA.backup.snapshot('before-sync');
+      const mainSnap = await db.doc(mainPath()).get();
+      const remoteMain = unpack(mainSnap);
+      if (remoteMain) changed = applyRemoteMain(remoteMain) || changed;
+      const sec = unpack(await db.doc(secretPath()).get());
+      if (sec && sec.apiKey && !S.settings().apiKey) { S.state().settings.apiKey = sec.apiKey; if (sec.model) S.state().settings.model = sec.model; changed = true; }
+      for (const p of S.state().profiles) {
+        const r = unpack(await db.doc(progPath(p.id)).get());
+        if (r) changed = applyRemoteProgress(p.id, r.progress) || changed;
+      }
+      S.saveMain();
       pendingScopes.add('all');
       flush.flush();
-      // live updates from other devices
       unsub.push(db.doc(mainPath()).onSnapshot((snap) => {
         if (!snap.exists || snap.metadata.hasPendingWrites) return;
         const d = snap.data();
-        if (JSON.stringify(d) === lastWritten[mainPath()]) return;
-        if (applyRemoteMain(d) && onRemoteChange) onRemoteChange('main');
+        if (d.json === lastWritten[mainPath()]) return;
+        if (applyRemoteMain(unpack(snap)) && onRemote) onRemote('main');
       }, () => {}));
       const watchProgress = () => {
         const pid = S.state().active;
@@ -226,25 +350,36 @@
         unsub.push(db.doc(progPath(pid)).onSnapshot((snap) => {
           if (!snap.exists || snap.metadata.hasPendingWrites) return;
           const d = snap.data();
-          if (JSON.stringify(d) === lastWritten[progPath(pid)]) return;
-          if (applyRemoteProgress(pid, d.progress) && onRemoteChange) onRemoteChange('progress');
+          if (d.json === lastWritten[progPath(pid)]) return;
+          const v = unpack(snap);
+          if (v && applyRemoteProgress(pid, v.progress) && onRemote) onRemote('progress');
         }, () => {}));
       };
       watchProgress();
       C.rewatch = () => { while (unsub.length > 1) { try { unsub.pop()(); } catch (e) { /* ignore */ } } watchProgress(); };
       setStatus('synced');
-      return changed;
     } catch (e) {
-      console.warn('Cloud init failed', e);
-      setStatus('local', 'Saved on this device. Cloud backup is not available right now.');
-      return false;
+      console.warn('connect', e);
+      setStatus(e && e.code === 'permission-denied' ? 'error' : 'offline', e && e.code === 'permission-denied' ? 'The cloud refused access — check the Firestore rules (setup guide).' : 'Saved on this device. Will sync when online.');
     }
+    return changed;
+  }
+
+  /* ---------- account ---------- */
+  const authErr = (e) => {
+    const m = { 'auth/invalid-email': 'That email address doesn’t look right.', 'auth/user-not-found': 'No account with that email — create one first.', 'auth/wrong-password': 'Wrong password.', 'auth/invalid-credential': 'Email or password is not right.', 'auth/invalid-login-credentials': 'Email or password is not right.', 'auth/email-already-in-use': 'An account with that email already exists — sign in instead.', 'auth/weak-password': 'Use at least 6 characters for the password.', 'auth/network-request-failed': 'No internet connection.', 'auth/too-many-requests': 'Too many tries — wait a minute and try again.', 'auth/operation-not-allowed': 'Email sign-in is not switched on in Firebase (see setup guide).' };
+    return new Error(m[e && e.code] || (e && e.message) || 'Sign-in failed');
   };
+  C.signIn = async (email, pw) => { if (!auth) throw new Error('Cloud is not connected yet.'); try { await auth.signInWithEmailAndPassword(email.trim(), pw); } catch (e) { throw authErr(e); } };
+  C.signUp = async (email, pw) => { if (!auth) throw new Error('Cloud is not connected yet.'); try { await auth.createUserWithEmailAndPassword(email.trim(), pw); } catch (e) { throw authErr(e); } };
+  C.resetPassword = async (email) => { if (!auth) throw new Error('Cloud is not connected yet.'); try { await auth.sendPasswordResetEmail(email.trim()); } catch (e) { throw authErr(e); } };
+  C.signOut = async () => { if (C.available() && pendingScopes.size) { try { await flush.flush(); } catch (e) { /* ignore */ } } if (auth) await auth.signOut(); };
+  C.ready = () => !!auth;
 
   /* Handwriting samples live in their own document so they never crowd out progress */
   C.loadHand = async (pid) => {
     if (!C.available()) return null;
-    try { const s = await db.doc(handPath(pid)).get(); return s.exists ? s.data() : null; } catch (e) { return null; }
+    try { return unpack(await db.doc(handPath(pid)).get()); } catch (e) { return null; }
   };
   C.saveHand = async (pid, body) => { if (C.available()) { try { await writeDoc(handPath(pid), body); } catch (e) { console.warn('hand save', e); } } };
 })();

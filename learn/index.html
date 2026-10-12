@@ -4,23 +4,27 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0b0e17">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f2f4f8">
 <title>Tosia's Workbook</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%23ffb547'/><text x='50' y='68' font-size='56' text-anchor='middle'>✦</text></svg>">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Workbook"><rect width='100' height='100' rx='24' fill='%23ffb547'/><text x='50' y='68' font-size='56' text-anchor='middle'>✦</text></svg>">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 <div id="app"><p style="padding:24px">Loading…</p></div>
 <noscript><p style="padding:20px">This app needs JavaScript switched on.</p></noscript>
 <!-- BUILD:SCRIPTS -->
+<script src="js/config.js"></script>
 <script src="js/core/util.js"></script>
 <script src="js/core/registry.js"></script>
 <script src="js/core/gens.js"></script>
 <script src="js/core/gens_pl.js"></script>
 <script src="js/core/store.js"></script>
 <script src="js/core/cloud.js"></script>
+<script src="js/core/backup.js"></script>
 <script src="js/core/speech.js"></script>
 <script src="js/core/tutor.js"></script>
 <script src="js/core/ai.js"></script>
@@ -53,6 +57,7 @@
 <script src="js/content/extra/au3.js"></script>
 <script src="js/content/extra/au4.js"></script>
 <script src="js/content/adjust.js"></script>
+<script src="js/ui/icons.js"></script>
 <script src="js/ui/components.js"></script>
 <script src="js/ui/views.js"></script>
 <script src="js/ui/parent.js"></script>
