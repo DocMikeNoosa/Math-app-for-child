@@ -175,6 +175,10 @@
     const auto = h('input', { type: 'checkbox', checked: st.autoRead ? true : null });
     auto.addEventListener('change', () => { st.autoRead = auto.checked; save(); });
     voiceCard.appendChild(h('label.check', auto, tr('Read lessons and questions aloud automatically', 'Automatycznie czytaj lekcje i pytania')));
+    const sf = h('input', { type: 'checkbox', checked: st.speakFeedback !== false ? true : null });
+    sf.addEventListener('change', () => { st.speakFeedback = sf.checked; save(); });
+    voiceCard.appendChild(h('label.check', sf, tr('Say “Correct!”, “Try again” and the explanation out loud', 'Mów na głos „Dobrze!”, „Spróbuj jeszcze raz” i wyjaśnienie')));
+    voiceCard.appendChild(h('p.small.muted', tr('No sound on iPhone/iPad? Check the side silent switch / Control Centre silent mode and the volume — speech in Safari is muted in silent mode.', 'Brak dźwięku na iPhonie/iPadzie? Sprawdź przełącznik wyciszenia / tryb cichy i głośność — w trybie cichym Safari nie mówi.')));
     c.appendChild(voiceCard);
     // pace
     const pace = h('div.card.col', { style: { marginTop: '14px' } }, h('h2', tr('Daily time and subjects', 'Czas dzienny i przedmioty')));

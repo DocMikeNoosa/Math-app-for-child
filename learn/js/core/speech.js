@@ -20,6 +20,15 @@
   }
 
   SP.available = () => !!synth;
+  /* iPhone/iPad Safari only allows speech after the first tap: speak a silent word on the first touch to unlock it */
+  let unlocked = false;
+  const unlock = () => {
+    if (unlocked || !synth) return;
+    unlocked = true;
+    try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u); } catch (e) { /* ignore */ }
+    loadVoices();
+  };
+  ['touchend', 'click', 'keydown'].forEach((ev) => document.addEventListener(ev, unlock, { capture: true, passive: true }));
   SP.voicesFor = (lang) => voices.filter((v) => v.lang.replace('_', '-').toLowerCase().startsWith(lang.slice(0, 2).toLowerCase()));
   function score(v, lang) {
     const n = (v.name + ' ' + v.voiceURI).toLowerCase();
@@ -61,7 +70,15 @@
   SP.say = (text, opts) => {
     opts = opts || {};
     if (!synth) { if (opts.onend) opts.onend(); return; }
+    // Safari drops an utterance queued straight after cancel(); wait a moment if something was playing
+    const busy = synth.speaking || synth.pending;
     SP.stop();
+    if (busy) { setTimeout(() => speakNow(text, opts), 120); return; }
+    speakNow(text, opts);
+  };
+  function speakNow(text, opts) {
+    if (!voices.length) loadVoices();
+    try { synth.resume(); } catch (e) { /* ignore */ }
     const lang = opts.lang || SP.langNow();
     const t = clean(text, lang);
     if (!t) return;
@@ -78,7 +95,7 @@
       if (i === parts.length - 1) u.onend = () => { if (currentBtn === opts.button && currentBtn) { currentBtn.classList.remove('speaking'); currentBtn = null; } if (opts.onend) opts.onend(); };
       synth.speak(u);
     });
-  };
+  }
   SP.toggle = (btn, text, lang) => { if (currentBtn === btn) { SP.stop(); return; } SP.say(text, { button: btn, lang }); };
   SP.voiceName = (lang) => { const v = SP.pickVoice(lang); return v ? v.name : null; };
   /* ---------- listening (microphone → text) ----------

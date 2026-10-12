@@ -11,7 +11,7 @@
     aiEnabled: true,
     voice: { 'en-AU': '', 'pl-PL': '' },
     rate: { 'en-AU': 0.92, 'pl-PL': 0.95 },
-    autoRead: false,
+    autoRead: true,
     minutes: { au: 30, pl: 30 },
     enrichment: { au: true, pl: true }, // Health / Arts / Technologies (AU) and Sztuka / Technika (PL) in homework, once a week
     pin: '',
@@ -21,6 +21,7 @@
     parentLang: 'en',
     pencilFirst: false,
     micForSpelling: false,
+    speakFeedback: true, // say “Correct!”, “Try again” and the explanation out loud
     // Catch-up: finish a programme's year by a date (e.g. Australian Year 3 by mid-December before starting Year 4 in Australia)
     target: { au: '', pl: '' },
     studyDays: 'all', // 'all' = every day, 'mon-sat', 'weekdays'
@@ -49,6 +50,7 @@
     if (typeof s.settings.minutes !== 'object') s.settings.minutes = { au: +s.settings.dailyMinutes || 30, pl: 30 };
     if (typeof s.settings.enrichment !== 'object') s.settings.enrichment = { au: true, pl: true };
     if (typeof s.settings.target !== 'object' || !s.settings.target) s.settings.target = { au: '', pl: '' };
+    if (s.settings.voiceDefaulted !== true) { s.settings.autoRead = true; s.settings.speakFeedback = true; s.settings.voiceDefaulted = true; }
     if (s.settings.targetDefaulted !== true) {
       // first run: Australian Year 3 should be finished by mid-December (start of the Australian school year 4 in late January)
       const now = new Date(), y = now.getFullYear();

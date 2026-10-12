@@ -183,7 +183,10 @@
   UI.runQuestions = function (container, questions, opts) {
     opts = opts || {};
     const mode = opts.mode || 'practice';
-    const instant = ['practice', 'homework', 'review'].includes(mode);
+    // Every mode gives instant feedback with a second chance; scores count the FIRST try only.
+    const instant = true;
+    const talk = (text) => { if (S.settings().speakFeedback !== false) SP.say(text, { lang: voice }); };
+    const showFb = () => setTimeout(() => { try { fb.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* ignore */ } }, 60);
     const prog = LA.state.prog;
     const voice = LA.PROGRAMMES[prog].voice;
     const results = [];
@@ -250,12 +253,18 @@
         if (ok) {
           locked = true;
           area.querySelectorAll('button,input,textarea').forEach((b) => (b.disabled = true));
-          fb.appendChild(h('div.feedback.good', h('h4.row', { style: { gap: '8px' } }, LA.icon('checkCircle', 22), U.pick(tr(['Correct!', 'Great job!', 'Yes — well done!', 'Spot on!'], ['Dobrze!', 'Świetnie!', 'Brawo!', 'Doskonale!']))), q.explain && tries > 1 ? h('div', { html: U.fmt(q.explain) }) : null));
+          const praise = tries > 1 ? tr('Yes — you got it on the second try!', 'Tak — za drugim razem się udało!') : U.pick(tr(['Correct!', 'Great job!', 'Yes — well done!', 'Spot on!'], ['Dobrze!', 'Świetnie!', 'Brawo!', 'Doskonale!']));
+          fb.appendChild(h('div.feedback.good', h('h4.row', { style: { gap: '8px' } }, LA.icon('checkCircle', 22), praise), q.explain && tries > 1 ? h('div', { html: U.fmt(q.explain) }) : null));
           fb.appendChild(h('div.row', { style: { marginTop: '12px' } }, nextBtn));
-          setTimeout(() => nextBtn.focus(), 30);
+          talk(praise);
+          showFb();
+          setTimeout(() => nextBtn.focus({ preventScroll: true }), 30);
         } else if (tries < 2) {
           const msg = slip ? tr('So close! Check the spelling.', 'Prawie! Sprawdź pisownię.') : tr('Not quite — have another go!', 'Jeszcze nie — spróbuj jeszcze raz!');
+          if (q.type === 'mc') { const wb = area.querySelectorAll('.opt')[Number(given)]; if (wb) wb.disabled = true; }
           fb.appendChild(h('div.feedback' + (slip ? '.warn' : '.bad'), h('h4', msg), h('div', hint(q, slip))));
+          talk(msg + ' ' + hint(q, slip));
+          showFb();
           if (AI.available()) fb.appendChild(h('button.btn.secondary.small', { type: 'button', style: { marginTop: '8px' }, onclick: (e) => e.target.replaceWith(UI.aiBox(tr('Hint', 'Podpowiedź'), (on) => AI.hint(q, opts.ctx, on))) }, tr('Ask for a hint', 'Poproś o podpowiedź')));
           const inp = area.querySelector('.answer-input');
           if (inp) { inp.select(); inp.focus(); }
@@ -264,8 +273,12 @@
           area.querySelectorAll('button,input,textarea').forEach((b) => (b.disabled = true));
           if (q.type === 'mc') area.querySelectorAll('.opt')[q.answer].classList.add('right');
           const correct = q.type === 'mc' ? q.options[q.answer] : Array.isArray(q.answer) ? q.answer[0] : q.answer;
+          const sayAns = tr('Let’s learn it together. The answer is ', 'Nauczmy się tego razem. Poprawna odpowiedź to ') + U.plain(String(correct)) + '. ' + U.plain(q.explain || '');
           fb.appendChild(h('div.feedback.info', h('h4', tr('The answer is: ', 'Poprawna odpowiedź: ') + U.plain(String(correct))), q.explain ? h('div', { html: U.fmt(q.explain) }) : null,
-            h('div.row', { style: { marginTop: '8px' } }, UI.speakBtn(() => tr('The answer is ', 'Poprawna odpowiedź to ') + correct + '. ' + U.plain(q.explain || ''), tr('Read the explanation', 'Przeczytaj wyjaśnienie'), voice))));
+            h('div.row', { style: { marginTop: '10px' } }, UI.speakBtn(() => sayAns, tr('Read the explanation', 'Przeczytaj wyjaśnienie'), voice),
+              UI.lessonFor(q, opts.ctx) ? h('button.btn.secondary.small', { type: 'button', onclick: () => UI.miniLesson(q, opts.ctx) }, LA.icon('book', 18), tr('Show me how', 'Pokaż mi, jak')) : null)));
+          talk(sayAns);
+          showFb();
           if (AI.available()) {
             fb.appendChild(h('div.row', { style: { marginTop: '8px' } },
               h('button.btn.secondary.small', { type: 'button', onclick: (e) => e.target.replaceWith(UI.aiBox(tr('Another way to see it', 'Wytłumaczę inaczej'), (on) => AI.explainMistake(q, firstGiven, opts.ctx, on))) }, tr('Explain it another way', 'Wytłumacz inaczej')),
@@ -335,6 +348,32 @@
       return tr('Check your spelling and read the question again.', 'Sprawdź pisownię i przeczytaj pytanie jeszcze raz.');
     }
     show();
+  };
+
+  /* the lesson that teaches this question's skill */
+  UI.lessonFor = (q, ctx) => {
+    if (LA.index.lessons[q.skill]) return LA.index.lessons[q.skill];
+    if (ctx && ctx.blocks) return ctx;
+    const ch = LA.index.chapters[q.skill];
+    return ch ? ch.lessons[0] : null;
+  };
+  /* "Show me how": the teaching part of the lesson again, read aloud, in a sheet over the question */
+  UI.miniLesson = (q, ctx) => {
+    const l = UI.lessonFor(q, ctx);
+    if (!l) return;
+    const voice = LA.PROGRAMMES[LA.progOfKey(l.key)].voice;
+    const parts = (l.blocks || []).filter((b) => ['read', 'example', 'tip', 'visual', 'vocab'].includes(b.type));
+    const body = h('div.col');
+    parts.forEach((b) => {
+      if (b.type === 'vocab') body.appendChild(h('dl.vocab', b.words.map((w) => [h('dt', w[0]), h('dd', w[1])])));
+      else if (b.svg) body.appendChild(h('div.visual', { html: b.svg }));
+      if (b.text) body.appendChild(h('div' + (b.type === 'example' ? '.feedback.info' : b.type === 'tip' ? '.tipbox' : ''), b.title ? h('strong', b.title) : null, h('div', { html: U.fmt(b.text) })));
+    });
+    if (q.explain) body.appendChild(h('div.feedback.good', h('strong', tr('For this question', 'Do tego pytania')), h('div', { html: U.fmt(q.explain) })));
+    const speech = parts.map((b) => (b.type === 'vocab' ? b.words.map((w) => w[0] + ', ' + w[1]).join('. ') : U.plain(b.text || ''))).join(' ') + ' ' + U.plain(q.explain || '');
+    const m = UI.modal(tr('Let’s learn it: ', 'Uczymy się: ') + l.title, h('div.col', h('div.row', UI.speakBtn(speech, tr('Read it to me', 'Przeczytaj mi'), voice)), body), [{ label: tr('Got it — continue', 'Rozumiem — dalej'), onclick: () => SP.stop() }]);
+    if (S.settings().speakFeedback !== false) SP.say(speech, { lang: voice });
+    return m;
   };
 
   function findListen(q, ctx) {
