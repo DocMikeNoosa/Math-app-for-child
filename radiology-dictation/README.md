@@ -168,10 +168,9 @@ for the AI, and set personal style rules under ⚙.
 
 ## Learning module "Nauka AI" and conclusion points (v0.12)
 
-- **Languages are clearly marked**:
-  - "Mówię PL | EN" next to the dictation;
-  - "Opis po PL | EN" next to the report;
-  - a "PL → EN" badge on "Przygotuj opis".
+- **Languages are clearly marked**: "Mówię PL | EN" next to the dictation and "Opis po PL | EN"
+  next to the report are always visible ("Opis" in narrow windows). Hovering over "Przygotuj opis"
+  shows the direction. The buttons keep their original look.
 - **Nauka AI** (graduation-cap button in the top bar; an orange dot means there are questions or
   enough new material to analyse):
   1. Paste your own reports, fragments or phrases (PL or EN). PESEL is removed.
@@ -219,7 +218,7 @@ Dictating in English with a Polish report is treated as a first-class path:
   - "Analizuj mój styl" also builds the glossary from your pairs. Terms you added yourself are
     always kept.
 - **English accent** (⚙ → Rozpoznawanie mowy → Angielski UK / US) for better recognition.
-- The "EN → PL" badge on "Przygotuj opis" shows the direction.
+- Hovering over "Przygotuj opis" shows the direction (e.g. "Mówisz po angielsku → opis po polsku").
 
 ## Classifications and consultation line
 

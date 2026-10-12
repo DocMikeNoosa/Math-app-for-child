@@ -206,7 +206,7 @@ textarea:focus, input[type='text']:focus { border-color: rgba(89, 212, 255, 0.5)
 
 /* PL / EN segmented switches */
 .seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 9px; border: 1px solid var(--line-2); background: rgba(0, 0, 0, 0.25); }
-.seg-lbl { font: 600 9.5px/1 var(--mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-faint); padding: 0 6px 0 5px; }
+.seg-lbl { font: 600 9.5px/1 var(--mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-faint); padding: 0 6px 0 5px; white-space: nowrap; }
 .seg button { height: 24px; min-width: 32px; padding: 0 7px; border: none; border-radius: 7px; background: transparent; font: 600 11.5px/1 var(--mono); color: var(--text-dim); transition: background 0.15s, color 0.15s; }
 .seg button:hover:not(:disabled) { color: var(--text-strong); }
 .seg button[aria-pressed='true'] { background: rgba(89, 212, 255, 0.18); color: var(--accent); box-shadow: inset 0 0 0 1px rgba(89, 212, 255, 0.45); }
@@ -500,13 +500,6 @@ select:focus { border-color: rgba(89, 212, 255, 0.5); }
 .tpl-current.empty .tpl-current-title { color: var(--accent); }
 .no-template .report-foot { visibility: hidden; }
 
-/* language marking */
-.seg-lbl { display: inline-flex; align-items: center; gap: 4px; font: 600 10px/1 var(--font); letter-spacing: 0.2px; text-transform: none; color: var(--text-dim); padding: 0 6px 0 5px; white-space: nowrap; }
-.seg-lbl svg { width: 12px; height: 12px; color: var(--text-faint); }
-.seg button[aria-pressed='true'] { background: var(--accent); color: #04121a; box-shadow: 0 0 10px rgba(89, 212, 255, 0.35); }
-.lang-flow { font: 700 10.5px/1 var(--mono); letter-spacing: 0.5px; padding: 4px 6px; border-radius: 6px; background: rgba(4, 18, 26, 0.18); color: rgba(4, 18, 26, 0.85); margin-left: 4px; }
-.lang-flow.cross { background: #04121a; color: var(--accent); }
-
 /* learning module */
 .learn-btn { position: relative; }
 .learn-dot { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 8px var(--warn); }
@@ -711,10 +704,9 @@ body.target-clinical.recording .rec-state::after { content: ' · dane kliniczne'
   .recorder { flex-direction: row; justify-content: flex-start; align-items: center; gap: 10px; width: auto; margin-bottom: 8px; min-height: 52px; }
   .rec-wrap { width: 52px; height: 52px; }
   .rec-meta { flex-direction: column; align-items: flex-start; gap: 0; min-width: 0; }
+  .lbl-po { display: none; }
   /* leave room for the PL/EN · Wstawki · Wyczyść tools sitting in the same row */
-  .recorder { padding-right: 270px; }
-  #snippetsBtn { font-size: 0; gap: 0; }
-  #snippetsBtn svg { width: 18px; height: 18px; }
+  .recorder { padding-right: 236px; }
   .rec-state { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .rec-state { font-size: 12.5px; }
   .rec-timer { font-size: 13px; letter-spacing: 0.5px; }
@@ -772,20 +764,13 @@ body.target-clinical.recording .rec-state::after { content: ' · dane kliniczne'
   .toasts { bottom: 10px; gap: 6px; max-width: calc(100vw - 16px); }
   .toast { padding: 8px 12px; font-size: 12.5px; }
 }
-/* narrow: the report toolbar must keep "Kopiuj" and "Nowy opis" visible */
-@media (max-width: 620px) {
+/* extremely narrow (≤ 440 px): keep "Nowy opis" visible */
+@media (max-width: 440px) {
   .report-toolbar .tb-sep { display: none; }
-  .report-toolbar .tb-btn { padding: 0 5px; }
   .btn-copy .btn-label { display: none; }
-  .btn-copy { padding: 0 11px; }
-  .btn-new { padding: 0 10px; }
-}
-@media (max-width: 480px) {
-  #outLang .seg-lbl { font-size: 0; gap: 0; padding: 0 4px; }
-  .tpl-chip { display: none; }
-  .topbar { gap: 6px; }
   #acceptBtn { display: none; }
 }
+@media (max-width: 400px) { #outLang .seg-lbl { display: none; } }
 /* very narrow */
 @media (max-width: 460px) {
   .clock .c-time { font-size: 14px; }

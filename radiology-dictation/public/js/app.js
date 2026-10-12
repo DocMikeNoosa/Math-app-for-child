@@ -20,7 +20,7 @@ const els = Object.fromEntries(
     'tplDelete', 'tplDuplicate', 'tplCancel', 'tplSave',
     'picker', 'pickerSearch', 'pickerTabs', 'pickerRecent', 'pickerBody', 'closePicker',
     'settings', 'closeSettings', 'overlay', 'stylePrefs', 'speechInfo', 'helpModal', 'closeHelp', 'toasts',
-    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo', 'learnSummary', 'clinical', 'clinicalMic', 'langFlow',
+    'emptyState', 'emptyRecent', 'emptyPick', 'versionInfo', 'learnSummary', 'clinical', 'clinicalMic',
     'learnBtn', 'learnDot', 'learnModal', 'closeLearn', 'learnOn', 'learnProfileSummary', 'learnText', 'learnLang', 'learnAdd', 'learnSamples',
     'learnAnalyze', 'learnStatus', 'learnQSec', 'learnQuestions', 'learnRules', 'learnRuleInput', 'learnRuleAdd', 'learnPhrases', 'learnAuto', 'learnForget',
     'cpToggle', 'cpCount', 'cpoints', 'enVariant', 'pairEn', 'pairPl', 'pairAdd', 'pairList', 'pairCount', 'glossEn', 'glossPl', 'glossAdd', 'glossList',
@@ -892,9 +892,8 @@ function renderLangToggles() {
   });
   mark(els.inLang, state.inputLang);
   mark(els.outLang, state.outputLang);
-  els.langFlow.textContent = `${state.inputLang.toUpperCase()} → ${state.outputLang.toUpperCase()}`;
-  els.langFlow.classList.toggle('cross', state.inputLang !== state.outputLang || state.outputLang === 'en');
-  els.langFlow.title = `Mówisz po ${state.inputLang === 'en' ? 'angielsku' : 'polsku'} → opis po ${state.outputLang === 'en' ? 'angielsku' : 'polsku'}`;
+  els.processBtn.dataset.langs = `Mówisz po ${state.inputLang === 'en' ? 'angielsku' : 'polsku'} → opis po ${state.outputLang === 'en' ? 'angielsku' : 'polsku'}`;
+  els.processBtn.title = `${els.processBtn.dataset.langs} (Ctrl+Enter)`;
   els.dictation.lang = state.inputLang;
   els.dictation.placeholder = state.inputLang === 'en'
     ? 'Dictate or type in English… e.g. “left subdural haematoma, 8 mm thick, otherwise unremarkable”'
@@ -969,7 +968,7 @@ function setBusy(busy, label) {
   els.processBtn.disabled = busy;
   els.processBtn.classList.toggle('busy', busy);
   els.processBtn.querySelector('.btn-label').textContent = busy ? 'Przygotowuję…' : 'Przygotuj opis';
-  els.processBtn.title = state.ai ? 'AI wstawia dyktat do szablonu, sprawdza sprzeczności i pisze wnioski (Ctrl+Enter)' : 'Wstawia dyktat do szablonu regułami lokalnymi (Ctrl+Enter)';
+  els.processBtn.title = `${state.ai ? 'AI wstawia dyktat do szablonu, sprawdza sprzeczności i pisze wnioski' : 'Wstawia dyktat do szablonu regułami lokalnymi'} — ${els.processBtn.dataset.langs || ''} (Ctrl+Enter)`;
   els.processing.hidden = !busy;
   els.processingText.textContent = label || (state.ai ? 'Claude opracowuje opis…' : 'Wstawianie do szablonu…');
 }
