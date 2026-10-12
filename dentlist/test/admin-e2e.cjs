@@ -79,8 +79,8 @@ const PA = 'Haslo-admina-2026', PM = 'Haslo-lekarza-2026', PM2 = 'Nowe-haslo-lek
     await a.click('[data-act=complaint-from-clinic]'); await a.waitForSelector('.cmp .cmp-visit', { timeout: 10000 }).catch(() => {});
     const cp = await a.textContent('#view');
     ok(cp.includes('Ewa Nowicka') && /leczenie: (lek\. dent\. )?Jan Wiśniewski/.test(cp) && cp.includes('Ekstrakcja'), "complaint about another doctor's patient: patient, doctor and visits available to the director");
-    await a.click('.cmp-visit'); await a.click('[data-act=complaint-draft]'); await a.waitForSelector('[data-cr=body]');
-    ok((await a.inputValue('[data-cr=body]')).includes('Usunięto ząb'), "response draft built from the other doctor's documentation");
+    await a.click('.cmp-visit'); await a.click('[data-act=complaint-draft]'); await a.waitForSelector('#cpaper');
+    ok((await a.textContent('#cpaper')).includes('Usunięto ząb'), "response draft built from the other doctor's documentation");
     await shot(a, 'a3c-complaint', { fullPage: true });
     await navTo(a, 'admin'); await a.waitForFunction(() => document.querySelectorAll('#adm-members .member').length === 2, null, { timeout: 20000 });
     await a.click('[data-act=clinic-policy-ai]'); await a.click('.modal footer .btn-danger'); await a.waitForTimeout(800);

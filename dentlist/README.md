@@ -81,7 +81,9 @@ Available to administrators (or to a single doctor without a clinic).
 3. **Position:**
    - Tick the **preset arguments** that are true in this case (informed consent, current medical knowledge, documentation and X-rays, known complication, prognosis, non-compliance with instructions, and more).
    - Write your **own position** and, optionally, an **offer**, and choose a **tone**.
-4. **Response:** the AI works like an experienced dental expert at its highest reasoning level. It reads the letter (scan, if allowed) and the treatment record or documents, then produces:
+**Complaint summary:** after you add the scan (or type the allegations), "Streść skargę" makes the AI read the letter and list its main points (allegations, demands, deadlines, facts). The summary stays in a panel on the side of the complaint while you work. One tap copies the allegations and demands into "Zarzuty w skrócie".
+
+4. **Response:** the AI works like an experienced dental expert. Choose the level under "Poziom analizy AI": **Szybki**, **Dokładny** (default: thorough, in a reasonable time) or **Najwyższy** (deepest, can take several minutes). The app remembers your choice. It reads the letter (scan, if allowed) and the treatment record or documents, then produces:
    - an **analysis** for the director: each allegation separately, what the documentation shows, the clinical assessment (standard of care, known complications, causation and other possible causes), a verdict (unfounded / partly founded / founded / cannot be assessed), the rebuttal line, the overall risk, and what to check before sending;
    - a **full response letter** that answers every allegation in its own reasoned paragraphs (not single sentences).
    Without AI, a built-in draft is used:
@@ -89,6 +91,8 @@ Available to administrators (or to a single doctor without a clinic).
    - It never admits liability unless your position says so.
    - Warnings point out things to check.
    - Save it as PDF, print it or copy it.
+   - **The AI works in the background.** No window blocks the app: a small panel at the bottom left shows progress, and you can open other patients or other windows. The answer is saved into the complaint when it arrives, and the app does not auto-lock while the AI works.
+   - **Correcting the reply:** select any passage that doesn't make sense or should be different. A small window opens: write what is wrong or your own wording. Add as many notes as you like, then "Popraw odpowiedź z AI". "Przywróć poprzednią wersję" undoes a change; "Edycja ręczna" lets you edit the text directly.
    - Patient, sender and address data are pseudonymised before reaching the AI. The scan is sent to the AI **only** if you tick "Pozwól AI odczytać skan pisma".
    - The response is always a **draft** for the medical director. For letters from a law firm or compensation claims, consult a lawyer or the liability (OC) insurer.
 

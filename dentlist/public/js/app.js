@@ -10,7 +10,7 @@ import { suggestDx, finalDx } from './dx.js';
 import { archSVG, toothDetailSVG } from './odontogram.js';
 import { buildOffline, aiPayload, glance, salutation, markFor, fmtDate, PT, materialsFor, recordEntry, mouthGlance, cariesText } from './letter.js';
 import { SPECS, SPEC_ORDER, SPEC_TITLE, PROCS, procsFor, procShort, procSentence, specOf, optLabel, SPEC_CATS, DX_OTHER, SPEC_EXAM, fieldText } from './specs.js';
-import { generateLetter, reviseLetter, cleanDictation, testKey, draftComplaint, assistCommand } from './ai.js';
+import { generateLetter, reviseLetter, cleanDictation, testKey, draftComplaint, summarizeComplaint, reviseComplaint, COMPLAINT_EFFORTS, assistCommand } from './ai.js';
 import { parseLocal, assistCatalog, norm, SECTION_HEAD, suggest } from './assistant.js';
 import { SOURCES, STATUS, TONES, REBUTTALS, DOC_KINDS, newOutside, newComplaint, builtinComplaintDraft, complaintPayload, salutationFor } from './complaints.js';
 import { buildPlainLetterPDF } from './pdf.js';
@@ -18,7 +18,7 @@ import { Pseudonymizer } from './privacy.js';
 import { Clinic, fingerprint } from './org.js';
 import { Tooth3D, webglOk, drewSomething } from './tooth3d.js';
 import { Dictation, speechSupported } from './speech.js';
-import { letterPaperHTML } from './letterview.js';
+import { letterPaperHTML, marked } from './letterview.js';
 import { buildLetterPDF } from './pdf.js';
 import { SyncClient, loadConfig, enableSync, signInFromServer, normUrl, defaultSyncUrl } from './sync.js';
 import { Folder, fsSupported, names, download, emlDraft, canShareFile, mailto } from './files.js';
@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.11';
+export const APP_VERSION = '1.0.12';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -1527,11 +1527,12 @@ async function letterBlob(L) { return buildLetterPDF(letterCtxFull(L)); }
 function afterLetter() {}
 /* selection → note popover */
 function paperSelection() {
-  if (S.view !== 'letter' || S.manualEdit) return null;
+  const cmp = S.view === 'complaint';
+  if (cmp ? S.cmpManual : (S.view !== 'letter' || S.manualEdit)) return null;
   const sel = window.getSelection(); if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
   const quote = sel.toString().replace(/\s+/g, ' ').trim(); if (quote.length < 2) return null;
   const node = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
-  const host = node && node.closest('#paper [data-loc]'); if (!host) return null;
+  const host = node && node.closest(cmp ? '#cpaper [data-loc]' : '#paper [data-loc]'); if (!host) return null;
   const endNode = sel.focusNode && (sel.focusNode.nodeType === 1 ? sel.focusNode : sel.focusNode.parentElement);
   const loc = host.dataset.loc, sameBlock = endNode && endNode.closest('[data-loc]') === host;
   return { loc, quote: sameBlock ? quote : host.innerText.trim(), rect: sel.getRangeAt(0).getBoundingClientRect() };
@@ -1552,18 +1553,21 @@ function showNotePop({ loc, quote, rect }) {
   $('.note-pop')?.remove();
   const pop = document.createElement('div'); pop.className = 'note-pop';
   pop.innerHTML = `<div class="np-q">„${esc(quote.length > 140 ? quote.slice(0, 140) + '…' : quote)}"</div>
-    <div class="row nowrap"><textarea id="np-text" rows="3" placeholder="Co jest nie tak i jak powinno być?"></textarea>${micBtn('#np-text')}</div>
+    <div class="row nowrap"><textarea id="np-text" rows="3" placeholder="${S.view === 'complaint' ? 'Co nie ma sensu? Wpisz, jak ma brzmieć (Twoja wersja)…' : 'Co jest nie tak i jak powinno być?'}"></textarea>${micBtn('#np-text')}</div>
     <div class="row" style="margin-top:8px"><label class="chk-done"><input type="checkbox" id="np-done">Gotowe — zapisz uwagę</label><span class="grow"></span><button class="btn btn-ghost btn-sm" id="np-cancel">Anuluj</button></div>`;
   document.body.appendChild(pop);
   const w = 360, x = Math.min(window.innerWidth - w - 14, Math.max(14, rect.left + rect.width / 2 - w / 2));
   const y = rect.bottom + 10 + 220 > window.innerHeight ? Math.max(14, rect.top - 230) : rect.bottom + 10;
-  Object.assign(pop.style, { left: x + 'px', top: y + 'px', width: w + 'px' });
+  // long selections (a whole paragraph) can reach past the screen: keep the window inside the viewport
+  Object.assign(pop.style, { left: x + 'px', top: Math.min(Math.max(14, y), window.innerHeight - 240) + 'px', width: w + 'px' });
   const ta = $('#np-text', pop); ta.focus();
   const commit = () => {
     const comment = ta.value.trim();
     if (!comment) { toast('Opisz, co poprawić.', 'err'); $('#np-done', pop).checked = false; return; }
+    const note = { id: V.uid(), loc, quote, comment, done: true };
+    if (S.view === 'complaint') { const c = curComplaint(); c.response.notes = [...(c.response.notes || []), note]; save('complaints', c); pop.remove(); window.getSelection()?.removeAllRanges(); return renderView(); }
     const L = D().letters.get(S.letterId);
-    L.notes = [...(L.notes || []), { id: V.uid(), loc, quote, comment, done: true }]; save('letters', L);
+    L.notes = [...(L.notes || []), note]; save('letters', L);
     pop.remove(); window.getSelection()?.removeAllRanges(); rerenderLetter();
   };
   $('#np-done', pop).onchange = (e) => { if (e.target.checked) commit(); };
@@ -1748,7 +1752,8 @@ function viewComplaint() {
   const doctorField = `<label class="f" style="flex:1;min-width:220px"><span>Lekarz prowadzący leczenie</span><input type="text" data-c="doctor" value="${esc(c.doctor)}" placeholder="np. lek. dent. Anna Nowak"></label>`;
   return `<div class="pagehead"><button class="btn btn-ghost" data-nav="complaints">${I('back')} Skargi</button><div><h2>Skarga — ${esc(patientName(p) || 'wybierz pacjenta')}</h2><div class="small muted">wpłynęła ${fmtDate(c.received)} · ${esc(SOURCES[c.source])}</div></div><span class="grow"></span>
     <button class="btn btn-ghost btn-danger" data-act="complaint-delete">${I('trash')}</button></div>
-  <div class="cmp">
+  <div class="cmp with-sum">
+   <aside class="panel cmp-sum" id="cmp-sum">${digestHTML(c)}</aside>
    <div class="cmp-col">
     <section class="panel"><header><h3>1. Pacjent i leczenie, którego dotyczy</h3></header><div class="body">
       <div class="seg cmp-mode" data-cseg="mode"><button type="button" data-v="app" class="${out ? '' : 'on'}">Leczony w DentList</button><button type="button" data-v="outside" class="${out ? 'on' : ''}">Leczony poza aplikacją</button></div>
@@ -1768,6 +1773,7 @@ function viewComplaint() {
       <div class="scans">${c.scans.map((x, i) => `<div class="scan">${x.type.startsWith('image/') ? `<img src="${x.data}" alt="">` : `<div class="scan-pdf">${I('doc')}PDF</div>`}<span class="tiny">${esc(x.name)}</span><button class="btn btn-ghost btn-sm" data-act="scan-rm" data-i="${i}">${I('x')}</button></div>`).join('')}
         <label class="scan add"><input type="file" id="scan-input" accept="image/*,application/pdf" multiple hidden>${I('plus')}<span>Dodaj skan / zdjęcie</span></label></div>
       <label class="cmp-check" style="margin-top:10px"><input type="checkbox" data-cchk="allowScanAI" ${c.allowScanAI ? 'checked' : ''}> <span>Pozwól AI odczytać skan pisma <span class="faint">(skan zawiera dane osobowe, które w obrazie nie mogą zostać zanonimizowane — bez zaznaczenia AI dostaje tylko zarzuty w skrócie)</span></span></label>
+      ${c.scans.length || c.summary.trim() ? `<button class="btn btn-soft" data-act="complaint-digest" style="margin-top:12px">${I('spark')} ${c.digest ? 'Streść skargę ponownie' : 'Streść skargę — najważniejsze punkty'}</button>` : ''}
     </div></section>
    </div>
    <div class="cmp-col">
@@ -1777,13 +1783,18 @@ function viewComplaint() {
       <div class="row nowrap" style="margin-top:12px"><label class="f" style="flex:1"><span>Stanowisko dyrektora / lekarza (własnymi słowami)</span><textarea data-c="position" rows="4" placeholder="np. Leczenie przeprowadzono pod mikroskopem, kanały wypełniono szczelnie, co potwierdza RTG kontrolne. Ból po zabiegu ustąpił po 3 dniach…">${esc(c.position)}</textarea></label></div>
       <label class="f" style="margin-top:10px"><span>Propozycja dla pacjenta (opcjonalnie)</span><textarea data-c="offer" rows="2" placeholder="np. bezpłatna wizyta kontrolna i konsultacja z ordynatorem">${esc(c.offer)}</textarea></label>
       <div class="f" style="margin-top:10px"><span>Ton odpowiedzi</span><div class="seg" data-cseg="tone">${Object.entries(TONES).map(([k, l]) => `<button type="button" data-v="${k}" class="${c.tone === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-      <button class="btn btn-primary btn-xl" data-act="complaint-draft" style="margin-top:16px;width:100%">${I('spark')} ${hasDraft ? 'Przygotuj odpowiedź od nowa' : 'Przygotuj projekt odpowiedzi'}${aiKey() ? ' (AI)' : ''}</button>
+      ${aiKey() ? `<div class="f" style="margin-top:10px"><span>Poziom analizy AI</span><div class="seg" data-cseg="effort">${Object.entries(COMPLAINT_EFFORTS).map(([k, l]) => `<button type="button" data-v="${k}" class="${cmpEffort(c) === k ? 'on' : ''}">${l}</button>`).join('')}</div><div class="hint" id="effort-hint" style="margin-top:6px">${EFFORT_HINT[cmpEffort(c)]}</div></div>` : ''}
+      ${jobOf('draft', c.id) ? `<button class="btn btn-primary btn-xl" disabled style="margin-top:16px;width:100%"><span class="spin"></span> AI pisze odpowiedź — <span data-job="${jobKey('draft', c.id)}">${jobState(jobOf('draft', c.id))}</span></button><div class="hint" style="margin-top:6px">Praca trwa w tle: możesz przejść do innych pacjentów lub innego okna — odpowiedź zapisze się tutaj sama.</div>`
+        : `<button class="btn btn-primary btn-xl" data-act="complaint-draft" style="margin-top:16px;width:100%">${I('spark')} ${hasDraft ? 'Przygotuj odpowiedź od nowa' : 'Przygotuj projekt odpowiedzi'}${aiKey() ? ' (AI)' : ''}</button>`}
       ${aiKey() ? '' : '<div class="hint" style="margin-top:6px">Bez klucza AI powstanie projekt z generatora wbudowanego (fakty z dokumentacji + zaznaczone argumenty + Twoje stanowisko).</div>'}
     </div></section>
     <section class="panel"><header><h3>4. Odpowiedź</h3>${hasDraft ? `<span class="sub">${r.source === 'ai' ? 'projekt AI' : 'generator wbudowany'}</span>` : ''}<span class="grow"></span><select data-c="status" title="Status" style="width:auto;min-width:170px">${Object.entries(STATUS).map(([k, l]) => `<option value="${k}" ${c.status === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></header><div class="body">
+      ${jobOf('revise', c.id) ? `<div class="banner info" style="margin-bottom:12px"><span class="spin"></span><span class="grow small"><b>AI poprawia odpowiedź w tle</b> — <span data-job="${jobKey('revise', c.id)}">${jobState(jobOf('revise', c.id))}</span>. Możesz pracować dalej.</span></div>` : ''}
       ${hasDraft ? `${analysisHTML(r.analysis)}${(r.warnings || []).length ? `<div class="banner warn" style="margin-bottom:12px"><span class="grow small"><b>Do sprawdzenia:</b> ${r.warnings.map(esc).join(' · ')}</span></div>` : ''}
-        <label class="f"><span>Temat</span><input type="text" data-cr="subject" value="${esc(r.subject)}"></label>
-        <label class="f" style="margin-top:10px"><span>Treść (akapity oddzielone pustą linią)</span><textarea data-cr="body" rows="16">${esc((r.paragraphs || []).join('\n\n'))}</textarea></label>
+        <div class="paper-tools" style="margin-bottom:10px">${S.cmpManual ? '<span class="hint">Edycja ręczna: popraw temat i treść bezpośrednio.</span>' : `<div class="ai-tip">${I('spark')}<span><b>Coś nie ma sensu lub powinno brzmieć inaczej?</b> ${COARSE ? 'Przytrzymaj palec na tekście i zaznacz fragment' : 'Zaznacz myszką fragment'} — w okienku napisz, co jest nie tak albo jak ma brzmieć${aiKey() ? ', a AI poprawi odpowiedź' : ''}.</span></div>`}<span class="grow"></span>
+          <label class="switch"><input type="checkbox" id="cmp-manual" ${S.cmpManual ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Edycja ręczna</label></div>
+        ${S.cmpManual ? `<label class="f"><span>Temat</span><input type="text" data-cr="subject" value="${esc(r.subject)}"></label>
+        <label class="f" style="margin-top:10px"><span>Treść (akapity oddzielone pustą linią)</span><textarea data-cr="body" rows="16">${esc((r.paragraphs || []).join('\n\n'))}</textarea></label>` : `<div id="cpaper" class="paper cpaper">${cmpPaperHTML(c)}</div>${cmpNotesHTML(c)}`}
         <label class="f" style="margin-top:10px"><span>Podpisujący — funkcja</span><input type="text" data-c="role" value="${esc(c.role ?? 'Dyrektor medyczny')}"></label>
         <div class="row" style="gap:10px;margin-top:14px;flex-wrap:wrap"><button class="btn btn-soft btn-lg" data-act="complaint-print">${I('print')} Drukuj</button><button class="btn btn-primary btn-lg" data-act="complaint-pdf">${I('save')} Zapisz PDF</button><button class="btn btn-ghost" data-act="complaint-copy">${I('copy')} Kopiuj tekst</button></div>
         <div class="hint" style="margin-top:10px">To projekt — przed wysłaniem sprawdź fakty w dokumentacji. Przy piśmie od kancelarii lub żądaniu odszkodowania skonsultuj odpowiedź z prawnikiem lub ubezpieczycielem OC.</div>`
@@ -1792,29 +1803,160 @@ function viewComplaint() {
    </div>
   </div>`;
 }
+const EFFORT_HINT = { medium: 'Najszybciej — zwykle wystarcza przy prostej skardze z jednym zarzutem.', high: 'Zalecany — dokładna analiza kliniczna i pełne pismo w rozsądnym czasie.', max: 'Najgłębsza analiza — przy rozbudowanej skardze może trwać kilka minut.' };
+const cmpEffort = (c) => (c.effort in COMPLAINT_EFFORTS ? c.effort : settings().ai.complaintEffort in COMPLAINT_EFFORTS ? settings().ai.complaintEffort : 'high');
+/** Short AI summary of the complaint, shown on the side while the doctor works on the reply. */
+const DIGEST_KIND = { zarzut: ['Zarzut', 'r'], 'żądanie': ['Żądanie', 'o'], termin: ['Termin', 'b'], fakt: ['Fakt', 'g'] };
+function digestHTML(c) {
+  const d = c.digest, j = jobOf('digest', c.id);
+  if (j) return `<header><h3>${I('spark')} Streszczenie skargi</h3></header><div class="body"><div class="row" style="gap:10px"><span class="spin"></span><span class="muted small">AI <span data-job="${jobKey('digest', c.id)}">${jobState(j)}</span></span></div><div class="hint">Możesz w tym czasie pracować dalej.</div></div>`;
+  const head = `<header><h3>${I('spark')} Streszczenie skargi</h3>${d ? `<span class="grow"></span><button class="btn btn-ghost btn-sm" data-act="complaint-digest" title="Streść ponownie">${I('refresh')}</button>` : ''}</header>`;
+  if (!d) {
+    const can = c.scans.length || c.summary.trim();
+    return `${head}<div class="body"><div class="hint" style="margin-top:0">${!aiKey() ? 'Streszczenie przygotowuje AI — dodaj klucz API w Ustawieniach.' : can ? 'AI przeczyta pismo i wypunktuje zarzuty, żądania i terminy. Streszczenie zostanie tutaj, z boku, przez cały czas pracy nad odpowiedzią.' : 'Dodaj skan pisma (krok 2) lub wpisz zarzuty — AI wypunktuje najważniejsze rzeczy.'}</div>
+      ${aiKey() && can ? `<button class="btn btn-primary" data-act="complaint-digest" style="width:100%;margin-top:10px">${I('spark')} Streść skargę</button>` : ''}</div>`;
+  }
+  const order = ['zarzut', 'żądanie', 'termin', 'fakt'], pts = [...(d.points || [])].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+  return `${head}<div class="body">${d.headline ? `<p class="sum-head">${esc(d.headline)}</p>` : ''}
+    <ul class="sum-list">${pts.map((x) => `<li><span class="tag ${DIGEST_KIND[x.kind]?.[1] || ''}">${esc(DIGEST_KIND[x.kind]?.[0] || x.kind)}</span><span>${esc(x.text)}</span></li>`).join('')}</ul>
+    ${(d.unreadable || []).length ? `<div class="banner warn" style="margin-top:10px"><span class="grow small"><b>Nieczytelne:</b> ${d.unreadable.map(esc).join(' · ')}</span></div>` : ''}
+    ${pts.some((x) => x.kind !== 'fakt') ? `<button class="btn btn-ghost btn-sm" data-act="digest-to-summary" style="margin-top:10px">${I('copy')} Wpisz zarzuty i żądania do „Zarzuty w skrócie"</button>` : ''}
+    <div class="tiny faint" style="margin-top:8px">streszczenie AI z ${new Date(d.at).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · sprawdź z pismem</div></div>`;
+}
+/** The response as a page: paragraphs can be selected and annotated, like the letter to a referring doctor. */
+function cmpPaperHTML(c) {
+  const r = c.response || {}, notes = r.notes || [], L = complaintLetter(c);
+  return `${r.subject ? `<p class="lp lp-subj" data-loc="subject"><b>Dotyczy:</b> ${marked(r.subject, 'subject', notes)}</p>` : ''}<p class="lp">${esc(L.salutation)}</p>
+    ${(r.paragraphs || []).map((x, i) => `<p class="lp" data-loc="paragraphs.${i}">${marked(x, 'paragraphs.' + i, notes)}</p>`).join('')}
+    <p class="lp" style="margin-top:16px">${esc(L.signoff)}<br>${esc(doctorName())}${L.role ? `<br><span style="color:#666">${esc(L.role)}</span>` : ''}</p>`;
+}
+function cmpNotesHTML(c) {
+  const r = c.response || {}, notes = r.notes || [], n = notes.filter((x) => x.comment).length, inst = r.instruction || '';
+  return `<div class="cmp-notes"><div class="rs-h">${I('edit')} Uwagi do odpowiedzi <span class="badge">${notes.length || ''}</span></div>
+    ${notes.length ? notes.map((x) => `<div class="note-card ${x.done ? 'done' : ''}">
+        <button class="nq" data-act="goto-note" data-id="${x.id}">„${esc(x.quote.length > 90 ? x.quote.slice(0, 90) + '…' : x.quote)}"</button>
+        <textarea data-note-text="${x.id}" rows="2" placeholder="Co jest nie tak / jak ma brzmieć?">${esc(x.comment)}</textarea>
+        <div class="row"><label class="chk-done"><input type="checkbox" data-note-done="${x.id}" ${x.done ? 'checked' : ''}>Gotowe</label><span class="grow"></span><button class="btn btn-ghost btn-sm" data-act="rm-note" data-id="${x.id}">${I('trash')}</button></div></div>`).join('')
+      : '<div class="hint">Zaznacz w odpowiedzi fragment, który nie ma sensu lub powinien brzmieć inaczej, i w okienku wpisz swoją wersję. Możesz dodać kilka uwag po kolei.</div>'}
+    <div class="row nowrap" style="margin-top:10px"><textarea id="cmp-inst" rows="2" placeholder="Polecenie do całego pisma (opcjonalnie), np. „krócej", „bardziej ugodowo", „dodaj propozycję wizyty kontrolnej"…">${esc(inst)}</textarea>${micBtn('#cmp-inst')}</div>
+    <div class="row" style="gap:10px;margin-top:10px;flex-wrap:wrap"><button class="btn btn-primary" data-act="complaint-revise" ${(n || inst.trim()) && !jobOf('revise', c.id) ? '' : 'disabled'}>${I('spark')} Popraw odpowiedź z AI${n ? ` (${n} ${n === 1 ? 'uwaga' : n < 5 ? 'uwagi' : 'uwag'})` : ''}</button>
+      ${(r.history || []).length ? `<button class="btn btn-ghost" data-act="complaint-undo">${I('back')} Przywróć poprzednią wersję</button>` : ''}</div>
+    ${aiKey() ? '' : '<div class="hint" style="margin-top:8px">Poprawki AI wymagają klucza API (Ustawienia). Bez niego włącz „Edycja ręczna" i popraw tekst bezpośrednio.</div>'}
+    ${(r.lastChanges || []).length ? `<div class="rs-h" style="margin-top:12px">${I('check')} Ostatnie zmiany AI</div><ul class="changes">${r.lastChanges.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>`;
+}
+/** Identifiers hidden from the AI: patient, sender, their address, the treating doctor (and the outside practice). */
+function complaintPseudo(c, patient, visits) {
+  const pseudo = pseudoFor(patient, null, visits);
+  for (const x of [c.sender, c.doctor, ...(c.senderAddress || '').split('\n'), ...(c.mode === 'outside' ? [c.outside.where] : [])].map((v) => (v || '').trim()).filter((v) => v.length > 3)) pseudo.rules.push({ re: new RegExp(x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), tok: '[DANE]' });
+  return pseudo;
+}
+const scanAtt = (x) => ({ type: x.type.startsWith('image/') ? 'image' : 'document', source: { type: 'base64', media_type: x.type, data: x.data.split(',')[1] } });
+function askBox(title, text, okLabel) { return new Promise((res) => modal({ title, body: `<p style="margin:0;color:var(--dim);line-height:1.6">${text}</p>`, buttons: [{ label: 'Anuluj', cls: 'btn-ghost', onClick: () => res(false) }, { label: okLabel, cls: 'btn-primary', onClick: () => res(true) }], onClose: () => res(false) })); }
+/* ---------------------------------------------------------------- AI jobs running in the background
+   A long AI request does not block the app: it runs while the doctor works elsewhere in DentList or in another
+   window; the result is saved into the complaint when it arrives. The app does not auto-lock while a job runs. */
+const JOBS = new Map();
+const jobKey = (kind, id) => `${kind}:${id}`;
+const jobOf = (kind, id) => JOBS.get(jobKey(kind, id));
+const JOB_TITLE = { draft: 'Odpowiedź na skargę', digest: 'Streszczenie skargi', revise: 'Poprawa odpowiedzi' };
+const mmss = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const jobState = (j) => (j.chars ? `pisze (${j.chars.toLocaleString('pl-PL')} znaków)` : j.kind === 'digest' ? 'czyta pismo' : 'analizuje');
+function runJob(kind, complaintId, fn) {
+  const k = jobKey(kind, complaintId), j = { kind, complaintId, t0: Date.now(), chars: 0 };
+  JOBS.set(k, j); renderJobs();
+  return fn((what, n) => { if (what === 'text') j.chars = n; }).finally(() => { JOBS.delete(k); renderJobs(); });
+}
+function renderJobs() {
+  let el = $('#jobs');
+  if (!JOBS.size) { el?.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'jobs'; el.setAttribute('aria-live', 'polite'); document.body.appendChild(el); }
+  el.innerHTML = [...JOBS.values()].map((j) => `<button class="job" data-act="job-open" data-id="${j.complaintId}" title="Pokaż skargę"><span class="spin"></span><span><b>AI: ${esc(JOB_TITLE[j.kind])}</b><small>${jobState(j)} · <span class="job-t">${mmss(Date.now() - j.t0)}</span> · możesz pracować dalej</small></span></button>`).join('');
+}
+setInterval(() => {
+  if (!JOBS.size) return;
+  renderJobs();
+  for (const b of $$('[data-job]')) { const j = JOBS.get(b.dataset.job); if (j) b.textContent = `${jobState(j)} · ${mmss(Date.now() - j.t0)}`; }
+}, 1000);
+/** When the window is in the background, the tab title says the result is ready. */
+let titleBase = '';
+function jobDone(msg) {
+  toast(msg, 'ok');
+  if (document.visibilityState === 'hidden') { titleBase ||= document.title; document.title = '✓ ' + msg; }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && titleBase) { document.title = titleBase; titleBase = ''; } });
+const showingComplaint = (id) => S.view === 'complaint' && S.complaintId === id;
+const caseVisits = (c) => { const all = complaintVisits(c); return c.visitIds.map((id) => all.find((v) => v.id === id)).filter(Boolean); };
+const aiReady = () => aiKey() && settings().ai.enabled !== false && aiAllowed();
+
+async function complaintDigest() {
+  const c = curComplaint(); if (!c) return;
+  if (!aiReady()) return toast('Streszczenie przygotowuje AI — dodaj klucz API w Ustawieniach (lub AI jest wyłączone).', 'err');
+  if (jobOf('digest', c.id)) return toast('AI już streszcza tę skargę.', 'err');
+  if (!c.scans.length && !c.summary.trim()) return toast('Dodaj skan pisma lub wpisz zarzuty w skrócie.', 'err');
+  if (c.scans.length && !c.allowScanAI) {
+    if (await askBox('Pozwolić AI odczytać skan?', 'Aby streścić pismo, AI musi przeczytać skan. Skan zawiera dane osobowe, których w obrazie nie da się zanonimizować.', 'Pozwól i streść')) { c.allowScanAI = true; save('complaints', c); }
+    else if (!c.summary.trim()) return;
+  }
+  const id = c.id, patient = complaintPatient(c) || {}, withScan = c.allowScanAI && c.scans.length > 0;
+  const req = runJob('digest', id, (onProgress) => summarizeComplaint(aiKey(), { language: 'pl', letter_from: SOURCES[c.source], received: c.received, complaint_summary: c.summary }, { pseudo: complaintPseudo(c, patient, caseVisits(c)), attachments: withScan ? c.scans.map(scanAtt) : [], onProgress }));
+  if (showingComplaint(id)) renderView();
+  try {
+    const out = await req, cc = D().complaints.get(id); if (!cc) return;
+    cc.digest = { headline: out.headline, points: out.points || [], unreadable: out.unreadable || [], at: Date.now() };
+    save('complaints', cc); audit('ai', 'streszczenie skargi' + (withScan ? ' (skan wysłany za zgodą)' : ' (dane zanonimizowane)'), cc.patientId);
+    jobDone('Streszczenie skargi gotowe.');
+  } catch (e) { toast(`Streszczenie: AI nie zadziałało — ${e.message}`, 'err'); }
+  if (showingComplaint(id)) renderView();
+}
+async function complaintRevise() {
+  const c = curComplaint(); if (!c) return; const r = c.response;
+  const inst = ($('#cmp-inst')?.value ?? r.instruction ?? '').trim(), notes = (r.notes || []).filter((x) => x.comment.trim());
+  if (!aiReady()) return toast('Poprawki AI wymagają klucza API — dodaj go w Ustawieniach lub włącz „Edycja ręczna".', 'err');
+  if (jobOf('revise', c.id) || jobOf('draft', c.id)) return toast('AI już pracuje nad tą odpowiedzią.', 'err');
+  if (!notes.length && !inst) return toast('Zaznacz fragment i dodaj uwagę albo wpisz polecenie.', 'err');
+  const id = c.id, patient = complaintPatient(c) || {}, visits = caseVisits(c), eff = cmpEffort(c), base = { subject: r.subject, paragraphs: r.paragraphs };
+  const req = runJob('revise', id, (onProgress) => reviseComplaint(aiKey(), { response: base, annotations: notes.map((x) => ({ location: x.loc, quote: x.quote, comment: x.comment })), instruction: inst, case: complaintPayload(c, { patient, visits, doctor: settings().doctor }) }, { pseudo: complaintPseudo(c, patient, visits), effort: eff, onProgress }));
+  toast('AI poprawia odpowiedź w tle — możesz w tym czasie pracować dalej.', 'ok');
+  if (showingComplaint(id)) renderView();
+  try {
+    const out = await req, cc = D().complaints.get(id); if (!cc) return; const rr = cc.response;
+    rr.history = [...(rr.history || []), { at: Date.now(), ...base, notes: rr.notes || [], instruction: inst }].slice(-15);
+    Object.assign(rr, { subject: out.subject, paragraphs: out.paragraphs, notes: [], instruction: '', lastChanges: out.changes || [], warnings: out.warnings || [], source: 'ai' });
+    save('complaints', cc); audit('ai', 'poprawa odpowiedzi na skargę (dane zanonimizowane)', cc.patientId);
+    jobDone('Odpowiedź na skargę poprawiona.');
+  } catch (e) { toast(`Poprawa odpowiedzi: AI nie zadziałało — ${e.message}`, 'err'); }
+  if (showingComplaint(id)) renderView();
+}
+function applyDraft(id, out) {
+  const c = D().complaints.get(id); if (!c) return;
+  if (c.response?.paragraphs?.length) out.history = [...(c.response.history || []), { at: Date.now(), subject: c.response.subject, paragraphs: c.response.paragraphs, notes: c.response.notes || [] }].slice(-15);
+  c.response = out; if (c.status === 'new') c.status = 'work';
+  save('complaints', c); audit('complaint', 'projekt odpowiedzi', c.patientId);
+  if (showingComplaint(id)) renderView();
+}
 async function complaintDraft() {
   const c = curComplaint(), patient = complaintPatient(c);
   if (!patient) { toast(c.mode === 'outside' ? 'Wpisz imię i nazwisko pacjenta.' : 'Najpierw wybierz pacjenta.', 'err'); return; }
   if (c.mode === 'outside' && !c.outside.treatment.trim() && !c.outside.docs.length) { toast('Opisz przebieg leczenia lub dołącz dokumentację.', 'err'); return; }
-  const all = complaintVisits(c), visits = c.visitIds.map((id) => all.find((v) => v.id === id)).filter(Boolean);
-  let out = builtinComplaintDraft(c, { patient, visits }), aiErr = '';
-  if (aiKey() && settings().ai.enabled !== false && aiAllowed()) {
-    const busy = modal({ title: 'AI analizuje skargę i leczenie…', body: '<p class="muted" style="margin:0;line-height:1.6">Analiza każdego zarzutu z perspektywy wiedzy medycznej i dokumentacji, a potem pełna odpowiedź — przy najwyższym poziomie rozumowania może to potrwać kilka minut.<br>Dane pacjenta są zanonimizowane przed wysłaniem.</p><div class="row" style="margin-top:12px"><span class="spin"></span><span class="muted small">Proszę czekać…</span></div>' });
-    try {
-      const pseudo = pseudoFor(patient, null, visits);
-      // the sender, their address and the treating doctor are hidden from the AI as well
-      for (const x of [c.sender, c.doctor, ...(c.senderAddress || '').split('\n'), ...(c.mode === 'outside' ? [c.outside.where] : [])].map((v) => (v || '').trim()).filter((v) => v.length > 3)) pseudo.rules.push({ re: new RegExp(x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), tok: '[DANE]' });
-      const att = (x) => ({ type: x.type.startsWith('image/') ? 'image' : 'document', source: { type: 'base64', media_type: x.type, data: x.data.split(',')[1] } });
-      const attachments = [...(c.allowScanAI ? c.scans.map(att) : []), ...(c.mode === 'outside' && c.allowDocsAI ? c.outside.docs.map(att) : [])];
-      if (!c.summary.trim() && !(c.allowScanAI && c.scans.length)) toast('Wskazówka: wpisz zarzuty w skrócie albo pozwól AI odczytać skan pisma — AI odpowie wtedy na każdy zarzut osobno.', 'err');
-      const ai = await draftComplaint(aiKey(), complaintPayload(c, { patient, visits, doctor: settings().doctor }), { pseudo, attachments });
-      out = { subject: ai.subject, salutation: salutationFor(c), paragraphs: ai.paragraphs, warnings: ai.warnings || [], analysis: ai.analysis || null, source: 'ai' };
-      audit('ai', 'projekt odpowiedzi na skargę (dane zanonimizowane' + (attachments.length ? '; skan wysłany za zgodą' : '') + ')', patient.id);
-    } catch (e) { aiErr = e.message; toast(`AI nie zadziałało: ${e.message} Użyto generatora wbudowanego.`, 'err'); }
-    busy.close();
+  if (jobOf('draft', c.id) || jobOf('revise', c.id)) return toast('AI już pracuje nad tą odpowiedzią.', 'err');
+  const id = c.id, visits = caseVisits(c), builtin = builtinComplaintDraft(c, { patient, visits });
+  if (!aiReady()) return applyDraft(id, builtin);
+  const eff = cmpEffort(c), pseudo = complaintPseudo(c, patient, visits);
+  const attachments = [...(c.allowScanAI ? c.scans.map(scanAtt) : []), ...(c.mode === 'outside' && c.allowDocsAI ? c.outside.docs.map(scanAtt) : [])];
+  if (!c.summary.trim() && !(c.allowScanAI && c.scans.length)) toast('Wskazówka: wpisz zarzuty w skrócie albo pozwól AI odczytać skan pisma — AI odpowie wtedy na każdy zarzut osobno.', 'err');
+  const salutation = salutationFor(c);
+  const req = runJob('draft', id, (onProgress) => draftComplaint(aiKey(), complaintPayload(c, { patient, visits, doctor: settings().doctor }), { pseudo, attachments, effort: eff, onProgress }));
+  toast('AI pisze odpowiedź w tle — możesz w tym czasie korzystać z aplikacji i innych okien. Dam znać, gdy będzie gotowa.', 'ok');
+  if (showingComplaint(id)) renderView();
+  try {
+    const ai = await req;
+    audit('ai', 'projekt odpowiedzi na skargę (dane zanonimizowane' + (attachments.length ? '; skan wysłany za zgodą' : '') + ')', patient.id);
+    applyDraft(id, { subject: ai.subject, salutation, paragraphs: ai.paragraphs, warnings: ai.warnings || [], analysis: ai.analysis || null, source: 'ai' });
+    jobDone('Odpowiedź na skargę gotowa.');
+  } catch (e) {
+    toast(`AI nie zadziałało: ${e.message} Użyto generatora wbudowanego.`, 'err');
+    applyDraft(id, builtin);
   }
-  c.response = out; if (c.status === 'new') c.status = 'work';
-  save('complaints', c); audit('complaint', 'projekt odpowiedzi', patient.id); renderView();
 }
 /** The AI's working analysis for the director: each allegation with the record, the clinical assessment and the rebuttal. */
 function analysisHTML(a) {
@@ -2190,7 +2332,8 @@ document.addEventListener('click', async (e) => {
   const t = e.target;
   const nav = t.closest('[data-nav]'); if (nav && S.session) { S.search = ''; go(nav.dataset.nav); return; }
   const csg = t.closest('[data-cseg] button');
-  if (csg) { const c = curComplaint(), k = csg.parentElement.dataset.cseg; c[k] = csg.dataset.v; if (k === 'mode') c.outside ??= newOutside(); save('complaints', c); if (k === 'mode') return renderView(); $$('button', csg.parentElement).forEach((b) => b.classList.toggle('on', b === csg)); return; }
+  if (csg) { const c = curComplaint(), k = csg.parentElement.dataset.cseg; c[k] = csg.dataset.v; if (k === 'mode') c.outside ??= newOutside(); save('complaints', c);
+    if (k === 'effort') { const st = settings(); st.ai.complaintEffort = csg.dataset.v; save('settings', st); const h = $('#effort-hint'); if (h) h.textContent = EFFORT_HINT[csg.dataset.v]; } if (k === 'mode') return renderView(); $$('button', csg.parentElement).forEach((b) => b.classList.toggle('on', b === csg)); return; }
   const segb = t.closest('.seg[data-seg] button');
   if (segb) { const sg = segb.parentElement; setBound(sg.dataset.seg, segb.dataset.v); $$('button', sg).forEach((b) => b.classList.toggle('on', b === segb)); if (sg.classList.contains('prog-seg')) { const c = sg.closest('.prog-card'), v = segb.dataset.v; c.className = `prog-card ${v ? 'set p-' + v : ''}`; $('.pc-h small', c).textContent = v ? `w liście: „Rokowanie: ${PROG[v]}”` : 'wybierz — pojawi się w zaleceniach listu'; if (S.ws) $('#ws-tabs').innerHTML = stepsHTML(S.ws.draft); } if (sg.dataset.re || sg.dataset.seg.startsWith('v.')) rerender(sg.dataset.seg); return; }
   const mic = t.closest('[data-mic]'); if (mic) { toggleMic(mic); return; }
@@ -2326,6 +2469,11 @@ async function action(act, a) {
     case 'scan-rm': { const c = curComplaint(); c.scans.splice(+a.dataset.i, 1); save('complaints', c); return renderView(); }
     case 'doc-rm': { const c = curComplaint(); c.outside.docs.splice(+a.dataset.i, 1); save('complaints', c); return renderView(); }
     case 'complaint-draft': return complaintDraft();
+    case 'complaint-digest': return complaintDigest();
+    case 'job-open': return go('complaint', { complaintId: a.dataset.id });
+    case 'complaint-revise': return complaintRevise();
+    case 'complaint-undo': { const c = curComplaint(), r = c.response, h = (r.history || []).pop(); if (!h) return; Object.assign(r, { subject: h.subject, paragraphs: h.paragraphs, notes: h.notes || [], lastChanges: [] }); save('complaints', c); renderView(); return toast('Przywrócono poprzednią wersję.', 'ok'); }
+    case 'digest-to-summary': { const c = curComplaint(), pts = (c.digest?.points || []).filter((x) => x.kind !== 'fakt'); c.summary = pts.map((x) => `${DIGEST_KIND[x.kind]?.[0] || x.kind}: ${x.text}`).join('\n'); save('complaints', c); renderView(); return toast('Wpisano do „Zarzuty w skrócie".', 'ok'); }
     case 'complaint-pdf': case 'complaint-print': {
       const c = curComplaint(), p = complaintPatient(c) || {};
       const blob = await buildPlainLetterPDF(complaintLetter(c)); audit('complaint', act === 'complaint-pdf' ? 'zapis PDF odpowiedzi' : 'druk odpowiedzi', c.patientId);
@@ -2398,7 +2546,7 @@ async function action(act, a) {
     case 'pdf-preview': return pdfPreview(D().letters.get(S.letterId));
     case 'revise': { const L = D().letters.get(S.letterId); L.instruction = $('#gen-text')?.value || ''; return reviseWithAI(L); }
     case 'use-sugg': { const L = D().letters.get(S.letterId); const w = L.warnings[+a.dataset.i]; L.genEdit = true; L.instruction = [L.instruction || $('#gen-text')?.value || '', w].filter(Boolean).join('\n'); save('letters', L); return rerenderLetter(); }
-    case 'rm-note': { const L = D().letters.get(S.letterId); L.notes = L.notes.filter((x) => x.id !== a.dataset.id); save('letters', L); return rerenderLetter(); }
+    case 'rm-note': if (S.view === 'complaint') { const c = curComplaint(); c.response.notes = (c.response.notes || []).filter((x) => x.id !== a.dataset.id); save('complaints', c); return renderView(); } { const L = D().letters.get(S.letterId); L.notes = L.notes.filter((x) => x.id !== a.dataset.id); save('letters', L); return rerenderLetter(); }
     case 'goto-note': { const m = $(`mark[data-note="${a.dataset.id}"]`); if (m) { m.scrollIntoView({ behavior: 'smooth', block: 'center' }); m.classList.add('flash'); setTimeout(() => m.classList.remove('flash'), 1200); } return; }
     /* patients */
     case 'add-patient': { const p = await pickPatient(); if (p) go('patient', { patientId: p.id }); return; }
@@ -2458,13 +2606,15 @@ document.addEventListener('input', (e) => {
   if ((el.dataset.c || el.dataset.cr) && el.tagName !== 'SELECT') { const c = curComplaint(); if (!c) return; if (el.dataset.c) c[el.dataset.c] = el.value; else if (el.dataset.cr === 'subject') c.response.subject = el.value; else c.response.paragraphs = el.value.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean); save('complaints', c); return; }
   if (el.id === 'clinic-q') { S.clinicQ = el.value; fillClinic(); return; }
   if (el.id === 'search') { S.search = el.value; const pos = el.selectionStart; renderView(); const s = $('#search'); s.focus(); s.setSelectionRange(pos, pos); return; }
+  if (el.dataset.noteText && S.view === 'complaint') { const c = curComplaint(), n = (c.response.notes || []).find((x) => x.id === el.dataset.noteText); if (n) { n.comment = el.value; save('complaints', c); const b = $('[data-act=complaint-revise]'); if (b) b.disabled = !((c.response.notes || []).some((x) => x.comment.trim()) || ($('#cmp-inst')?.value || '').trim()); } return; }
+  if (el.id === 'cmp-inst') { const c = curComplaint(); c.response.instruction = el.value; save('complaints', c); const b = $('[data-act=complaint-revise]'); if (b) b.disabled = !(el.value.trim() || (c.response.notes || []).some((x) => x.comment.trim())); return; }
   if (el.dataset.noteText) { const L = D().letters.get(S.letterId); const n = L.notes.find((x) => x.id === el.dataset.noteText); if (n) { n.comment = el.value; save('letters', L); } return; }
   if (el.id === 'gen-text') { const L = D().letters.get(S.letterId); L.instruction = el.value; save('letters', L); const b = $('[data-act=revise]'); if (b) b.disabled = !(el.value.trim() || (L.notes || []).some((x) => x.comment)); return; }
   const lp = el.closest && el.closest('#paper [data-loc][contenteditable]');
   if (lp) { const L = D().letters.get(S.letterId); setPath(L.content, lp.dataset.loc, lp.innerText.replace(/\s+\n/g, '\n').trim()); save('letters', L); return; }
   if (el.dataset.b && el.type !== 'checkbox' && el.tagName !== 'SELECT') setBound(el.dataset.b, el.value);
 });
-document.addEventListener('mouseup', (e) => { if (e.target.closest && e.target.closest('#paper')) setTimeout(onPaperSelect, 10); });
+document.addEventListener('mouseup', (e) => { if (e.target.closest && e.target.closest('#paper, #cpaper')) setTimeout(onPaperSelect, 10); });
 document.addEventListener('change', (e) => {
   const el = e.target;
   if (el.id === 'scan-input') { addScans([...el.files]); return; }
@@ -2486,6 +2636,8 @@ document.addEventListener('change', (e) => {
   if (el.id === 'mat-cat') { S.matCat = el.value; const sp = SPEC_ORDER.find((k) => SPEC_CATS[k].includes(el.value)); if (sp && !SPEC_CATS[matSpecOf(S.ws?.draft)].includes(el.value)) S.matSpec = sp; return refreshWorkspace(); }
   if (el.id === 'manual-edit') { S.manualEdit = el.checked; return renderView(); }
   if (el.id === 'gen-edit') { const L = D().letters.get(S.letterId); L.genEdit = el.checked; save('letters', L); $('#gen-box').hidden = !el.checked; if (el.checked) $('#gen-text').focus(); return; }
+  if (el.dataset.noteDone && S.view === 'complaint') { const c = curComplaint(), n = (c.response.notes || []).find((x) => x.id === el.dataset.noteDone); if (n) { n.done = el.checked; save('complaints', c); renderView(); } return; }
+  if (el.id === 'cmp-manual') { S.cmpManual = el.checked; return renderView(); }
   if (el.dataset.noteDone) { const L = D().letters.get(S.letterId); const n = L.notes.find((x) => x.id === el.dataset.noteDone); if (n) { n.done = el.checked; save('letters', L); rerenderLetter(); } return; }
   if (el.dataset.arr) { const arr = [...(val(el.dataset.arr) || [])]; const i = arr.indexOf(el.value); if (el.checked && i < 0) arr.push(el.value); if (!el.checked && i >= 0) arr.splice(i, 1); setBound(el.dataset.arr, arr); if (el.dataset.arr.startsWith('t.')) refreshWorkspace(); return; }
   if (el.dataset.b && el.type === 'checkbox') { setBound(el.dataset.b, el.checked); if (el.dataset.re) rerender(el.dataset.b); return; }
@@ -2520,6 +2672,8 @@ async function logoData(file) {
 }
 async function reloadData() { const all = await S.session.loadAll(); for (const k of ['patients', 'visits', 'letters', 'referrers', 'settings', 'audit', 'keys', 'complaints']) if (all[k]) S.data[k] = all[k]; if (!S.data.settings.get('main')) S.data.settings.set('main', clone(DEFAULT_SETTINGS)); }
 async function lockNow() {
+  if (JOBS.size && !(await askBox('AI jeszcze pracuje', 'Zablokowanie aplikacji przerwie pracę AI (wynik nie zostanie zapisany). Zablokować mimo to?', 'Zablokuj'))) return;
+  S.unloading = true;
   audit('lock');
   await Promise.race([(async () => { await flushSave.flush(); await S.sync?.now(); })(), new Promise((r) => setTimeout(r, 4000))]).catch(() => {});
   location.reload();
@@ -2565,8 +2719,10 @@ async function sampleLetter() {
 
 /* auto-lock */
 ['mousemove', 'keydown', 'mousedown', 'touchstart', 'wheel'].forEach((ev) => document.addEventListener(ev, () => { S.lastActive = Date.now(); }, { passive: true }));
-setInterval(() => { if (S.session && Date.now() - S.lastActive > (+settings().security.autolock || 15) * 60000) lockNow(); }, 20000);
+// no auto-lock while an AI job runs in the background (the lock reloads the page and would cancel it)
+setInterval(() => { if (JOBS.size) { S.lastActive = Date.now(); return; } if (S.session && Date.now() - S.lastActive > (+settings().security.autolock || 15) * 60000) lockNow(); }, 20000);
 window.addEventListener('beforeunload', () => { flushSave.flush(); });
+window.addEventListener('beforeunload', (e) => { if (JOBS.size && !S.unloading) { e.preventDefault(); e.returnValue = ''; } });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && S.session) { flushSave.flush(); scheduleBackup.flush(); } });
 
 boot().catch((e) => { console.error(e); $('#root').innerHTML = `<div class="auth"><div class="auth-card"><h1>Błąd uruchomienia</h1><p class="lead">${esc(e.message)}</p><p class="hint">Upewnij się, że nie używasz trybu prywatnego / incognito.</p></div></div>`; });

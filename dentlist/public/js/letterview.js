@@ -6,7 +6,7 @@ import { fmtDate, fmtDateLong } from './letter.js';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /** Wraps the first occurrence of each annotation's quote in <mark>. */
-function marked(text, loc, notes) {
+export function marked(text, loc, notes) {
   let html = esc(text);
   for (const n of notes.filter((x) => x.loc === loc && x.quote)) {
     const q = esc(n.quote), i = html.indexOf(q);

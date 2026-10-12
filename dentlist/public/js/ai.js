@@ -80,16 +80,17 @@ const DICTATION_SCHEMA = { type: 'object', properties: { text: { type: 'string' 
 export class AIError extends Error { constructor(msg, code) { super(msg); this.code = code; } }
 
 // baseURL is only overridden in tests (a local stand-in for the API)
-function client(apiKey) { return new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, timeout: 300000, ...(globalThis.__DENTLIST_AI_BASE ? { baseURL: globalThis.__DENTLIST_AI_BASE } : {}) }); }
+function client(apiKey, { timeout = 300000, maxRetries = 2 } = {}) { return new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries, timeout, ...(globalThis.__DENTLIST_AI_BASE ? { baseURL: globalThis.__DENTLIST_AI_BASE } : {}) }); }
 
 /** pseudo: Pseudonymizer — identifiers are replaced before sending and put back into the answer locally. */
-async function call(apiKey, system, payload, schema, effort, pseudo = null, attachments = [], maxTokens = 32000) {
+/** onProgress(kind, chars): 'start' when the request is sent, 'text' as the answer streams in (used for the background-job indicator). */
+async function call(apiKey, system, payload, schema, effort, pseudo = null, attachments = [], maxTokens = 32000, { onProgress, timeout, maxRetries } = {}) {
   if (pseudo) { payload = pseudo.apply(payload); system = system + '\n\n' + PSEUDO_NOTE; }
   if (!apiKey) throw new AIError('Brak klucza API — dodaj go w Ustawieniach.', 'no_key');
   let resp;
   try {
     // streamed: a long letter (the model always thinks first) can take minutes; streaming avoids request timeouts
-    resp = await client(apiKey).beta.messages.stream({
+    const st = client(apiKey, { timeout, maxRetries }).beta.messages.stream({
       model: MODEL,
       max_tokens: maxTokens,
       betas: ['server-side-fallback-2026-07-01'],
@@ -97,7 +98,9 @@ async function call(apiKey, system, payload, schema, effort, pseudo = null, atta
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       output_config: { effort, format: { type: 'json_schema', schema } },
       messages: [{ role: 'user', content: attachments.length ? [...attachments, { type: 'text', text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 1) }] : (typeof payload === 'string' ? payload : JSON.stringify(payload, null, 1)) }],
-    }).finalMessage();
+    });
+    if (onProgress) { let n = 0; onProgress('start', 0); st.on('text', (d) => { n += d.length; onProgress('text', n); }); }
+    resp = await st.finalMessage();
   } catch (e) {
     if (globalThis.__DENTLIST_AI_DEBUG) console.error('AI error', e, e?.cause);
     if (e instanceof Anthropic.AuthenticationError) throw new AIError('Klucz API jest nieprawidłowy.', 'auth');
@@ -162,8 +165,47 @@ const COMPLAINT_SCHEMA = {
   },
   required: ['analysis', 'subject', 'paragraphs', 'warnings'], additionalProperties: false,
 };
-// complaints get the deepest reasoning available: a full clinical analysis and a long letter
-export const draftComplaint = (apiKey, payload, { pseudo, attachments = [] } = {}) => call(apiKey, COMPLAINT_PROMPT, payload, COMPLAINT_SCHEMA, 'max', pseudo, attachments, 64000);
+// the reasoning level is chosen by the director (default 'high': thorough, but without the long wait of 'max')
+export const COMPLAINT_EFFORTS = { medium: 'Szybki', high: 'Dokładny', max: 'Najwyższy' };
+const LONG = { timeout: 900000, maxRetries: 1 };
+export const draftComplaint = (apiKey, payload, { pseudo, attachments = [], effort = 'high', onProgress } = {}) => call(apiKey, COMPLAINT_PROMPT, payload, COMPLAINT_SCHEMA, effort in COMPLAINT_EFFORTS ? effort : 'high', pseudo, attachments, effort === 'max' ? 64000 : 32000, { ...LONG, onProgress });
+
+export const COMPLAINT_SUMMARY_PROMPT = `Jesteś asystentem dyrektora medycznego polskiej placówki stomatologicznej. Otrzymasz skargę lub pismo (skan / zdjęcie / PDF, jeśli dołączono) oraz JSON z "complaint_summary" (zarzuty wpisane przez dyrektora, może być puste), "letter_from" i "received".
+Przeczytaj pismo w całości i wypisz jego najważniejsze punkty — krótko, rzeczowo, po polsku, tak żeby lekarz w kilka sekund wiedział, o co chodzi:
+- "points": lista punktów; każdy: "kind" — "zarzut" (co pismo zarzuca), "żądanie" (czego nadawca żąda, np. zwrot kosztów, odszkodowanie, dokumentacja), "termin" (terminy i daty, do których trzeba odpowiedzieć lub coś zrobić), "fakt" (istotne fakty podane w piśmie: zęby, daty zabiegów, objawy); "text" — jedno zdanie (do ok. 20 słów), z numerami zębów i datami, jeśli są w piśmie. Kolejność: zarzuty, żądania, terminy, fakty. Zwykle 3–10 punktów.
+- "headline": jedno zdanie streszczające całe pismo.
+- "unreadable": fragmenty pisma, których nie da się odczytać (pusta lista, jeśli wszystko czytelne).
+Nie oceniaj zasadności i nie dodawaj niczego, czego nie ma w piśmie ani w "complaint_summary". Bez Markdown.`;
+const COMPLAINT_SUMMARY_SCHEMA = {
+  type: 'object',
+  properties: {
+    headline: { type: 'string' },
+    points: { type: 'array', items: { type: 'object', properties: { kind: { type: 'string', enum: ['zarzut', 'żądanie', 'termin', 'fakt'] }, text: { type: 'string' } }, required: ['kind', 'text'], additionalProperties: false } },
+    unreadable: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['headline', 'points', 'unreadable'], additionalProperties: false,
+};
+// a quick read of the letter: low reasoning is enough to list what it says
+export const summarizeComplaint = (apiKey, payload, { pseudo, attachments = [], onProgress } = {}) => call(apiKey, COMPLAINT_SUMMARY_PROMPT, payload, COMPLAINT_SUMMARY_SCHEMA, 'low', pseudo, attachments, 8000, { onProgress });
+
+export const COMPLAINT_REVISE_PROMPT = `Jesteś doświadczonym lekarzem dentystą i doradcą dyrektora medycznego polskiej placówki stomatologicznej. Poprawiasz istniejący PROJEKT odpowiedzi na skargę zgodnie z uwagami dyrektora / lekarza.
+Otrzymasz JSON z:
+- "response": obecne pismo — "subject" i "paragraphs" (akapity, numerowane od 0);
+- "annotations": uwagi do konkretnych fragmentów: "location" ("subject" albo "paragraphs.N"), "quote" (zaznaczony tekst), "comment" (co jest nie tak, co nie ma sensu lub jak ma brzmieć — czasem gotowe sformułowanie lekarza);
+- "instruction": ogólne polecenie do całego pisma (może być puste);
+- "case": dane sprawy (zarzuty, przebieg leczenia, argumenty, stanowisko dyrektora, propozycja, ton).
+Zasady:
+- Wprowadź KAŻDĄ uwagę. Gdy lekarz podał własne sformułowanie, użyj go (popraw tylko gramatykę i styl, nie zmieniaj sensu). Gdy wskazał, że coś nie ma sensu lub jest nieprawdziwe — usuń lub przeredaguj ten fragment zgodnie z danymi sprawy.
+- Pozostałe fragmenty zostaw bez zmian, chyba że trzeba je dopasować, aby pismo było spójne (np. powtórzenia, sprzeczności z poprawionym fragmentem).
+- Nie wymyślaj faktów, których nie ma w danych sprawy ani w uwagach; nie przyznawaj winy, chyba że wynika to z uwag lub stanowiska dyrektora; nie powołuj się z nazwy na przepisy ani publikacje, których nie ma w danych.
+- Zachowaj formę pełnego pisma: akapity rozwinięte, poprawna polszczyzna, bez zwrotu grzecznościowego na początku i bez podpisu, bez Markdown i wypunktowań.
+Zwróć: "subject", "paragraphs" (całe pismo po poprawkach), "changes" (krótka lista, co zmieniono), "warnings" (co dyrektor powinien jeszcze sprawdzić; pusta lista, jeśli nic).`;
+const COMPLAINT_REVISE_SCHEMA = {
+  type: 'object',
+  properties: { subject: { type: 'string' }, paragraphs: { type: 'array', items: { type: 'string' } }, changes: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } } },
+  required: ['subject', 'paragraphs', 'changes', 'warnings'], additionalProperties: false,
+};
+export const reviseComplaint = (apiKey, payload, { pseudo, effort = 'high', onProgress } = {}) => call(apiKey, COMPLAINT_REVISE_PROMPT, payload, COMPLAINT_REVISE_SCHEMA, effort in COMPLAINT_EFFORTS ? effort : 'high', pseudo, [], effort === 'max' ? 64000 : 32000, { ...LONG, onProgress });
 
 /** Real end-to-end check (key, credit, model access, network) with a tiny request through the same path as letters. */
 export async function testKey(apiKey) {

@@ -207,29 +207,75 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.fill('[data-c=position]', 'Ekstrakcję przeprowadzono prawidłowo; obrzęk i ból są typowe po usunięciu zatrzymanego zęba i ustąpiły po tygodniu.');
   await p.click('[data-cseg=tone] button[data-v=concil]'); await p.waitForTimeout(200);
   // built-in draft (no AI key)
-  await p.click('[data-act=complaint-draft]'); await p.waitForSelector('[data-cr=body]');
+  await p.click('[data-act=complaint-draft]'); await p.waitForSelector('#cpaper');
+  await p.click('label.switch:has(#cmp-manual)'); await p.waitForSelector('[data-cr=body]');
   const draft = await p.inputValue('[data-cr=body]');
+  await p.click('label.switch:has(#cmp-manual)'); await p.waitForSelector('#cpaper');
   console.log('--- COMPLAINT DRAFT (built-in) ---\n' + draft);
   ok(/Z dokumentacji medycznej wynika/.test(draft) && /Usunięto zatrzymany ząb/.test(draft) && /świadomą zgodę/.test(draft) && /typowe po usunięciu/.test(draft), 'built-in draft: facts from the record + ticked arguments + director position');
   await shot(p, '08-complaint', { fullPage: true });
   // AI draft (MOCK): pseudonymised payload, scan only with consent
-  const calls = [];
+  const calls = []; let mockDelay = 0;
   await p.route('https://api.anthropic.com/**', async (route) => {
     const body = route.request().postDataJSON(); calls.push(body);
     const tok = (JSON.stringify(body.messages).match(/\[OSOBA-\d+\]/) || ['[?]'])[0]; // a real model echoes the tokens it was given
-    const out = { analysis: { allegations: [{ claim: 'Ból i obrzęk po usunięciu zęba 48', record: 'Dłutowanie zęba 48, szwy Vicryl 4-0.', clinical: 'Obrzęk i ból do 7 dni są typowym następstwem dłutowania zęba zatrzymanego.', assessment: 'bezzasadny', rebuttal: 'Objawy mieszczą się w prawidłowym przebiegu gojenia.' }], overall: 'Leczenie zgodne ze sztuką (MOCK).', risk: 'niskie', missing: ['podpisana zgoda'] }, subject: 'Odpowiedź na pismo z dnia 10.10.2026 dotyczące leczenia Pacjenta', paragraphs: [`W odpowiedzi na pismo w sprawie ${tok} przedstawiam stanowisko.`, 'Usunięcie zatrzymanego zęba 48 przeprowadzono zgodnie z zasadami.'], warnings: ['Sprawdź, czy w dokumentacji jest podpisana zgoda.'] };
+    if (mockDelay) await new Promise((r) => setTimeout(r, mockDelay));
+    const sys = body.system[0].text;
+    const out = sys.includes('najważniejsze punkty') ? { headline: 'Pacjent skarży się na ból po usunięciu zęba 48 i żąda zwrotu kosztów.', points: [{ kind: 'fakt', text: 'Zabieg 01.10.2026, ząb 48.' }, { kind: 'zarzut', text: 'Silny ból i obrzęk po usunięciu zęba 48.' }, { kind: 'żądanie', text: 'Zwrot kosztów leczenia.' }, { kind: 'termin', text: 'Odpowiedź w ciągu 14 dni.' }], unreadable: [] }
+      : sys.includes('Poprawiasz istniejący PROJEKT') ? { subject: 'Odpowiedź (poprawiona)', paragraphs: [`W odpowiedzi na pismo w sprawie ${tok} przedstawiam stanowisko.`, 'Zabieg wykonano starannie i zgodnie z aktualną wiedzą (POPRAWIONE).'], changes: ['Przeredagowano akapit 2 według uwagi lekarza.'], warnings: [] }
+      : { analysis: { allegations: [{ claim: 'Ból i obrzęk po usunięciu zęba 48', record: 'Dłutowanie zęba 48, szwy Vicryl 4-0.', clinical: 'Obrzęk i ból do 7 dni są typowym następstwem dłutowania zęba zatrzymanego.', assessment: 'bezzasadny', rebuttal: 'Objawy mieszczą się w prawidłowym przebiegu gojenia.' }], overall: 'Leczenie zgodne ze sztuką (MOCK).', risk: 'niskie', missing: ['podpisana zgoda'] }, subject: 'Odpowiedź na pismo z dnia 10.10.2026 dotyczące leczenia Pacjenta', paragraphs: [`W odpowiedzi na pismo w sprawie ${tok} przedstawiam stanowisko.`, 'Usunięcie zatrzymanego zęba 48 przeprowadzono zgodnie z zasadami.'], warnings: ['Sprawdź, czy w dokumentacji jest podpisana zgoda.'] };
     const text = JSON.stringify(out), ev = (e, d) => `event: ${e}\ndata: ${JSON.stringify(d)}\n\n`;
     await route.fulfill({ status: 200, contentType: 'text/event-stream', body: ev('message_start', { type: 'message_start', message: { id: 'm', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } }) + ev('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) + ev('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }) + ev('content_block_stop', { type: 'content_block_stop', index: 0 }) + ev('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 5 } }) + ev('message_stop', { type: 'message_stop' }) });
   });
   await p.evaluate(() => { const st = window.__dentlist.settings(); st.ai.key = 'sk-ant-test'; window.__dentlist.save('settings', st); window.__dentlist.rerender(); });
-  await p.click('[data-act=complaint-draft]'); await p.waitForFunction(() => document.querySelector('[data-cr=body]')?.value.includes('zgodnie z zasadami'), null, { timeout: 15000 });
+  await p.click('[data-act=complaint-draft]'); await p.waitForFunction(() => document.querySelector('#cpaper')?.textContent.includes('zgodnie z zasadami'), null, { timeout: 15000 });
   const c1 = calls.at(-1), txt1 = JSON.stringify(c1.messages);
   ok(c1.system[0].text.includes('dyrektora medycznego') && typeof c1.messages[0].content === 'string', 'AI request: complaint prompt, no scan without consent');
-  ok(c1.output_config?.effort === 'max' && c1.max_tokens >= 64000 && c1.system[0].text.includes('ANALIZA'), 'AI request: deepest reasoning (effort max), room for a long letter, analysis step');
+  ok(c1.output_config?.effort === 'high' && c1.max_tokens === 32000 && c1.system[0].text.includes('ANALIZA'), 'AI request: default level "Dokładny" (effort high) — thorough without the long wait, analysis step');
   ok((await p.locator('.cmp-analysis .alg').count()) === 1 && (await p.textContent('.cmp-analysis')).includes('bezzasadny') && (await p.textContent('.cmp-analysis')).includes('ryzyko: niskie'), 'AI analysis shown to the director: allegation, record, clinical assessment, rebuttal, risk');
   ok(!/Nowicki|Tomasz|Zając|Marek|Długa/.test(txt1) && txt1.includes('Usunięto zatrzymany ząb'), 'AI request: patient, sender and address pseudonymised; treatment record included');
-  ok((await p.textContent('.cmp')).includes('Sprawdź, czy w dokumentacji jest podpisana zgoda') && /Tomasz Nowicki|Nowicki/.test(await p.inputValue('[data-cr=body]')), 'AI draft shown with warnings; tokens restored locally');
-  await p.click('label.cmp-check'); await p.waitForTimeout(200);
+  ok((await p.textContent('.cmp')).includes('Sprawdź, czy w dokumentacji jest podpisana zgoda') && /Tomasz Nowicki|Nowicki/.test(await p.textContent('#cpaper')), 'AI draft shown with warnings; tokens restored locally');
+  // ---------- 1.0.12: summary on the side, adjustable AI level, background work, annotated reply
+  await p.click('[data-act=complaint-digest]'); await p.waitForTimeout(400);
+  if (await p.locator('.modal [data-act], .modal button.btn-primary').count()) await p.click('.modal button.btn-primary');
+  await p.waitForSelector('#cmp-sum .sum-list li', { timeout: 15000 });
+  const sumTxt = await p.textContent('#cmp-sum'), cd = calls.at(-1);
+  ok((await p.locator('#cmp-sum .sum-list li').count()) === 4 && sumTxt.includes('Zarzut') && sumTxt.includes('Żądanie') && sumTxt.includes('Termin') && cd.output_config?.effort === 'low', 'complaint summary: AI bullet points (zarzut / żądanie / termin / fakt) shown in the side panel, quick (effort low)');
+  ok((await p.$$eval('#cmp-sum .sum-list li .tag', (e) => e.map((x) => x.textContent))).join('|') === 'Zarzut|Żądanie|Termin|Fakt', 'summary ordered: allegations, demands, deadlines, facts');
+  const sumBox = await p.locator('#cmp-sum').boundingBox(), colBox = await p.locator('.cmp-col').first().boundingBox();
+  ok(sumBox && colBox && sumBox.x > colBox.x + colBox.width, 'summary sits on the side of the complaint (wide screen)');
+  await p.click('[data-act=digest-to-summary]'); await p.waitForTimeout(200);
+  ok((await p.inputValue('[data-c=summary]')).includes('Zarzut: Silny ból') && !(await p.inputValue('[data-c=summary]')).includes('Fakt:'), 'summary points copied into "Zarzuty w skrócie"');
+  ok((await p.$$eval('[data-cseg=effort] button', (e) => e.map((x) => x.textContent))).join('|') === 'Szybki|Dokładny|Najwyższy' && (await p.getAttribute('[data-cseg=effort] button.on', 'data-v')) === 'high', 'AI level selector: Szybki / Dokładny (default) / Najwyższy');
+  await p.click('[data-cseg=effort] button[data-v=max]'); await p.waitForTimeout(150);
+  // a slow answer: the app stays usable, the job shows its progress and the result lands in the complaint
+  mockDelay = 2500;
+  await p.click('[data-act=complaint-draft]'); await p.waitForSelector('#jobs .job');
+  ok((await p.textContent('#jobs')).includes('Odpowiedź na skargę') && (await p.locator('.modal').count()) === 0, 'AI works in the background: no blocking window, progress pill shown');
+  const cmpId = await p.evaluate(() => window.__dentlist.S.complaintId);
+  await p.click('[data-nav=patients]'); await p.waitForTimeout(300);
+  ok((await p.locator('#view .pagehead h2').textContent()).includes('Pacjenci') && (await p.locator('#jobs .job').count()) === 1, 'while AI works the doctor can use other parts of the app');
+  await p.waitForSelector('#jobs', { state: 'detached', timeout: 15000 });
+  const cmax = calls.at(-1);
+  ok(cmax.output_config?.effort === 'max' && cmax.max_tokens >= 64000, 'level "Najwyższy" sends effort max with room for a long letter');
+  ok(await p.evaluate((id) => window.__dentlist.S.data.complaints.get(id).response.paragraphs.some((x) => x.includes('zgodnie z zasadami')), cmpId), 'result saved into the complaint although the doctor was elsewhere');
+  mockDelay = 0;
+  await p.click('#jobs .job').catch(() => {}); await p.evaluate((id) => window.__dentlist.go('complaint', { complaintId: id }), cmpId); await p.waitForSelector('#cpaper');
+  await p.click('[data-cseg=effort] button[data-v=high]'); await p.waitForTimeout(150);
+  // highlight a passage of the reply → small window → the doctor's own wording → AI revises
+  await p.locator('#cpaper [data-loc="paragraphs.1"]').scrollIntoViewIfNeeded();
+  await p.evaluate(() => { const el = document.querySelector('#cpaper [data-loc="paragraphs.1"]'); const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); });
+  await p.dispatchEvent('#cpaper [data-loc="paragraphs.1"]', 'mouseup'); await p.waitForSelector('.note-pop');
+  await p.fill('#np-text', 'To zdanie nie ma sensu. Napisz: zabieg wykonano starannie i zgodnie z aktualną wiedzą.'); await p.click('#np-done'); await p.waitForTimeout(300);
+  ok((await p.locator('#cpaper mark.note').count()) === 1 && (await p.locator('.cmp-notes .note-card').count()) === 1, 'reply: highlighted passage marked, the doctor\'s suggestion listed under the reply');
+  await p.click('[data-act=complaint-revise]'); await p.waitForFunction(() => document.querySelector('#cpaper')?.textContent.includes('POPRAWIONE'), null, { timeout: 15000 });
+  const cr = calls.at(-1), crp = JSON.parse(cr.messages[0].content);
+  ok(cr.system[0].text.includes('Poprawiasz istniejący PROJEKT') && crp.annotations[0].location === 'paragraphs.1' && crp.annotations[0].comment.includes('starannie') && crp.response.paragraphs.length === 2 && cr.output_config?.effort === 'high', 'AI revision request: annotation with location and the doctor\'s wording, the current reply, the chosen level');
+  ok((await p.textContent('.cmp-notes')).includes('Przeredagowano akapit 2') && (await p.locator('.cmp-notes .note-card').count()) === 0 && !/\[OSOBA-\d+\]/.test(await p.textContent('#cpaper')), 'reply revised: changes listed, notes cleared, tokens replaced back with names locally');
+  await p.click('[data-act=complaint-undo]'); await p.waitForTimeout(300);
+  ok((await p.textContent('#cpaper')).includes('zgodnie z zasadami') && !(await p.textContent('#cpaper')).includes('POPRAWIONE'), 'previous version can be restored');
+  if (!(await p.isChecked('[data-cchk=allowScanAI]'))) await p.click('label.cmp-check:has([data-cchk=allowScanAI])');
+  await p.waitForTimeout(200);
   await p.click('[data-act=complaint-draft]'); await p.waitForTimeout(1500);
   const c2 = calls.at(-1);
   ok(Array.isArray(c2.messages[0].content) && c2.messages[0].content[0].type === 'image' && c2.messages[0].content[0].source.media_type === 'image/jpeg', 'AI request: scan attached only after the director allows it');
@@ -247,7 +293,7 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.fill('[data-c=summary]', 'Pacjentka zarzuca ból zęba 46 po leczeniu.');
   await p.selectOption('#doc-kind', 'plan'); await p.setInputFiles('#doc-input', path.join(OUT, 'pismo.png')); await p.waitForSelector('.scan img');
   ok((await p.textContent('.cmp')).includes('Plan leczenia'), 'outside patient: treatment plan photo attached as documentation');
-  await p.click('[data-act=complaint-draft]'); await p.waitForFunction(() => document.querySelector('[data-cr=body]')?.value.includes('zgodnie z zasadami') || document.querySelector('[data-cr=body]')?.value.length > 50, null, { timeout: 15000 });
+  await p.click('[data-act=complaint-draft]'); await p.waitForFunction(() => document.querySelector('#cpaper')?.textContent.includes('zgodnie z zasadami'), null, { timeout: 15000 });
   const c3 = calls.at(-1), txt3 = JSON.stringify(c3?.messages || '');
   ok(c3 && txt3.includes('treated_outside_app') && txt3.includes('fali ciągłej') && !/Wiśniewsk|Barbara/.test(txt3) && typeof c3.messages[0].content === 'string', 'outside patient (AI MOCK): description sent, name pseudonymised, documents only with consent');
   await p.click('label.cmp-check:has([data-cchk=allowDocsAI])'); await p.waitForTimeout(200);
@@ -257,7 +303,7 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await shot(p, '09b-complaint-outside', { fullPage: true });
   await p.evaluate(() => { const st = window.__dentlist.settings(); st.ai.key = ''; window.__dentlist.save('settings', st); });
   await p.click('[data-act=complaint-draft]'); await p.waitForTimeout(800);
-  const d5 = await p.inputValue('[data-cr=body]');
+  const d5 = await p.textContent('#cpaper');
   ok(/wynika następujący przebieg leczenia/.test(d5) && /fali ciągłej/.test(d5) && /plan leczenia/.test(d5), 'outside patient: built-in draft uses the description and lists the documents');
   await p.evaluate(() => { const st = window.__dentlist.settings(); st.ai.key = 'sk-ant-test'; window.__dentlist.save('settings', st); });
   // ---------- assistant: typed / spoken commands → the right place in the app
