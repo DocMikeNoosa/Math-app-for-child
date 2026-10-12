@@ -12,7 +12,7 @@
     'y4.maths.measurement': 'measurement', 'y4.maths.time': 'time', 'y4.maths.shapes-angles': 'shapes', 'y4.maths.data': 'data', 'y4.maths.location': 'maps',
     'y3.science.living': 'living', 'y3.science.life-cycles': 'life-cycles', 'y3.science.states': 'states-of-matter', 'y3.science.earth-materials': 'rocks-soil', 'y3.science.heat': 'heat',
     'y4.science.habitats': 'food-chains', 'y4.science.water-cycle': 'water-cycle', 'y4.science.forces': 'forces', 'y4.science.materials': 'materials',
-    'y3.hass.mapping-australia': 'maps-geo', 'y4.hass.continents': 'continents', 'y3.hass.rules': 'rules', 'y4.hass.local-government': 'local-community', 'y3.hass.climate': 'weather',
+    'y3.hass.mapping-australia': 'maps-geo', 'y4.hass.continents': 'continents', 'y3.hass.rules': 'rules', 'y4.hass.local-government': 'local-community', 'y3.hass.climate': 'weather', 'y3.hass.celebrations': 'celebrations',
     'y3.english.sentences': 'sentences', 'y3.english.nouns-adjectives': 'parts-of-speech', 'y3.english.verbs-adverbs': 'parts-of-speech', 'y3.english.narrative': 'narrative', 'y3.english.poetry': 'poetry',
     'y4.english.word-groups': 'parts-of-speech', 'y4.english.narrative': 'narrative', 'y4.english.poetry': 'poetry', 'y4.english.punctuation': 'punctuation', 'y4.english.procedures': 'instructions',
     'y3.hpe.healthy-eating': 'healthy-eating', 'y3.hpe.safety': 'safety', 'y4.hpe.safety': 'safety', 'y4.hpe.nutrition': 'healthy-eating',

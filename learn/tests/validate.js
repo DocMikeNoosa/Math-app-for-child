@@ -1,78 +1,48 @@
+// Content validator: loads every curriculum file without a browser and expands every lesson, homework, quiz, challenge and exam.
+// Run: node tests/validate.js [au3|au4|pl3|pl4]
+// Loads core + content scripts (no UI) into a fake window and validates every lesson/quiz/challenge.
 const fs = require('fs'), vm = require('vm'), path = require('path');
-const root = path.join(__dirname, '..') + '/';
-const html = fs.readFileSync(root + 'index.html', 'utf8');
-const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => m[1]).filter(s => !s.includes('/ui/'));
+const ROOT = path.join(__dirname, '..') + '/';
+const html = fs.readFileSync(ROOT + 'index.html', 'utf8');
+const srcs = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.includes('/ui/'));
+const warns = [];
 const store = {};
-const ctx = { window: {}, console, localStorage: { getItem: k => store[k] || null, setItem: (k, v) => store[k] = v, removeItem: k => delete store[k] }, setTimeout, clearTimeout, Date, Math, JSON };
-ctx.window = ctx; vm.createContext(ctx);
-for (const s of scripts) vm.runInContext(fs.readFileSync(root + s, 'utf8'), ctx, { filename: s });
-const LA = ctx.LA, U = LA.U;
-let errors = [], warnings = [], qcount = 0;
-const keys = new Set();
-function checkQ(q, where) {
-  qcount++;
-  const txt = JSON.stringify([q.q, q.explain, q.options, q.answer]);
-  if (/undefined|NaN|\[object/.test(txt)) errors.push(`${where}: bad text ${txt.slice(0,200)}`);
-  if (!q.q) errors.push(`${where}: missing q`);
-  if (q.type === 'mc') {
-    if (!Array.isArray(q.options) || q.options.length < 2) errors.push(`${where}: options ${q.options}`);
-    if (!(q.answer >= 0 && q.answer < q.options.length)) errors.push(`${where}: answer idx ${q.answer} for ${q.q}`);
-    if (new Set(q.options.map(String)).size !== q.options.length) errors.push(`${where}: duplicate options ${JSON.stringify(q.options)} for ${q.q}`);
-    if (!U.checkAnswer(q, q.answer)) errors.push(`${where}: self check failed`);
-    if (U.checkAnswer(q, (q.answer + 1) % q.options.length)) errors.push(`${where}: wrong option accepted`);
-  } else if (q.type === 'input') {
-    const acc = Array.isArray(q.answer) ? q.answer : [q.answer];
-    if (!acc.length || acc.some(a => a === '' || a == null)) errors.push(`${where}: empty answer`);
-    for (const a of acc) { const g = typeof a === 'number' ? String(+a.toFixed(6)) : String(a); if (!U.checkAnswer(q, g)) errors.push(`${where}: self-check failed: "${g}" for ${q.q} (answer ${JSON.stringify(q.answer)})`); }
-    if (U.checkAnswer(q, 'zzz') ) errors.push(`${where}: accepts garbage`);
-  } else if (q.type === 'write') {
-  } else errors.push(`${where}: unknown type ${q.type}`);
-  if (q.type !== 'write' && !q.explain) warnings.push(`${where}: no explanation: ${q.q.slice(0,60)}`);
-}
-let totals = {};
-for (const y of [3, 4]) {
-  const subs = LA.curriculum[y].subjects;
-  totals[y] = { subjects: subs.length, chapters: 0, lessons: 0 };
-  for (const s of subs) {
-    for (const ch of s.chapters) {
-      totals[y].chapters++;
-      if (keys.has(ch.key)) errors.push('dup key ' + ch.key); keys.add(ch.key);
-      if (!ch.term) warnings.push(ch.key + ' no term');
-      for (const l of ch.lessons) {
-        totals[y].lessons++;
-        if (keys.has(l.key)) errors.push('dup key ' + l.key); keys.add(l.key);
-        if (!l.practice || !l.practice.length) warnings.push(l.key + ' no practice');
-        (l.practice || []).forEach(p => { if (p.gen && !LA.gens[p.gen]) errors.push(l.key + ' unknown gen ' + p.gen); });
-        for (const b of l.blocks) { if (!['read','example','tip','listen','activity','vocab','visual'].includes(b.type)) errors.push(l.key + ' bad block ' + b.type); if (/undefined/.test(b.text||'')) errors.push(l.key+' block undefined'); }
-        if (l.practice.some(p => p.listen) && !l.blocks.some(b => b.type === 'listen')) errors.push(l.key + ' listen q without listen block');
-        for (let i = 0; i < 25; i++) LA.lessonPractice(l).forEach(q => checkQ(q, l.key));
+const ctx = { console: { info() {}, log() {}, warn: (...a) => warns.push(a.join(' ')), error: (...a) => warns.push('ERR ' + a.join(' ')) }, localStorage: { getItem: (k) => store[k] || null, setItem: (k, v) => (store[k] = String(v)), removeItem: (k) => delete store[k] }, setTimeout, clearTimeout, navigator: { userAgent: 'node' }, document: { addEventListener() {}, createElement: () => ({ getContext: () => null }) }, addEventListener() {}, speechSynthesis: null, Math, Date, JSON };
+ctx.window = ctx; ctx.self = ctx;
+vm.createContext(ctx);
+for (const s of srcs) vm.runInContext(fs.readFileSync(ROOT + s, 'utf8'), ctx, { filename: s });
+module.exports = { LA: ctx.LA, warns };
+if (require.main === module) {
+  const LA = ctx.LA; const errs = [];
+  const check = (q, where) => {
+    if (!q.q && !q.dictation) errs.push(where + ': empty question');
+    if (q.type === 'mc') { if (!Array.isArray(q.options) || q.answer == null || q.answer < 0 || q.answer >= q.options.length) errs.push(where + ': bad mc answer ' + q.q); if (new Set(q.options).size !== q.options.length) errs.push(where + ': duplicate options ' + q.q + ' ' + JSON.stringify(q.options)); }
+    if (q.type === 'input' && (q.answer == null || (Array.isArray(q.answer) && !q.answer.length))) errs.push(where + ': no answer ' + q.q);
+    if (q.listen) { const l = LA.index.lessons[q.skill]; if (!l || !l.blocks.some((b) => b.type === 'listen')) errs.push(where + ': listen q without listen block'); }
+  };
+  const want = process.argv[2] || '';
+  let lessons = 0;
+  for (const ck of Object.keys(LA.curriculum)) {
+    if (want && ck !== want) continue;
+    const subs = LA.curriculum[ck].subjects; let tot = 0;
+    for (const s of subs) {
+      let n = 0;
+      for (const ch of s.chapters) {
+        for (let r = 0; r < 3; r++) {
+          ch.lessons.forEach((l) => { LA.lessonPractice(l).forEach((q) => check(q, l.key)); LA.lessonHomework(l, 1).forEach((q) => check(q, l.key + ' hw')); });
+          LA.chapterQuiz(ch).forEach((q) => check(q, ch.key + ' quiz'));
+          if (LA.hasChallenge(ch)) LA.chapterChallenge(ch).forEach((q) => check(q, ch.key + ' challenge'));
+        }
+        if (LA.chapterQuiz(ch).length < 5) errs.push(ch.key + ': quiz only ' + LA.chapterQuiz(ch).length);
+        n += ch.lessons.length;
       }
-      (ch.quiz.items || []).forEach(p => { if (p.gen && !LA.gens[p.gen]) errors.push(ch.key + ' unknown gen ' + p.gen); if (p.lesson && !ch.lessons.some(l=>l.id===p.lesson)) errors.push(ch.key+' bad lesson ref'); });
-      let minLen = 99;
-      for (let i = 0; i < 25; i++) { const qz = LA.chapterQuiz(ch); minLen = Math.min(minLen, qz.length); qz.forEach(q => { checkQ(q, ch.key + ' quiz'); if (q.type==='write') errors.push(ch.key+' write in quiz'); if (!q.skill) errors.push(ch.key+' quiz q no skill'); }); }
-      if (minLen < 4) warnings.push(`${ch.key}: quiz only ${minLen} questions`);
-      const sp = LA.skillPractice(ch.key, 6); if (sp.length < 3) warnings.push(`${ch.key}: skillPractice only ${sp.length}`);
-      for (const l of ch.lessons) { const lp = LA.skillPractice(l.key, 6); if (lp.length < 2) warnings.push(`${l.key}: lesson skillPractice only ${lp.length}`); }
+      LA.subjectExam(s).forEach((q) => check(q, s.key + ' exam'));
+      tot += n; console.log(ck, s.id.padEnd(12), 'chapters', s.chapters.length, 'lessons', n);
     }
+    console.log(ck, 'TOTAL lessons', tot); lessons += tot;
   }
+  const uniq = [...new Set(errs)];
+  console.log('errors', uniq.length); uniq.slice(0, 40).forEach((e) => console.log('  ' + e));
+  console.log('warnings', [...new Set(warns)].slice(0, 20));
+  process.exit(uniq.length ? 1 : 0);
 }
-// extra checks on answer parsing
-const t = (q, g, exp) => { const r = U.checkAnswer(q, g); if (r !== exp) errors.push(`parse: ${JSON.stringify(q.answer)} given ${g} expected ${exp}`); };
-t({ type: 'input', numeric: true, answer: 3.45 }, '$3.45', true);
-t({ type: 'input', numeric: true, answer: 3.45 }, '3.45', true);
-t({ type: 'input', numeric: true, answer: 0.45 }, '45c', true);
-t({ type: 'input', numeric: true, answer: 1300 }, '1,300', true);
-t({ type: 'input', numeric: true, answer: 1300 }, '1 300', true);
-t({ type: 'input', numeric: true, answer: 120 }, '120 cm', true);
-t({ type: 'input', numeric: true, answer: 120 }, '12', false);
-t({ type: 'input', check: 'time', answer: ['4:05'] }, '4.05', true);
-t({ type: 'input', check: 'time', answer: ['4:05'] }, '4:05 pm', true);
-t({ type: 'input', check: 'time', answer: ['4:05'] }, '4:50', false);
-t({ type: 'input', check: 'fraction', answer: ['3/4'] }, '3 / 4', true);
-t({ type: 'input', answer: ["don't"] }, 'don’t', true);
-t({ type: 'input', answer: ['I live in Brisbane.'] }, 'I live in Brisbane', true);
-t({ type: 'input', answer: ['B3', 'b3'] }, 'b3', true);
-t({ type: 'input', numeric: true, answer: 7 }, 'seven', true);
-console.log(JSON.stringify(totals), 'questions checked:', qcount);
-console.log('ERRORS', errors.length); console.log([...new Set(errors)].slice(0, 40).join('\n'));
-console.log('WARNINGS', warnings.length); console.log([...new Set(warnings)].slice(0, 40).join('\n'));

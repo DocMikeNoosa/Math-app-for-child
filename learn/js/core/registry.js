@@ -118,6 +118,17 @@
     s.chapters.forEach((c, i) => (c.index = i));
   };
 
+  /* Extra lessons (and quiz items / challenge questions) appended to an existing chapter */
+  LA.addLessons = function (chapterKey, lessons, quizItems, challenge) {
+    const ch = index.chapters[chapterKey];
+    if (!ch) throw new Error('addLessons: unknown chapter ' + chapterKey);
+    (lessons || []).forEach((l) => { l.key = ch.key + '.' + l.id; l.chapterKey = ch.key; l.subjectKey = ch.subjectKey; l.index = ch.lessons.length; ch.lessons.push(l); index.lessons[l.key] = l; });
+    ch.quiz = ch.quiz || { items: [] };
+    ch.quiz.items = (ch.quiz.items || []).concat(quizItems || []);
+    if (quizItems && quizItems.length) ch.quiz.n = Math.max(ch.quiz.n || 0, 8);
+    if (challenge) ch.challenge = (ch.challenge || []).concat(challenge);
+  };
+
   /* ---------- expand items into concrete questions ---------- */
   function finalize(q, skill, lang) {
     const out = Object.assign({}, q);

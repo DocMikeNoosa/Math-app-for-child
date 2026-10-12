@@ -399,7 +399,7 @@
     }
     if (label || b.title) el.appendChild(h('div.label', label ? h('span.tag' + (b.type === 'activity' ? '.good' : '.info'), label) : null, b.title ? h('strong', b.title) : null));
     if (b.svg) el.appendChild(h('div.visual', { html: b.svg }));
-    if (b.text) el.appendChild(h('div' + (b.type === 'example' ? '.block-example' : ''), { html: b.type === 'tip' ? '<div class="tipbox">⭐ ' + U.fmtInline(b.text) + '</div>' : U.fmt(b.text) }));
+    if (b.text) el.appendChild(h('div' + (b.type === 'example' ? '.block-example' : ''), { html: b.type === 'tip' ? '<div class="tipbox">' + U.fmtInline(b.text) + '</div>' : U.fmt(b.text) }));
     if (b.type === 'activity') el.appendChild(h('label.check', { style: { marginTop: '10px' } }, h('input', { type: 'checkbox' }), h('strong', tr('We did it!', 'Zrobione!'))));
     return el;
   }
@@ -427,7 +427,7 @@
     }
     c.append(crumbs([[s.name, 'subject/' + s.key], [ch.title, 'chapter/' + ch.key], [l.title]]),
       h('div.row', h('h1', { style: { margin: 0, flex: 1, minWidth: '240px' } }, l.title), done ? h('span.tag.good', tr('✓ Learnt', '✓ Opanowane')) : null),
-      h('div.row', { style: { margin: '10px 0 4px' } }, h('span.chip', { style: { borderColor: s.color } }, s.icon + ' ' + s.name), h('span.chip', `${l.minutes || 15} min`)),
+      h('div.row', { style: { margin: '10px 0 4px' } }, h('span.chip', LA.appIcon(s.glyph, s.color, 20), s.name), h('span.chip', `${l.minutes || 15} min`)),
       seg, body);
 
     function renderStep() {
@@ -464,9 +464,9 @@
         dots.innerHTML = '';
         steps.forEach((_, i) => { const d = h('button' + (i === idx ? '.on' : seen.has(i) ? '.seen' : ''), { type: 'button', 'aria-label': `${tr('Step', 'Krok')} ${i + 1}` }); d.addEventListener('click', () => { idx = i; seen.add(i); draw(); }); dots.appendChild(d); });
         nav.innerHTML = '';
-        nav.append(idx > 0 ? h('button.btn.secondary', { type: 'button', onclick: () => { idx--; draw(); } }, tr('← Back', '← Wstecz')) : h('span'), h('span.spacer'),
-          idx < steps.length - 1 ? h('button.btn.big', { type: 'button', onclick: () => { idx++; seen.add(idx); draw(); window.scrollTo({ top: 0, behavior: 'smooth' }); } }, tr('Next step →', 'Dalej →'))
-            : h('button.btn.big', { type: 'button', onclick: () => { step = 'practise'; renderStep(); } }, tr('Let’s practise →', 'Ćwiczymy →')));
+        nav.append(idx > 0 ? h('button.btn.secondary', { type: 'button', onclick: () => { idx--; draw(); } }, tr('Back', 'Wstecz')) : h('span'), h('span.spacer'),
+          idx < steps.length - 1 ? h('button.btn.big', { type: 'button', onclick: () => { idx++; seen.add(idx); draw(); window.scrollTo({ top: 0, behavior: 'smooth' }); } }, tr('Next step', 'Dalej'))
+            : h('button.btn.big', { type: 'button', onclick: () => { step = 'practise'; renderStep(); } }, tr('Let’s practise', 'Ćwiczymy')));
         if (S.settings().autoRead) SP.say(blockSpeech(bs), { lang: voice });
       }
       draw();
@@ -495,7 +495,7 @@
             (() => { const nxt = ch.lessons[l.index + 1]; return nxt ? h('button.btn.secondary', { type: 'button', onclick: () => LA.go('lesson/' + nxt.key) }, tr('Next lesson →', 'Następna lekcja →')) : h('button.btn.secondary', { type: 'button', onclick: () => LA.go('quiz/' + ch.key) }, tr('Chapter quiz →', 'Sprawdzian →')); })()));
       } else {
         card.append(h('div.result-big', `${r.right}/${r.total}`), h('h2', tr('Let’s look at this one again together', 'Przyjrzyjmy się temu jeszcze raz')),
-          h('p', tr('That’s okay — tricky things take practice. Re-read the lesson (press the speaker to hear it), then try fresh questions.', 'Nic nie szkodzi — trudne rzeczy wymagają ćwiczeń. Przeczytajcie lekcję jeszcze raz (🔊), a potem nowe pytania.')),
+          h('p', tr('That’s okay — tricky things take practice. Re-read the lesson (press the speaker to hear it), then try fresh questions.', 'Nic nie szkodzi — trudne rzeczy wymagają ćwiczeń. Przeczytajcie lekcję jeszcze raz (głośnik), a potem nowe pytania.')),
           AI.available() ? UI.aiBox(tr('Another way to understand it', 'Wytłumaczę to inaczej'), (on) => AI.reteach(l.key, on)) : null,
           h('div.row.center', h('button.btn.big', { type: 'button', onclick: () => { body.innerHTML = ''; renderPractise((attempt || 1) + 1); } }, tr('Try new questions →', 'Nowe pytania →')), h('button.btn.secondary', { type: 'button', onclick: () => { step = 'learn'; renderStep(); } }, tr('↺ Re-read the lesson', '↺ Przeczytaj lekcję'))));
       }

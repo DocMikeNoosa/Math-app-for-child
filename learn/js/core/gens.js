@@ -790,7 +790,7 @@
     return { type: 'input', q: `Write the past tense of **${s}**. (Yesterday I ___.)`, answer: [p], explain: `${s} → ${p}. Regular verbs add -ed (hop → hopped, carry → carried). Irregular verbs change (go → went).` };
   };
   G.contraction = () => {
-    const words = [['do not', "don't"], ['can not', "can't"], ['I am', "I'm"], ['it is', "it's"], ['they are', "they're"], ['we will', "we'll"], ['she is', "she's"], ['did not', "didn't"], ['you are', "you're"], ['will not', "won't"], ['I have', "I've"], ['could not', "couldn't"], ['should have', "should've"], ['we are', "we're"]];
+    const words = [['do not', "don't"], ['cannot', "can't"], ['I am', "I'm"], ['it is', "it's"], ['they are', "they're"], ['we will', "we'll"], ['she is', "she's"], ['did not', "didn't"], ['you are', "you're"], ['will not', "won't"], ['I have', "I've"], ['could not', "couldn't"], ['should have', "should've"], ['we are', "we're"]];
     const [s, p] = pick(words);
     return { type: 'input', q: `Write the contraction (short form with an apostrophe) for **${s}**.`, answer: [p, p.replace("'", '’')], explain: `${s} → ${p}. The apostrophe shows where letters are missing.` };
   };
