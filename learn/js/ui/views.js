@@ -1,4 +1,4 @@
-/* Screens + hash router. */
+/* Screens + in-memory router (works inside the claude.ai frame, where URL changes are not reliable). */
 (function () {
   'use strict';
   const LA = window.LA;
@@ -6,689 +6,848 @@
   const S = LA.store;
   const T = LA.tutor;
   const SP = LA.speech;
+  const AI = LA.ai;
   const UI = LA.ui;
   const h = UI.h;
+  const tr = (en, pl) => LA.tr(en, pl);
 
-  const AVATARS = ['🦘', '🐨', '🦉', '🐢', '🦜', '🐬', '🦈', '🐊', '🦔', '🐧', '🦄', '🐉', '🦊', '🐼', '🚀', '⚽'];
-  const TERMS = ['Term 1', 'Term 2', 'Term 3', 'Term 4'];
+  const AVATARS = ['🦘', '🐨', '🦉', '🐢', '🦜', '🐬', '🦊', '🐼', '🦄', '🐧', '🦔', '🐝', '🚀', '⚽', '🎻', '🌻'];
   const STATUS_ICON = { passed: '✅', 'tested-out': '⚡', 'quiz-ready': '📝', 'in-progress': '✏️', skipped: '⏭️', todo: '○' };
-  const STATUS_TEXT = { passed: 'Passed', 'tested-out': 'Tested out', 'quiz-ready': 'Quiz ready', 'in-progress': 'In progress', skipped: 'Skipped (before start point)', todo: 'Not started' };
+  const statusText = (s) => ({ passed: tr('Passed', 'Zaliczone'), 'tested-out': tr('Tested out', 'Zaliczone testem'), 'quiz-ready': tr('Quiz ready', 'Gotowe do sprawdzianu'), 'in-progress': tr('In progress', 'W trakcie'), skipped: tr('Skipped', 'Pominięte'), todo: tr('Not started', 'Nierozpoczęte') }[s]);
+  const termLabel = (prog, t) => (prog === 'pl' ? (t === 1 ? 'I semestr' : 'II semestr') : 'Term ' + t);
 
-  let main, topbar;
+  let shell, main, sidebar, topbar, tabbar;
+  let current = { path: 'home', params: {} };
+  const history = [];
 
   /* ---------- router ---------- */
-  function parseHash() {
-    const raw = location.hash.replace(/^#\/?/, '');
-    const [path, query] = raw.split('?');
-    const parts = path.split('/').filter(Boolean).map(decodeURIComponent);
-    const params = {};
-    (query || '').split('&').filter(Boolean).forEach((kv) => { const [k, v] = kv.split('='); params[k] = decodeURIComponent(v || ''); });
-    return { parts, params };
+  LA.go = (path, params, opts) => {
+    if (!(opts && opts.replace)) history.push(current);
+    if (history.length > 50) history.shift();
+    current = { path: path || 'home', params: params || {} };
+    try { if (!window.claude) window.history.replaceState(null, '', '#/' + current.path); } catch (e) { /* ignore */ }
+    route();
+  };
+  LA.back = () => { current = history.pop() || { path: 'home', params: {} }; route(); };
+  LA.refresh = () => route();
+
+  function progForPath(parts) {
+    const key = parts[1];
+    if (key && /^[yp][34]\./.test(key)) return LA.progOfKey(key);
+    if (parts[0] === 'practice' && parts[1] === 'rem') { const r = S.P() && S.P().remediation.find((x) => x.id === parts[2]); if (r) return LA.progOfKey(r.skill); }
+    if (parts[0] === 'practice' && parts[2]) return LA.progOfKey(parts[2]);
+    return null;
   }
-  LA.go = (path) => { location.hash = '#/' + path; };
 
   function route() {
     SP.stop();
     applyTheme();
-    const { parts, params } = parseHash();
-    const view = parts[0] || '';
-    UI.koa.context = null;
-    const profile = S.activeProfile();
-    if (!profile && view !== 'parent' && view !== 'curriculum') { renderTop(); return viewWelcome(); }
-    renderTop();
+    const parts = current.path.split('/').filter(Boolean);
+    const view = parts[0] || 'home';
+    const p = S.activeProfile();
+    const forced = progForPath(parts);
+    if (forced && forced !== LA.state.prog) { LA.state.prog = forced; S.state().settings.lastProg = forced; }
+    if (p && !p[LA.state.prog].on) { const other = LA.state.prog === 'au' ? 'pl' : 'au'; if (p[other].on) LA.state.prog = other; }
+    LA.state.forceLang = view === 'parent' || view === 'curriculum' ? (S.settings().parentLang || 'en') : null;
+    document.documentElement.lang = LA.lang() === 'pl' ? 'pl' : 'en-AU';
+    UI.tutor.context = null;
+    renderChrome(view);
     main.innerHTML = '';
     window.scrollTo(0, 0);
-    UI.koa.setVisible(!!profile && view !== 'parent');
+    if (!p && !['parent', 'curriculum', 'help'].includes(view)) { UI.tutor.setVisible(false); return viewWelcome(); }
+    UI.tutor.setVisible(!!p && !['parent', 'welcome', 'profiles'].includes(view));
+    UI.tutor.refresh();
     try {
       switch (view) {
-        case '': case 'home': return viewHome();
+        case 'home': return viewHome();
+        case 'welcome': return viewWelcome();
         case 'profiles': return viewProfiles();
+        case 'subjects': return viewSubjects();
         case 'subject': return viewSubject(parts[1]);
         case 'chapter': return viewChapter(parts[1]);
-        case 'lesson': return viewLesson(parts[1], params);
-        case 'quiz': return viewQuiz(parts[1], params);
-        case 'practice': return viewPractice(parts[1], parts[2], params);
-        case 'parent': return viewParent(parts[1] || 'report');
+        case 'lesson': return viewLesson(parts[1], current.params);
+        case 'quiz': return viewQuiz(parts[1], current.params);
+        case 'challenge': return viewChallenge(parts[1]);
+        case 'exam': return viewExam(parts[1]);
+        case 'practice': return viewPractice(parts[1], parts[2], current.params);
+        case 'homework': return viewHomework();
+        case 'words': return viewWords();
+        case 'bridge': return viewBridge();
+        case 'help': return viewHelp();
+        case 'parent': return LA.parent.view(parts[1] || 'overview', main);
         case 'curriculum': return viewCurriculum();
         default: return viewHome();
       }
     } catch (e) {
       console.error(e);
-      main.appendChild(h('div.card', h('h2', 'Oops — something went wrong.'), h('p', String(e.message || e)), h('a.btn', { href: '#/home' }, 'Go home')));
+      main.appendChild(h('div.card', h('h2', tr('Something went wrong', 'Coś poszło nie tak')), h('p.muted', String(e.message || e)), h('button.btn', { type: 'button', onclick: () => LA.go('home') }, tr('Go home', 'Strona główna'))));
     }
   }
 
   function applyTheme() {
     const st = S.settings();
-    document.documentElement.setAttribute('data-theme', st.theme || 'auto');
     if (!st.theme || st.theme === 'auto') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', st.theme);
     document.body.classList.toggle('bigtext', !!st.bigText);
-    document.body.classList.toggle('dyslexia', !!st.spacing);
+    document.body.classList.toggle('spacing', !!st.spacing);
   }
 
-  function renderTop() {
-    topbar.innerHTML = '';
-    const p = S.activeProfile();
-    topbar.append(h('a.brand', { href: '#/home' }, h('span.logo', '🦘'), h('span.brand-text', 'Aussie Learning Workbook')), h('span.spacer'));
-    if (p) {
-      const P = S.P();
-      topbar.append(
-        h('span.chip.hide-sm', { title: 'Days in a row' }, '🔥 ', String(P.streak.count || 0)),
-        h('span.chip.hide-sm', { title: 'Stars earned for correct answers' }, '⭐ ', String(P.stars || 0)),
-        h('a.chip', { href: '#/profiles', title: 'Switch learner', style: { textDecoration: 'none', color: 'inherit' } }, p.avatar + ' ' + p.name + ' · Year ' + p.year)
-      );
-    }
-    topbar.append(h('a.btn.secondary.small', { href: '#/parent', title: 'Parent area' }, '👪 Parent'));
+  /* ---------- chrome: sidebar (iPad landscape), top bar + tab bar (portrait/phone) ---------- */
+  function navBtn(icon, label, path, on, extra) {
+    return h('button' + (on ? '.on' : ''), { type: 'button', onclick: () => LA.go(path) }, h('span.ic', icon), h('span', label), extra || null);
   }
+  function progSwitch() {
+    const p = S.activeProfile();
+    const box = h('div.prog-switch');
+    ['au', 'pl'].forEach((id) => {
+      const P = LA.PROGRAMMES[id];
+      if (p && !p[id].on) return;
+      const b = h('button' + (LA.state.prog === id ? '.on' : ''), { type: 'button', 'aria-label': P.name }, h('span.flag', P.flag), h('span', P.short), p ? h('span.tiny.muted', P.yearLabel(p[id].year)) : null);
+      b.addEventListener('click', () => { LA.state.prog = id; S.state().settings.lastProg = id; S.saveMain(); LA.go('home'); });
+      box.appendChild(b);
+    });
+    if (box.childNodes.length === 1) box.style.gridTemplateColumns = '1fr';
+    return box;
+  }
+  function syncChip() {
+    const c = LA.cloud;
+    const txt = { synced: tr('Saved to the cloud', 'Zapisano w chmurze'), syncing: tr('Saving…', 'Zapisywanie…'), offline: tr('Saved on this iPad · will upload', 'Zapisano na iPadzie · wyślę później'), error: c.detail || tr('Cloud problem', 'Problem z chmurą'), local: tr('Saved on this device', 'Zapisano na tym urządzeniu') }[c.status] || '';
+    return h('div.sync.' + c.status, { title: c.detail || txt }, h('span.led'), h('span', txt));
+  }
+  function renderChrome(view) {
+    const p = S.activeProfile();
+    const prog = LA.state.prog;
+    sidebar.innerHTML = '';
+    topbar.innerHTML = '';
+    tabbar.innerHTML = '';
+    sidebar.appendChild(h('div.brand', h('span.mark', '✦'), h('span', tr('Learning Workbook', 'Zeszyt Nauki'))));
+    if (p) {
+      sidebar.appendChild(h('button.me', { type: 'button', onclick: () => LA.go('profiles') }, h('span.av', p.avatar), h('span', h('div.who', p.name), h('div.tiny.muted', `🔥 ${S.P().streak.count || 0}  ·  ⭐ ${S.P().stars || 0}`))));
+      sidebar.appendChild(progSwitch());
+      const nav = h('div.nav');
+      const hw = S.openHomework(prog).length;
+      nav.append(
+        navBtn('🏠', tr('Today', 'Dzisiaj'), 'home', view === 'home'),
+        navBtn('📚', tr('Subjects', 'Przedmioty'), 'subjects', view === 'subjects'),
+        navBtn('🎒', tr('Homework', 'Prace domowe'), 'homework', view === 'homework', hw ? h('span.cnt', String(hw)) : null),
+        navBtn('🔤', tr('Tricky words', 'Trudne wyrazy'), 'words', view === 'words'),
+        navBtn('🌉', tr('Bridge AU ⇄ PL', 'Most AU ⇄ PL'), 'bridge', view === 'bridge'));
+      sidebar.appendChild(nav);
+      const subs = h('div.nav', h('div.eyebrow.nav-label', LA.PROGRAMMES[prog].flag + ' ' + LA.PROGRAMMES[prog].yearLabel(p[prog].year)));
+      T.subjects(prog).forEach((s) => subs.appendChild(h('button' + (current.path.indexOf(s.key) > 0 ? '.on' : ''), { type: 'button', onclick: () => LA.go('subject/' + s.key) }, h('span.dot', { style: { background: s.color } }), h('span', s.name), h('span.cnt', Math.round(T.subjectStats(s).pct * 100) + '%'))));
+      sidebar.appendChild(subs);
+    }
+    const bottom = h('div.nav', navBtn('❓', tr('How it works', 'Jak to działa'), 'help', view === 'help'), navBtn('👪', tr('Parent', 'Rodzic'), 'parent', view === 'parent'));
+    sidebar.appendChild(bottom);
+    sidebar.appendChild(syncChip());
+    // narrow screens
+    topbar.append(...[h('span.brand', h('span.mark', '✦')), p ? progSwitch() : h('span', tr('Learning Workbook', 'Zeszyt Nauki')), h('span.spacer'), p ? h('button.icon-btn', { type: 'button', onclick: () => LA.go('profiles'), 'aria-label': tr('Switch learner', 'Zmień ucznia') }, p.avatar) : null].filter(Boolean));
+    if (p) {
+      const tb = (icon, label, path, on) => h('button' + (on ? '.on' : ''), { type: 'button', onclick: () => LA.go(path) }, h('span.ic', icon), label);
+      tabbar.append(tb('🏠', tr('Today', 'Dziś'), 'home', view === 'home'), tb('📚', tr('Subjects', 'Przedmioty'), 'subjects', view === 'subjects' || view === 'subject'), tb('🎒', tr('Homework', 'Prace'), 'homework', view === 'homework'), tb('🌉', tr('Bridge', 'Most'), 'bridge', view === 'bridge'), tb('👪', tr('Parent', 'Rodzic'), 'parent', view === 'parent'));
+    }
+  }
+  LA.renderChrome = () => renderChrome((current.path.split('/')[0]) || 'home');
 
   function crumbs(list) {
-    return h('div.crumbs', list.map((c, i) => [i ? ' › ' : '', c[1] ? h('a', { href: c[1] }, c[0]) : h('span', c[0])]));
+    return h('div.crumbs', list.map((c, i) => [i ? h('span', '›') : null, c[1] ? h('button', { type: 'button', onclick: () => LA.go(c[1]) }, c[0]) : h('span', c[0])]));
   }
 
-  /* ---------- welcome / profiles ---------- */
+  /* ---------- onboarding ---------- */
   function viewWelcome() {
     main.innerHTML = '';
-    UI.koa.setVisible(false);
     let avatar = AVATARS[0];
-    let year = 3;
-    const name = h('input', { type: 'text', placeholder: 'First name', maxlength: 30, 'aria-label': 'Learner first name' });
+    let au = { on: true, year: 3 }, pl = { on: true, year: 3 };
+    LA.state.forceLang = 'en';
+    const name = h('input', { type: 'text', placeholder: 'First name', maxlength: 30, 'aria-label': 'Learner first name', id: 'wname' });
     const avs = h('div.avatar-pick', AVATARS.map((a) => {
-      const b = h('button' + (a === avatar ? '.sel' : ''), { type: 'button', 'aria-label': 'Avatar ' + a }, a);
-      b.addEventListener('click', () => { avatar = a; avs.querySelectorAll('button').forEach((x) => x.classList.remove('sel')); b.classList.add('sel'); });
+      const b = h('button' + (a === avatar ? '.on' : ''), { type: 'button', 'aria-label': 'Avatar ' + a }, a);
+      b.addEventListener('click', () => { avatar = a; avs.querySelectorAll('button').forEach((x) => x.classList.remove('on')); b.classList.add('on'); });
       return b;
     }));
-    const yrs = h('div.row', [3, 4].map((y) => {
-      const b = h('button.btn' + (y === year ? '' : '.secondary'), { type: 'button' }, 'Year ' + y);
-      b.addEventListener('click', () => { year = y; yrs.querySelectorAll('button').forEach((x) => x.className = 'btn secondary'); b.className = 'btn'; });
-      return b;
-    }));
-    main.append(
-      h('div.card.stack', { style: { maxWidth: '640px', margin: '20px auto' } },
-        h('div', { style: { fontSize: '3em', textAlign: 'center' } }, '🦘🐨📚'),
-        h('h1', { style: { textAlign: 'center' } }, 'Welcome to your Learning Workbook!'),
-        h('p.muted', { style: { textAlign: 'center' } }, 'Year 3 and Year 4 lessons for every subject in the Australian Curriculum — with read-aloud, quizzes and Koa the koala tutor.'),
-        h('div', h('label.field', 'What is the learner’s name?'), name),
-        h('div', h('label.field', 'Pick an avatar'), avs),
-        h('div', h('label.field', 'Which year level?'), yrs),
-        h('button.btn.big', { type: 'button', onclick: () => { S.addProfile(name.value || 'Learner', year, avatar); LA.go('home'); } }, 'Let’s start! →'),
-        S.profiles().length ? h('a', { href: '#/profiles' }, 'Back to learners') : null
-      )
-    );
-    name.focus();
+    const progRow = (id, st) => {
+      const P = LA.PROGRAMMES[id];
+      const seg = h('div.seg');
+      [3, 4].forEach((y) => { const b = h('button' + (st.year === y ? '.on' : ''), { type: 'button' }, P.yearLabel(y)); b.addEventListener('click', () => { st.year = y; seg.querySelectorAll('button').forEach((x) => x.classList.remove('on')); b.classList.add('on'); }); seg.appendChild(b); });
+      const on = h('input', { type: 'checkbox', checked: true, 'aria-label': 'Include ' + P.name });
+      on.addEventListener('change', () => { st.on = on.checked; });
+      return h('div.prog-card', h('span.flag', P.flag), h('div', { style: { flex: 1, minWidth: '180px' } }, h('div.display', { style: { fontWeight: 800 } }, P.name), h('div.small.muted', id === 'au' ? 'In English · tutor Koa 🐨 · Australian voice' : 'Po polsku · Sowa Zosia 🦉 · polski głos')), seg, h('label.check', on, h('span.small', 'Include')));
+    };
+    LA.state.forceLang = null;
+    main.append(h('div.content', { style: { maxWidth: '680px' } },
+      h('div.hero', h('span.mascot', '🐨🦉'), h('div.eyebrow', 'Welcome · Witaj'), h('h1', 'Your learning workbook'), h('p.muted', 'Two complete programmes in one app: the Australian Curriculum (in English) and the Polish curriculum (po polsku), for Year/Klasa 3 and 4 — with lessons to do together, practice, homework, read-aloud, Apple Pencil writing and an AI tutor.')),
+      h('div.card.col', { style: { marginTop: '16px' } },
+        h('div', h('label.field', { for: 'wname' }, 'Learner’s first name'), name),
+        h('div', h('label.field', 'Avatar'), avs),
+        h('div.col', h('label.field', 'Programmes and grade'), progRow('au', au), progRow('pl', pl)),
+        h('button.btn.big', { type: 'button', onclick: () => { if (!au.on && !pl.on) { UI.toast('Choose at least one programme.'); return; } S.addProfile({ name: name.value, avatar, auYear: au.year, plYear: pl.year, auOn: au.on, plOn: pl.on }); LA.state.prog = au.on ? 'au' : 'pl'; LA.go('help', { first: 1 }); } }, 'Start →'),
+        S.profiles().length ? h('button.btn.ghost', { type: 'button', onclick: () => LA.go('profiles') }, 'Back to learners') : null)));
   }
 
   function viewProfiles() {
-    main.append(
-      h('h1', 'Who is learning today?'),
-      h('div.grid.cols-3', S.profiles().map((p) => h('div.card.profile-card', { tabindex: 0, role: 'button', onclick: () => { S.setActive(p.id); LA.go('home'); }, onkeydown: (e) => { if (e.key === 'Enter') { S.setActive(p.id); LA.go('home'); } } }, h('div.av', p.avatar), h('h3', p.name), h('div.muted', 'Year ' + p.year)))),
-      h('div.row', { style: { marginTop: '16px' } }, h('button.btn.secondary', { type: 'button', onclick: () => { S.setActive(null); route(); } }, '+ Add a learner'))
-    );
+    main.appendChild(h('div.content',
+      h('h1', tr('Who is learning today?', 'Kto się dziś uczy?')),
+      h('div.grid.three', S.profiles().map((p) => h('button.profile-tile', { type: 'button', onclick: () => { S.setActive(p.id); if (LA.cloud.rewatch) LA.cloud.rewatch(); LA.go('home'); } }, h('span.av', p.avatar), h('h3', p.name), h('div.small.muted', [p.au.on ? '🇦🇺 Year ' + p.au.year : '', p.pl.on ? '🇵🇱 Klasa ' + p.pl.year : ''].filter(Boolean).join(' · '))))),
+      h('div.row', { style: { marginTop: '18px' } }, h('button.btn.secondary', { type: 'button', onclick: () => { S.state().active = null; LA.go('welcome'); } }, tr('+ Add a learner', '+ Dodaj ucznia')))));
   }
 
   /* ---------- home ---------- */
   function viewHome() {
     const p = S.activeProfile();
-    const subjects = LA.curriculum[p.year].subjects;
-    const term = U.schoolTerm();
-    const hw = T.planToday();
-    const open = S.openRemediation().filter((r) => r.skill.startsWith('y' + p.year + '.'));
+    const prog = LA.state.prog;
+    const P = LA.PROGRAMMES[prog];
+    const plan = T.planToday(prog);
+    const today = S.today();
     const hour = new Date().getHours();
-    const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    const greet = prog === 'pl' ? (hour < 12 ? 'Dzień dobry' : hour < 18 ? 'Cześć' : 'Dobry wieczór') : (hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening');
+    const date = new Date().toLocaleDateString(prog === 'pl' ? 'pl-PL' : 'en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
+    const term = U.schoolTerm(prog);
+    const c = h('div.content');
+    main.appendChild(c);
 
-    main.append(h('h1', `${greet}, ${p.name}! ${p.avatar}`), h('p.muted', `Year ${p.year} · ${term.label} · ${new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}`));
+    const lessonsPlanned = plan.items.filter((i) => i.kind === 'lesson').length;
+    const lessonsDone = plan.items.filter((i) => i.kind === 'lesson' && i.done).length;
+    const hwItems = plan.items.filter((i) => i.kind !== 'lesson');
+    const hwDone = hwItems.filter((i) => i.done).length;
+    const ringData = [
+      { color: '#ff8a65', value: lessonsPlanned ? lessonsDone / lessonsPlanned : 0, label: tr('Learn together', 'Nauka razem'), v: `${lessonsDone}/${lessonsPlanned}` },
+      { color: '#3ccf91', value: Math.min(1, (today.correct || 0) / 20), label: tr('Correct answers', 'Dobre odpowiedzi'), v: `${today.correct || 0}/20` },
+      { color: '#5aa9ff', value: hwItems.length ? hwDone / hwItems.length : 0, label: tr('Homework & practice', 'Prace i ćwiczenia'), v: `${hwDone}/${hwItems.length}` },
+    ];
+    c.appendChild(h('div.hero.' + prog,
+      h('span.mascot', P.tutorIcon),
+      h('div.eyebrow', `${P.flag} ${P.name} · ${P.yearLabel(p[prog].year)} · ${term.label}`),
+      h('h1', `${greet}, ${p.name}!`),
+      h('p.muted', { style: { textTransform: 'capitalize' } }, date),
+      h('div.rings', { style: { marginTop: '12px' } }, UI.rings(ringData, 132), h('div.ring-legend', ringData.map((r) => h('div.l', h('span.sw', { style: { background: r.color } }), r.label, h('span.v', r.v)))))));
 
-    // homework
-    const doneCount = hw.items.filter((i) => i.done).length;
-    const hwCard = h('div.card',
-      h('div.row', h('h2', { style: { margin: 0 } }, '📋 Today’s homework'), h('span.spacer'), h('span.chip', `${doneCount}/${hw.items.length} done · about ${hw.items.reduce((s, i) => s + i.minutes, 0)} min`)),
-      h('div.bar', { style: { margin: '10px 0 14px' } }, h('span', { style: { width: (hw.items.length ? (doneCount / hw.items.length) * 100 : 0) + '%' } }))
-    );
-    if (!hw.items.length) hwCard.appendChild(h('p', '🎉 Everything is finished for this year level! Choose any subject below to review.'));
-    hw.items.forEach((it) => {
-      const href = it.kind === 'lesson' ? '#/lesson/' + it.ref : it.kind === 'quiz' ? '#/quiz/' + it.ref : it.kind === 'remediation' ? '#/practice/rem/' + it.ref : '#/practice/skill/' + encodeURIComponent(it.ref) + '?review=1';
-      const label = { lesson: '📖 Lesson', quiz: '📝 Quiz', remediation: '🎯 Extra practice from Koa', review: '🔁 Quick review' }[it.kind];
-      hwCard.appendChild(h('a.hw-item' + (it.done ? '.done' : ''), { href }, h('span.tick', it.done ? '✓' : ''), h('div', { style: { flex: 1 } }, h('div.kind', label + ' · ' + it.minutes + ' min'), h('div', { style: { fontWeight: 800 } }, it.title)), h('span', '→')));
+    const planCard = h('div.card', { style: { marginTop: '16px' } },
+      h('div.row', h('h2', { style: { margin: 0 } }, tr('Today’s plan', 'Plan na dziś')), h('span.spacer'), h('span.chip', `≈ ${plan.items.reduce((s, i) => s + i.minutes, 0)} min`)),
+      h('p.small.muted', tr('📖 = learn together with your grown-up · 🎒 = homework on your own', '📖 = uczymy się razem z rodzicem · 🎒 = praca domowa samodzielnie')));
+    const list = h('div.plan');
+    if (!plan.items.length) list.appendChild(h('p', tr('🎉 Everything is done for this year level. Try a practice exam or the challenges!', '🎉 Wszystko zrobione na tym poziomie. Spróbuj próbnego sprawdzianu albo zadań z gwiazdką!')));
+    const KIND = { lesson: ['📖', tr('Learn together', 'Lekcja razem')], hw: ['🎒', tr('Homework · on your own', 'Praca domowa · samodzielnie')], quiz: ['📝', tr('Check-up quiz', 'Sprawdzian')], remediation: ['🎯', tr('Extra practice', 'Dodatkowe ćwiczenia')], review: ['🔁', tr('Quick review', 'Szybka powtórka')], spelling: ['🔤', tr('Spelling', 'Ortografia')] };
+    plan.items.forEach((it) => {
+      const k = KIND[it.kind];
+      const open = () => {
+        if (it.kind === 'lesson') LA.go('lesson/' + it.ref);
+        else if (it.kind === 'hw') LA.go('lesson/' + it.ref, { step: 'homework' });
+        else if (it.kind === 'quiz') LA.go('quiz/' + it.ref);
+        else if (it.kind === 'remediation') LA.go('practice/rem/' + it.ref);
+        else if (it.kind === 'spelling') LA.go('words', { start: 1 });
+        else LA.go('practice/skill/' + it.ref, { review: 1 });
+      };
+      list.appendChild(h('button.plan-item' + (it.done ? '.done' : ''), { type: 'button', onclick: open }, h('span.ico', k[0]), h('div', { style: { flex: 1 } }, h('div.k', `${k[1]} · ${it.minutes} min`), h('div.t', it.title)), h('span.chk', it.done ? '✓' : '')));
     });
-    if (doneCount === hw.items.length && hw.items.length) hwCard.appendChild(h('div.banner.good', { style: { marginTop: '12px' } }, '🌟 Homework all done! Brilliant work. You can keep going with any subject, or have a rest.'));
-    hwCard.appendChild(h('div.row', { style: { marginTop: '12px' } },
-      h('button.btn.secondary.small', { type: 'button', onclick: () => { T.planToday(true); route(); } }, '🔄 Refresh plan'),
-      h('span.muted.small', `Daily goal: ${S.settings().dailyMinutes} minutes (a grown-up can change this in Parent area).`)));
-    main.appendChild(hwCard);
+    planCard.appendChild(list);
+    if (plan.items.length && plan.items.every((i) => i.done)) planCard.appendChild(h('div.feedback.good', h('h4', tr('🌟 All done for today! Brilliant work.', '🌟 Wszystko na dziś zrobione! Świetna robota.'))));
+    planCard.appendChild(h('div.row', { style: { marginTop: '12px' } }, h('button.btn.ghost.small', { type: 'button', onclick: () => { T.planToday(prog, true); LA.refresh(); } }, tr('↻ Refresh plan', '↻ Odśwież plan')), h('span.small.muted', tr(`Daily time: ${S.settings().minutes[prog]} min (change in Parent area)`, `Czas dziennie: ${S.settings().minutes[prog]} min (zmiana w panelu rodzica)`))));
+    c.appendChild(planCard);
 
-    // catch-up indicator
-    const behind = subjects.map((s) => ({ s, st: T.subjectStats(s) })).filter((x) => x.st.behind > 0);
+    const behind = T.subjects(prog).map((s) => ({ s, st: T.subjectStats(s) })).filter((x) => x.st.behind > 0);
     if (behind.length) {
-      main.appendChild(h('div.card', h('h3', '🚀 Catch-up tracker'),
-        h('p.small.muted', `By this point in the school year, a Year ${p.year} class would usually have covered about ${Math.round(U.yearProgress() * 100)}% of the year. To catch up faster: raise the daily minutes, or use “⚡ Test out” on chapters ${p.name} already knows.`),
-        h('div', behind.map((x) => h('div.row', { style: { margin: '4px 0' } }, h('span', x.s.icon + ' ' + x.s.name), h('span.spacer'), h('span.tag.warn', `${x.st.behind} chapter${x.st.behind > 1 ? 's' : ''} behind`), h('a.btn.small.secondary', { href: '#/subject/' + x.s.key }, 'Open'))))));
+      c.appendChild(h('div.card.soft', { style: { marginTop: '14px' } }, h('div.row', h('h3', { style: { margin: 0 } }, tr('🚀 Catch-up', '🚀 Nadrabianie')), h('span.spacer'), h('span.small.muted', tr(`School year ≈ ${Math.round(U.yearProgress(prog) * 100)}% through`, `Rok szkolny ≈ ${Math.round(U.yearProgress(prog) * 100)}% za nami`))),
+        h('p.small.muted', tr('Use ⚡ Test out on chapters she already knows, or raise the daily minutes.', 'Użyj ⚡ „Zalicz testem” przy znanych rozdziałach albo zwiększ czas dzienny.')),
+        h('div.row', behind.map((x) => h('button.chip', { type: 'button', onclick: () => LA.go('subject/' + x.s.key), style: { cursor: 'pointer' } }, `${x.s.icon} ${x.s.name}: ${x.st.behind} ${tr('behind', 'do nadrobienia')}`)))));
     }
 
-    if (open.length) {
-      main.appendChild(h('div.card', h('h3', '🎯 Koa wants you to practise'), h('p.small.muted', 'These are things that were tricky. Finishing them unlocks quiz retakes.'),
-        open.slice(0, 6).map((r) => h('a.hw-item', { href: '#/practice/rem/' + r.id }, h('span.tick', '🎯'), h('div', { style: { flex: 1 } }, h('div', { style: { fontWeight: 800 } }, LA.skillLabel(r.skill)), h('div.small.muted', r.reason)), h('span', '→')))));
-    }
+    c.appendChild(h('div.section', h('div.row', h('h2', { style: { margin: 0 } }, tr('Subjects', 'Przedmioty')))));
+    c.appendChild(subjectGrid(prog));
+  }
 
-    // subjects
-    main.appendChild(h('h2', { style: { marginTop: '24px' } }, 'Subjects'));
-    main.appendChild(h('div.grid.cols-3', subjects.map((s) => {
+  function subjectGrid(prog) {
+    return h('div.grid.three', { style: { marginTop: '12px' } }, T.subjects(prog).map((s) => {
       const st = T.subjectStats(s);
       const next = T.nextStep(s);
-      return h('a.card.subject-tile', { href: '#/subject/' + s.key, style: { '--c': s.color } },
-        h('div.icon', s.icon), h('h3', s.name), h('div.bar', h('span', { style: { width: st.pct * 100 + '%', background: s.color } })),
-        h('div.small.muted', { style: { marginTop: '6px' } }, `${st.done}/${st.lessons} lessons · ${st.passed}/${st.chapters} chapters`),
-        h('div.small', { style: { marginTop: '4px' } }, next ? (next.kind === 'lesson' ? 'Next: ' + next.lesson.title : 'Next: chapter quiz') : '🏆 All done!'));
-    })));
+      const par = T.par(s);
+      return h('button.tile', { type: 'button', style: { '--c': s.color }, onclick: () => LA.go('subject/' + s.key) },
+        h('div.row', h('span.ico', s.icon), h('span.spacer'), par.level !== 'none' ? h('span.par.' + par.level, par.label) : null),
+        h('h3', s.name), h('div.bar', h('span', { style: { width: st.pct * 100 + '%' } })),
+        h('div.small.muted', `${st.done}/${st.lessons} ${tr('lessons', 'lekcji')} · ${st.passed}/${st.chapters} ${tr('chapters', 'rozdz.')}`),
+        h('div.small', next ? (next.kind === 'lesson' ? '→ ' + next.lesson.title : tr('→ chapter quiz', '→ sprawdzian')) : tr('🏆 Complete!', '🏆 Ukończone!')));
+    }));
+  }
+
+  function viewSubjects() {
+    const prog = LA.state.prog;
+    const p = S.activeProfile();
+    const c = h('div.content', h('div.eyebrow', LA.PROGRAMMES[prog].flag + ' ' + LA.PROGRAMMES[prog].name + ' · ' + LA.PROGRAMMES[prog].yearLabel(p[prog].year)), h('h1', tr('Subjects', 'Przedmioty')), subjectGrid(prog));
+    main.appendChild(c);
   }
 
   /* ---------- subject ---------- */
   function viewSubject(key) {
     const s = LA.index.subjects[key];
-    if (!s) return LA.go('home');
+    if (!s) return LA.go('home', null, { replace: true });
     const st = T.subjectStats(s);
     const next = T.nextStep(s);
-    main.append(crumbs([['Home', '#/home'], [s.name]]),
-      h('div.card', { style: { borderTop: '8px solid ' + s.color } },
-        h('div.row', h('span', { style: { fontSize: '2.4em' } }, s.icon), h('div', h('h1', { style: { margin: 0 } }, `Year ${s.year} ${s.long || s.name}`), h('div.muted', s.intro || ''))),
-        h('div.bar', { style: { margin: '12px 0' } }, h('span', { style: { width: st.pct * 100 + '%', background: s.color } })),
-        h('div.row', h('span.chip', `${st.done}/${st.lessons} lessons`), h('span.chip', `${st.passed}/${st.chapters} chapters passed`), st.behind ? h('span.tag.warn', `${st.behind} behind schedule`) : h('span.tag.good', 'On track')),
-        h('div.row', { style: { marginTop: '12px' } },
-          next ? h('a.btn', { href: next.kind === 'lesson' ? '#/lesson/' + next.lesson.key : '#/quiz/' + next.chapter.key }, next.kind === 'lesson' ? '▶ Continue: ' + next.lesson.title : '📝 Take the "' + next.chapter.title + '" quiz') : h('span.tag.good', '🏆 Subject complete!'),
-          h('button.btn.secondary', { type: 'button', onclick: () => chooseStart(s) }, '📍 Choose where to start')
-        )
-      )
-    );
-    TERMS.forEach((tname, ti) => {
-      const chs = s.chapters.filter((c) => (c.term || 1) === ti + 1);
+    const par = T.par(s);
+    const c = h('div.content');
+    main.appendChild(c);
+    c.append(crumbs([[tr('Today', 'Dzisiaj'), 'home'], [tr('Subjects', 'Przedmioty'), 'subjects'], [s.name]]),
+      h('div.hero', { style: { background: `linear-gradient(135deg, color-mix(in srgb, var(--surface-2) 82%, ${s.color} 18%), var(--surface) 75%)` } },
+        h('span.mascot', s.icon),
+        h('div.eyebrow', LA.PROGRAMMES[s.prog].flag + ' ' + LA.PROGRAMMES[s.prog].yearLabel(s.year)),
+        h('h1', s.long || s.name), h('p.muted', s.intro || ''),
+        h('div.row', { style: { margin: '10px 0' } }, h('span.chip', `${st.done}/${st.lessons} ${tr('lessons', 'lekcji')}`), h('span.chip', `${st.passed}/${st.chapters} ${tr('chapters passed', 'zaliczonych rozdziałów')}`), par.level !== 'none' ? h('span.par.' + par.level, par.label) : null, st.behind ? h('span.tag.warn', `${st.behind} ${tr('behind schedule', 'do nadrobienia')}`) : null),
+        h('div.bar', h('span', { style: { width: st.pct * 100 + '%', background: s.color } })),
+        h('div.row', { style: { marginTop: '14px' } },
+          next ? h('button.btn', { type: 'button', onclick: () => LA.go(next.kind === 'lesson' ? 'lesson/' + next.lesson.key : 'quiz/' + next.chapter.key) }, next.kind === 'lesson' ? '▶ ' + next.lesson.title : '📝 ' + tr('Quiz: ', 'Sprawdzian: ') + next.chapter.title) : h('span.tag.good', tr('🏆 Subject complete', '🏆 Przedmiot ukończony')),
+          h('button.btn.secondary', { type: 'button', onclick: () => chooseStart(s) }, tr('📍 Where to start', '📍 Od czego zacząć')),
+          h('button.btn.secondary', { type: 'button', onclick: () => LA.go('exam/' + s.key) }, tr('🎓 Practice exam', '🎓 Próbny sprawdzian')))));
+    const terms = s.prog === 'pl' ? [1, 2] : [1, 2, 3, 4];
+    terms.forEach((t) => {
+      const chs = s.chapters.filter((ch) => (s.prog === 'pl' ? Math.min(2, ch.term || 1) : ch.term || 1) === t);
       if (!chs.length) return;
-      main.appendChild(h('div.term-head', tname));
-      chs.forEach((ch) => main.appendChild(chapterRow(ch)));
+      c.appendChild(h('div.term-head', h('span.eyebrow', termLabel(s.prog, t)), h('span.small.muted', `${chs.length} ${tr('chapters', 'rozdziałów')}`)));
+      chs.forEach((ch) => c.appendChild(chapterRow(ch)));
     });
   }
 
   function chapterRow(ch) {
     const status = T.chapterStatus(ch);
     const done = ch.lessons.filter((l) => S.isLessonDone(l.key)).length;
-    const c = S.chapter(ch.key);
-    return h('div.card',
-      h('div.chapter-row',
-        h('div.status.' + status, { title: STATUS_TEXT[status] }, STATUS_ICON[status]),
-        h('div', { style: { flex: 1 } },
-          h('h3', { style: { margin: '0 0 4px' } }, h('a', { href: '#/chapter/' + ch.key, style: { color: 'inherit' } }, ch.title)),
-          h('div', ch.strand ? h('span.tag', ch.strand) : null, ch.code ? h('span.tag.info', ch.code) : null, h('span.tag', `${done}/${ch.lessons.length} lessons`), c && c.best ? h('span.tag' + (c.passed ? '.good' : '.warn'), `Best quiz ${Math.round(c.best * 100)}%`) : null),
-          h('div.small.muted', { style: { marginTop: '4px' } }, ch.summary || ''),
-          h('div.row', { style: { marginTop: '8px' } },
-            h('a.btn.small', { href: '#/chapter/' + ch.key }, status === 'passed' || status === 'tested-out' ? '🔁 Review' : done ? 'Continue' : 'Start'),
-            status !== 'passed' && status !== 'tested-out' ? h('a.btn.small.secondary', { href: '#/quiz/' + ch.key + '?mode=testout', title: 'Already know this? Pass the quiz to skip the chapter.' }, '⚡ Test out') : null
-          )
-        )
-      )
-    );
+    const rec = S.chapter(ch.key);
+    const chal = S.P().challenges[ch.key];
+    return h('div.chapter',
+      h('div.st.' + status, { title: statusText(status) }, STATUS_ICON[status]),
+      h('div', { style: { flex: 1, minWidth: 0 } },
+        h('h3', { style: { margin: '0 0 4px' } }, ch.title),
+        h('div.row', { style: { gap: '6px' } }, ch.strand ? h('span.tag', ch.strand) : null, ch.code ? h('span.tag.info', ch.code) : null, h('span.tag', `${done}/${ch.lessons.length} ${tr('lessons', 'lekcji')}`), rec && rec.best ? h('span.tag' + (rec.passed ? '.good' : '.warn'), `${tr('Best', 'Najlepszy')} ${Math.round(rec.best * 100)}%`) : null, chal && chal.passed ? h('span.tag.star', '★ ' + tr('Above par', 'Powyżej poziomu')) : null),
+        ch.summary ? h('div.small.muted', { style: { marginTop: '6px' } }, ch.summary) : null,
+        h('div.row', { style: { marginTop: '10px' } },
+          h('button.btn.small', { type: 'button', onclick: () => LA.go('chapter/' + ch.key) }, status === 'passed' || status === 'tested-out' ? tr('Review', 'Powtórka') : done ? tr('Continue', 'Kontynuuj') : tr('Start', 'Zacznij')),
+          status !== 'passed' && status !== 'tested-out' ? h('button.btn.small.secondary', { type: 'button', onclick: () => LA.go('quiz/' + ch.key, { mode: 'testout' }) }, tr('⚡ Test out', '⚡ Zalicz testem')) : LA.hasChallenge(ch) ? h('button.btn.small.secondary', { type: 'button', onclick: () => LA.go('challenge/' + ch.key) }, tr('★ Challenge', '★ Zadania z gwiazdką')) : null)));
   }
 
   function chooseStart(s) {
-    const sel = h('select', { 'aria-label': 'Starting chapter' }, s.chapters.map((c, i) => h('option', { value: i, selected: i === T.startIndex(s) ? true : null }, `${TERMS[(c.term || 1) - 1]} · ${c.title}`)));
-    UI.modal('Where should we start?', h('div.stack',
-      h('p', 'Jumping in part-way through the year? Pick the chapter to start from. Earlier chapters will be shown as skipped (you can still open them any time, or use ⚡ Test out to prove you know them).'),
-      sel), [{ label: 'Cancel', secondary: true }, { label: 'Start here', onclick: () => { S.P().startPoints[s.key] = +sel.value; S.save(); T.planToday(true); route(); } }]);
+    const sel = h('select', { 'aria-label': 'Start chapter' }, s.chapters.map((c, i) => h('option', { value: i, selected: i === T.startIndex(s) ? true : null }, `${termLabel(s.prog, s.prog === 'pl' ? Math.min(2, c.term || 1) : c.term || 1)} · ${c.title}`)));
+    UI.modal(tr('Where should we start?', 'Od czego zaczynamy?'), h('div.col', h('p', tr('Joining part-way through the year? Pick the chapter to start from. Earlier chapters are marked as skipped — you can still open them, or use ⚡ Test out.', 'Dołączacie w trakcie roku? Wybierz rozdział, od którego zaczynamy. Wcześniejsze będą oznaczone jako pominięte — nadal można je otworzyć albo zaliczyć testem.')), sel),
+      [{ label: tr('Cancel', 'Anuluj'), secondary: true }, { label: tr('Start here', 'Zacznij tutaj'), onclick: () => { S.P().startPoints[s.key] = +sel.value; S.save(); T.planToday(s.prog, true); LA.refresh(); } }]);
   }
 
   /* ---------- chapter ---------- */
   function viewChapter(key) {
     const ch = LA.index.chapters[key];
-    if (!ch) return LA.go('home');
+    if (!ch) return LA.go('home', null, { replace: true });
     const s = LA.index.subjects[ch.subjectKey];
-    UI.koa.context = Object.assign({}, ch, { title: ch.title });
+    UI.tutor.context = ch;
     const status = T.chapterStatus(ch);
-    const c = S.chapter(ch.key);
+    const rec = S.chapter(ch.key);
     const blocking = S.openRemediation().filter((r) => r.chapterKey === ch.key && r.blocking);
-    main.append(crumbs([['Home', '#/home'], [s.name, '#/subject/' + s.key], [ch.title]]),
+    const chal = S.P().challenges[ch.key];
+    const c = h('div.content');
+    main.appendChild(c);
+    c.append(crumbs([[s.name, 'subject/' + s.key], [ch.title]]),
       h('div.card',
-        h('h1', ch.title),
-        h('div', ch.strand ? h('span.tag', ch.strand) : null, ch.code ? h('span.tag.info', ch.code) : null, h('span.tag', TERMS[(ch.term || 1) - 1]), h('span.tag' + (status === 'passed' || status === 'tested-out' ? '.good' : ''), STATUS_TEXT[status])),
-        ch.summary ? h('p', ch.summary) : null,
-        ch.outcomes ? h('div', h('strong', 'By the end you will be able to:'), h('ul', ch.outcomes.map((o) => h('li', o)))) : null
-      ),
-      h('h2', { style: { marginTop: '20px' } }, 'Lessons'),
-      h('div.lesson-list', ch.lessons.map((l, i) => {
+        h('div.eyebrow', `${termLabel(s.prog, s.prog === 'pl' ? Math.min(2, ch.term || 1) : ch.term || 1)}${ch.strand ? ' · ' + ch.strand : ''}${ch.code ? ' · ' + ch.code : ''}`),
+        h('h1', ch.title), ch.summary ? h('p', ch.summary) : null,
+        ch.outcomes ? h('div', h('div.eyebrow', { style: { marginTop: '8px' } }, tr('You will be able to', 'Nauczysz się')), h('ul', ch.outcomes.map((o) => h('li', o)))) : null,
+        h('span.tag' + (status === 'passed' || status === 'tested-out' ? '.good' : ''), statusText(status))),
+      h('h2', { style: { marginTop: '22px' } }, tr('Lessons', 'Lekcje')),
+      h('div', ch.lessons.map((l, i) => {
         const done = S.isLessonDone(l.key);
         const info = S.P().lessons[l.key];
-        return h('a', { href: '#/lesson/' + l.key }, h('span.ck' + (done ? '.on' : ''), done ? '✓' : String(i + 1)), h('div', { style: { flex: 1 } }, h('div', { style: { fontWeight: 800 } }, l.title), h('div.small.muted', `${l.minutes || 12} min${info && info.via === 'tested-out' ? ' · tested out' : ''}${info && info.total ? ` · practice ${info.score}/${info.total}` : ''}`)), h('span', '→'));
+        const hw = S.P().hwSets[l.key];
+        return h('button.lesson-row', { type: 'button', onclick: () => LA.go('lesson/' + l.key) }, h('span.ck' + (done ? '.on' : ''), done ? '✓' : String(i + 1)),
+          h('div', { style: { flex: 1 } }, h('div', { style: { fontWeight: 750 } }, l.title), h('div.small.muted', `${l.minutes || 15} min${info && info.total ? ` · ${tr('practice', 'ćwiczenia')} ${info.score}/${info.total}` : ''}${hw ? ' · 🎒 ' + (hw.status === 'done' ? tr('homework done', 'praca domowa zrobiona') + (hw.total ? ` ${hw.score}/${hw.total}` : '') : tr('homework to do', 'praca domowa do zrobienia')) : ''}`)), h('span', '›'));
       })),
-      h('div.card', { style: { marginTop: '16px' } },
-        h('h3', '📝 Chapter check-up quiz'),
-        h('p.small', `About ${ch.quiz.n || 10} questions. You need ${Math.round(T.PASS_QUIZ * 100)}% to pass. ${c && c.attempts.length ? `Attempts: ${c.attempts.length}, best ${Math.round(c.best * 100)}%.` : ''}`),
-        blocking.length ? h('div.banner.warn', `Finish ${blocking.length} extra practice task${blocking.length > 1 ? 's' : ''} first to unlock a retake:`, blocking.map((r) => h('div', h('a', { href: '#/practice/rem/' + r.id }, '🎯 ' + LA.skillLabel(r.skill))))) : null,
-        h('div.row', { style: { marginTop: '8px' } },
-          h('a.btn' + (blocking.length ? '.secondary' : ''), { href: blocking.length ? '#/practice/rem/' + blocking[0].id : '#/quiz/' + ch.key }, blocking.length ? 'Do extra practice first' : status === 'passed' ? 'Take quiz again' : 'Take the quiz'),
-          status !== 'passed' && status !== 'tested-out' ? h('a.btn.secondary', { href: '#/quiz/' + ch.key + '?mode=testout' }, '⚡ Test out') : null,
-          h('a.btn.secondary', { href: '#/practice/skill/' + encodeURIComponent(ch.key) }, '🔁 Mixed practice'),
-          (status === 'passed' || status === 'tested-out' || ch.lessons.some((l) => S.isLessonDone(l.key))) ? h('button.btn.ghost.small', { type: 'button', onclick: () => UI.confirm('Reset this chapter?', 'This clears the ticks and quiz results for this chapter so it can be done again from scratch.', () => { S.resetChapter(ch.key); route(); }, 'Reset') }, 'Reset chapter') : null
-        )
-      )
-    );
+      h('div.grid.two', { style: { marginTop: '18px' } },
+        h('div.card.flat',
+          h('h3', tr('📝 Check-up quiz', '📝 Sprawdzian')),
+          h('p.small.muted', tr(`About ${ch.quiz.n || 10} questions · pass mark ${Math.round(T.PASS_QUIZ * 100)}%`, `Ok. ${ch.quiz.n || 10} pytań · zaliczenie od ${Math.round(T.PASS_QUIZ * 100)}%`) + (rec && rec.attempts.length ? ' · ' + tr('best', 'najlepszy') + ' ' + Math.round(rec.best * 100) + '%' : '')),
+          blocking.length ? h('div.feedback.warn', h('div.small', tr('Finish the extra practice first to unlock a retake:', 'Najpierw dodatkowe ćwiczenia, potem poprawa:')), blocking.map((r) => h('div', h('button.btn.ghost.small', { type: 'button', onclick: () => LA.go('practice/rem/' + r.id) }, '🎯 ' + LA.skillLabel(r.skill))))) : null,
+          h('div.row', { style: { marginTop: '8px' } },
+            h('button.btn', { type: 'button', disabled: blocking.length ? true : null, onclick: () => LA.go('quiz/' + ch.key) }, status === 'passed' ? tr('Take again', 'Jeszcze raz') : tr('Take the quiz', 'Rozwiąż')),
+            status !== 'passed' && status !== 'tested-out' ? h('button.btn.secondary', { type: 'button', onclick: () => LA.go('quiz/' + ch.key, { mode: 'testout' }) }, tr('⚡ Test out', '⚡ Zalicz testem')) : null)),
+        LA.hasChallenge(ch) ? h('div.card.flat',
+          h('h3', tr('★ Above-par challenge', '★ Zadania z gwiazdką')),
+          h('p.small.muted', tr('Harder questions that go a little beyond the year level. Great once the chapter is passed.', 'Trudniejsze zadania, trochę powyżej poziomu klasy. Najlepiej po zaliczeniu rozdziału.') + (chal ? ` · ${tr('best', 'najlepszy')} ${Math.round(chal.best * 100)}%` : '')),
+          h('button.btn.secondary', { type: 'button', onclick: () => LA.go('challenge/' + ch.key) }, chal && chal.passed ? tr('★ Try again', '★ Jeszcze raz') : tr('★ Take the challenge', '★ Spróbuj'))) : null),
+      h('div.row', { style: { marginTop: '14px' } },
+        h('button.btn.ghost.small', { type: 'button', onclick: () => LA.go('practice/skill/' + ch.key) }, tr('🔁 Mixed practice', '🔁 Ćwiczenia mieszane')),
+        h('button.btn.ghost.small', { type: 'button', onclick: () => UI.confirm(tr('Reset this chapter?', 'Wyzerować rozdział?'), tr('This clears the ticks and quiz results for this chapter.', 'To usunie zaliczenia i wyniki tego rozdziału.'), () => { S.resetChapter(ch.key); LA.refresh(); }, tr('Reset', 'Wyzeruj')) }, tr('Reset chapter', 'Wyzeruj rozdział'))));
   }
 
-  /* ---------- lesson ---------- */
-  function viewLesson(key, params) {
-    const l = LA.index.lessons[key];
-    if (!l) return LA.go('home');
-    const ch = LA.index.chapters[l.chapterKey];
-    const s = LA.index.subjects[l.subjectKey];
-    UI.koa.context = l;
-    const done = S.isLessonDone(l.key);
-    const allText = l.blocks.filter((b) => b.text && b.type !== 'listen').map((b) => (b.title ? b.title + '. ' : '') + U.plain(b.text)).join(' ');
-
-    main.append(crumbs([['Home', '#/home'], [s.name, '#/subject/' + s.key], [ch.title, '#/chapter/' + ch.key], [l.title]]),
-      h('div.row', h('h1', { style: { margin: 0 } }, l.title), h('span.spacer'), done ? h('span.tag.good', '✓ Done') : null),
-      h('div.row', { style: { margin: '8px 0 16px' } }, h('span.chip', `⏱ ${l.minutes || 12} min`), UI.speakBtn(allText, '🔊 Read the whole lesson to me'), T.ai.available() ? h('button.btn.secondary.small', { type: 'button', onclick: () => UI.koa.open('Can you explain this lesson to me in a simple way?') }, '🐨 Explain it to me') : null)
-    );
-    l.blocks.forEach((b) => main.appendChild(renderBlock(b)));
-
-    const practiceArea = h('div', { id: 'practice' });
-    const startBox = h('div.card', { style: { marginTop: '18px', textAlign: 'center' } },
-      h('h2', '✏️ Practice time'),
-      h('p', l.practice && l.practice.length ? 'Answer the questions to tick off this lesson.' : 'When you have finished the activity, tick off the lesson.'),
-      h('button.btn.big', { type: 'button', onclick: () => startPractice(1) }, done ? 'Practise again' : 'Start practice →'));
-    main.append(startBox, practiceArea);
-
-    function startPractice(attempt) {
-      const qs = LA.lessonPractice(l);
-      startBox.classList.add('hidden');
-      if (!qs.length) {
-        S.markLesson(l.key, {});
-        T.markHomework('lesson', l.key);
-        return finish({ ok: true, right: 0, total: 0, score: 1 });
-      }
-      UI.runQuestions(practiceArea, qs, { mode: 'practice', ctx: l, onDone: (results) => finish(T.afterPractice(l, results, attempt), attempt) });
-      practiceArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    function finish(r, attempt) {
-      practiceArea.innerHTML = '';
-      const nextLesson = ch.lessons[l.index + 1];
-      const card = h('div.card.stack', { style: { textAlign: 'center' } });
-      if (r.ok || r.movedOn) {
-        T.markHomework('lesson', l.key);
-        if (r.ok && r.score >= 0.8) UI.confetti();
-        card.append(
-          h('div.result-big', r.total ? `${r.right}/${r.total}` : '✓'),
-          h('h2', r.ok ? (r.score >= 0.8 ? '🌟 Lesson complete! Fantastic!' : '✓ Lesson complete — good effort!') : 'Lesson ticked off — Koa added extra practice for later.'),
-          r.ok && r.score < 0.8 && r.total ? h('p.muted', 'Koa added a little extra practice to your homework to make it stick.') : null,
-          h('div.row', { style: { justifyContent: 'center' } },
-            nextLesson ? h('a.btn.big', { href: '#/lesson/' + nextLesson.key }, 'Next lesson: ' + nextLesson.title + ' →') : h('a.btn.big', { href: '#/quiz/' + ch.key }, '📝 Take the chapter quiz →'),
-            h('a.btn.secondary', { href: '#/home' }, 'Back to homework'))
-        );
-      } else {
-        card.append(
-          h('div.result-big', `${r.right}/${r.total}`),
-          h('h2', 'Let’s look at this one again together 💪'),
-          h('p', 'That’s okay — tricky things take practice! Re-read the lesson above (press 🔊 to have it read to you), then try a fresh set of questions.'),
-          T.ai.available() ? UI.aiBox('Koa teaches it another way', () => T.ai.reteach(l.key)) : h('div.banner.info', 'Tip: ask a grown-up to read through the examples with you.'),
-          h('div.row', { style: { justifyContent: 'center' } },
-            h('button.btn.big', { type: 'button', onclick: () => startPractice((attempt || 1) + 1) }, 'Try new questions →'),
-            h('button.btn.secondary', { type: 'button', onclick: () => window.scrollTo({ top: 0, behavior: 'smooth' }) }, '⬆ Re-read lesson'))
-        );
-      }
-      practiceArea.appendChild(card);
-      renderTop();
-      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-
-    // lesson navigation
-    const prev = ch.lessons[l.index - 1];
-    const next = ch.lessons[l.index + 1];
-    main.appendChild(h('div.row.no-print', { style: { marginTop: '20px' } }, prev ? h('a.btn.secondary', { href: '#/lesson/' + prev.key }, '← ' + prev.title) : null, h('span.spacer'), next ? h('a.btn.secondary', { href: '#/lesson/' + next.key }, next.title + ' →') : h('a.btn.secondary', { href: '#/chapter/' + ch.key }, 'Chapter overview')));
-    if (S.settings().autoRead) setTimeout(() => SP.say(allText), 400);
+  /* ---------- lesson: Learn together → Practise together → Homework ---------- */
+  function groupSteps(blocks) {
+    const steps = [];
+    blocks.forEach((b) => {
+      if ((b.type === 'visual' || b.type === 'tip') && steps.length) steps[steps.length - 1].push(b);
+      else steps.push([b]);
+    });
+    return steps;
   }
+  const TOGETHER = {
+    read: ['Read this step together. Then ask: “Can you tell me that in your own words?”', 'Przeczytajcie razem. Potem zapytaj: „Powiesz mi to własnymi słowami?”'],
+    example: ['Cover the answer and try it together first, then check each step.', 'Zasłońcie odpowiedź, spróbujcie najpierw sami, potem sprawdźcie krok po kroku.'],
+    listen: ['Let her listen without looking at the words. Talk about what she heard.', 'Niech posłucha bez patrzenia na tekst. Porozmawiajcie o tym, co usłyszała.'],
+    activity: ['Do this together — hands-on learning sticks best.', 'Zróbcie to razem — nauka przez działanie zostaje w głowie najdłużej.'],
+    vocab: ['Say each word together, then make up a sentence with it.', 'Powtórzcie razem każde słowo i ułóżcie z nim zdanie.'],
+  };
 
-  function renderBlock(b) {
-    const label = { read: '', example: '💡 Worked example', tip: '⭐ Remember', listen: '🎧 Listening', activity: '🙌 Activity', vocab: '📚 Word bank', visual: '' }[b.type] || '';
-    const card = h('div.card.block.' + b.type);
-    const speakText = b.type === 'vocab' ? b.words.map((w) => w[0] + ': ' + w[1]).join('. ') : (b.title ? b.title + '. ' : '') + U.plain(b.text || '');
-    if (b.type !== 'visual') card.appendChild(h('div.block-tools', UI.speakBtn(speakText, b.type === 'listen' ? '🎧 Listen' : '🔊')));
-    if (label || b.title) card.appendChild(h('div.block-label', [label, b.title && label ? ' — ' : '', b.title || ''].join('')));
+  function blockEl(b, voice) {
+    const el = h('div');
+    const label = { example: tr('Worked example', 'Przykład'), listen: tr('Listening', 'Słuchanie'), activity: tr('Activity', 'Zadanie praktyczne'), vocab: tr('Word bank', 'Słowniczek') }[b.type];
     if (b.type === 'listen') {
-      card.appendChild(h('p', b.intro || 'Press 🎧 Listen and listen carefully. Then answer the questions in the practice. Try not to read the words — just listen!'));
+      el.append(h('div.label', h('span.tag.info', '🎧 ' + label), b.title ? h('strong', b.title) : null),
+        h('p', b.intro || tr('Press Listen and listen carefully. Try not to read the words — just listen! Then answer the questions in the practice.', 'Naciśnij „Słuchaj” i słuchaj uważnie, bez czytania tekstu. Potem odpowiesz na pytania.')),
+        h('div.row', UI.speakBtn(U.plain(b.text), tr('Listen', 'Słuchaj'), voice)));
       const words = h('div.hidden', { html: U.fmt(b.text) });
-      const toggle = h('button.btn.ghost.small', { type: 'button' }, '👀 Show the words');
-      toggle.addEventListener('click', () => { words.classList.toggle('hidden'); toggle.textContent = words.classList.contains('hidden') ? '👀 Show the words' : '🙈 Hide the words'; });
-      card.append(toggle, words);
-      return card;
+      const tog = h('button.btn.ghost.small', { type: 'button' }, tr('👀 Show the words', '👀 Pokaż tekst'));
+      tog.addEventListener('click', () => { words.classList.toggle('hidden'); tog.textContent = words.classList.contains('hidden') ? tr('👀 Show the words', '👀 Pokaż tekst') : tr('🙈 Hide the words', '🙈 Ukryj tekst'); });
+      el.append(tog, words);
+      return el;
     }
     if (b.type === 'vocab') {
-      card.appendChild(h('dl.vocab', b.words.map((w) => [h('dt', w[0]), h('dd', w[1])])));
-      return card;
+      el.append(h('div.label', h('span.tag.info', '📚 ' + label)), h('dl.vocab', b.words.map((w) => [h('dt', w[0]), h('dd', w[1], w[2] ? h('span.pl', (LA.state.prog === 'au' ? '🇵🇱 ' : '🇬🇧 ') + w[2]) : null)])));
+      return el;
     }
-    if (b.svg) card.appendChild(h('div.visual', { html: b.svg }));
-    if (b.text) card.appendChild(h('div', { html: U.fmt(b.text) }));
-    if (b.type === 'activity') card.appendChild(h('label.row', { style: { marginTop: '8px', cursor: 'pointer' } }, h('input', { type: 'checkbox', style: { width: '24px', height: '24px' } }), h('strong', 'I did it!')));
-    return card;
+    if (label || b.title) el.appendChild(h('div.label', label ? h('span.tag' + (b.type === 'activity' ? '.good' : '.info'), label) : null, b.title ? h('strong', b.title) : null));
+    if (b.svg) el.appendChild(h('div.visual', { html: b.svg }));
+    if (b.text) el.appendChild(h('div' + (b.type === 'example' ? '.block-example' : ''), { html: b.type === 'tip' ? '<div class="tipbox">⭐ ' + U.fmtInline(b.text) + '</div>' : U.fmt(b.text) }));
+    if (b.type === 'activity') el.appendChild(h('label.check', { style: { marginTop: '10px' } }, h('input', { type: 'checkbox' }), h('strong', tr('We did it!', 'Zrobione!'))));
+    return el;
+  }
+  const blockSpeech = (bs) => bs.map((b) => (b.type === 'vocab' ? b.words.map((w) => w[0] + ': ' + w[1]).join('. ') : (b.title ? b.title + '. ' : '') + U.plain(b.text || ''))).join(' ');
+
+  function viewLesson(key, params) {
+    const l = LA.index.lessons[key];
+    if (!l) return LA.go('home', null, { replace: true });
+    const ch = LA.index.chapters[l.chapterKey];
+    const s = LA.index.subjects[l.subjectKey];
+    const voice = LA.PROGRAMMES[s.prog].voice;
+    UI.tutor.context = l;
+    const done = S.isLessonDone(l.key);
+    const hw = S.P().hwSets[l.key];
+    let step = params.step || (done && hw && hw.status === 'assigned' ? 'homework' : 'learn');
+    const c = h('div.content');
+    main.appendChild(c);
+    const seg = h('div.seg');
+    const body = h('div', { style: { marginTop: '16px' } });
+    const mk = (id, n, label, isDone) => { const b = h('button' + (step === id ? '.on' : '') + (isDone ? '.done' : ''), { type: 'button' }, h('span.num', isDone ? '✓' : n), label); b.addEventListener('click', () => { step = id; renderStep(); }); return b; };
+    function renderSeg() {
+      const hwNow = S.P().hwSets[l.key];
+      seg.innerHTML = '';
+      seg.append(mk('learn', 1, tr('Learn together', 'Uczymy się razem'), false), mk('practise', 2, tr('Practise together', 'Ćwiczymy razem'), S.isLessonDone(l.key)), mk('homework', 3, tr('Homework', 'Praca domowa'), hwNow && hwNow.status === 'done'));
+    }
+    c.append(crumbs([[s.name, 'subject/' + s.key], [ch.title, 'chapter/' + ch.key], [l.title]]),
+      h('div.row', h('h1', { style: { margin: 0, flex: 1, minWidth: '240px' } }, l.title), done ? h('span.tag.good', tr('✓ Learnt', '✓ Opanowane')) : null),
+      h('div.row', { style: { margin: '10px 0 4px' } }, h('span.chip', { style: { borderColor: s.color } }, s.icon + ' ' + s.name), h('span.chip', `⏱ ${l.minutes || 15} min`)),
+      seg, body);
+
+    function renderStep() {
+      renderSeg();
+      body.innerHTML = '';
+      SP.stop();
+      if (step === 'learn') renderLearn();
+      else if (step === 'practise') renderPractise(1);
+      else renderHomework();
+    }
+
+    function renderLearn() {
+      const steps = groupSteps(l.blocks);
+      let idx = 0;
+      const seen = new Set([0]);
+      const card = h('div.card.step-card');
+      const dots = h('div.dots');
+      const nav = h('div.row');
+      const tip = h('div.together');
+      body.append(tip, h('div', { style: { height: '12px' } }), card, dots, nav);
+      const extras = h('div.row', { style: { marginTop: '14px' } });
+      body.appendChild(extras);
+      if (AI.available()) extras.append(
+        h('button.btn.secondary.small', { type: 'button', onclick: (e) => e.target.replaceWith(UI.aiBox(tr('Explained simply', 'Prościej'), (on) => AI.explainLesson(l, on))) }, tr('💬 Explain it to me', '💬 Wytłumacz mi')),
+        UI.otherLangBtn((on, lang) => AI.explainLesson(l, on, lang)));
+      function draw() {
+        const bs = steps[idx];
+        const t = TOGETHER[bs[0].type] || TOGETHER.read;
+        tip.innerHTML = '';
+        tip.append(h('span', '👪'), h('div', h('strong', tr('For the grown-up: ', 'Dla rodzica: ')), tr(t[0], t[1])));
+        card.innerHTML = '';
+        card.append(h('div.row', { style: { marginBottom: '6px' } }, h('span.eyebrow', `${tr('Step', 'Krok')} ${idx + 1} / ${steps.length}`), h('span.spacer'), UI.speakBtn(blockSpeech(bs), tr('Read to me', 'Przeczytaj mi'), voice)));
+        bs.forEach((b) => card.appendChild(blockEl(b, voice)));
+        dots.innerHTML = '';
+        steps.forEach((_, i) => { const d = h('button' + (i === idx ? '.on' : seen.has(i) ? '.seen' : ''), { type: 'button', 'aria-label': `${tr('Step', 'Krok')} ${i + 1}` }); d.addEventListener('click', () => { idx = i; seen.add(i); draw(); }); dots.appendChild(d); });
+        nav.innerHTML = '';
+        nav.append(idx > 0 ? h('button.btn.secondary', { type: 'button', onclick: () => { idx--; draw(); } }, tr('← Back', '← Wstecz')) : h('span'), h('span.spacer'),
+          idx < steps.length - 1 ? h('button.btn.big', { type: 'button', onclick: () => { idx++; seen.add(idx); draw(); window.scrollTo({ top: 0, behavior: 'smooth' }); } }, tr('Next step →', 'Dalej →'))
+            : h('button.btn.big', { type: 'button', onclick: () => { step = 'practise'; renderStep(); } }, tr('Let’s practise →', 'Ćwiczymy →')));
+        if (S.settings().autoRead) SP.say(blockSpeech(bs), { lang: voice });
+      }
+      draw();
+    }
+
+    function renderPractise(attempt) {
+      const qs = LA.lessonPractice(l);
+      const area = h('div');
+      body.appendChild(h('div.together', h('span', '👪'), h('div', h('strong', tr('Together: ', 'Razem: ')), tr('let her answer first; help only after a wrong try. Talk about each explanation.', 'niech najpierw odpowie sama; pomagaj dopiero po błędzie. Omawiajcie wyjaśnienia.'))));
+      body.appendChild(h('div', { style: { height: '12px' } }));
+      body.appendChild(area);
+      if (!qs.length) { S.markLesson(l.key, {}); S.assignHomework(l.key); T.markPlan('lesson', l.key); return finishPractise({ ok: true, right: 0, total: 0, score: 1 }, attempt); }
+      UI.runQuestions(area, qs, { mode: 'practice', ctx: l, onDone: (results) => finishPractise(T.afterPractice(l, results, attempt), attempt) });
+    }
+    function finishPractise(r, attempt) {
+      body.innerHTML = '';
+      renderSeg();
+      const card = h('div.card.col', { style: { textAlign: 'center', alignItems: 'center' } });
+      if (r.ok || r.movedOn) {
+        T.markPlan('lesson', l.key);
+        if (r.ok && r.score >= 0.8) UI.confetti();
+        card.append(h('div.result-big', r.total ? `${r.right}/${r.total}` : '✓'),
+          h('h2', r.ok ? (r.score >= 0.8 ? tr('🌟 Lesson learnt — fantastic!', '🌟 Lekcja opanowana — wspaniale!') : tr('✓ Lesson learnt — good effort!', '✓ Lekcja zaliczona — dobra robota!')) : tr('Ticked off — extra practice is waiting for later.', 'Zaliczone — dodatkowe ćwiczenia czekają na później.')),
+          h('div.feedback.info', { style: { textAlign: 'left' } }, h('h4', tr('🎒 Homework is ready', '🎒 Praca domowa gotowa')), h('div.small', tr('A short set to do on her own — later today or tomorrow. It’s in the Homework list.', 'Krótki zestaw do samodzielnego zrobienia — dziś później albo jutro. Jest na liście prac domowych.'))),
+          h('div.row.center', h('button.btn.big', { type: 'button', onclick: () => { step = 'homework'; renderStep(); } }, tr('See homework', 'Zobacz pracę domową')),
+            (() => { const nxt = ch.lessons[l.index + 1]; return nxt ? h('button.btn.secondary', { type: 'button', onclick: () => LA.go('lesson/' + nxt.key) }, tr('Next lesson →', 'Następna lekcja →')) : h('button.btn.secondary', { type: 'button', onclick: () => LA.go('quiz/' + ch.key) }, tr('Chapter quiz →', 'Sprawdzian →')); })()));
+      } else {
+        card.append(h('div.result-big', `${r.right}/${r.total}`), h('h2', tr('Let’s look at this one again together 💪', 'Przyjrzyjmy się temu jeszcze raz 💪')),
+          h('p', tr('That’s okay — tricky things take practice. Re-read the lesson (press 🔊 to hear it), then try fresh questions.', 'Nic nie szkodzi — trudne rzeczy wymagają ćwiczeń. Przeczytajcie lekcję jeszcze raz (🔊), a potem nowe pytania.')),
+          AI.available() ? UI.aiBox(tr('Another way to understand it', 'Wytłumaczę to inaczej'), (on) => AI.reteach(l.key, on)) : null,
+          h('div.row.center', h('button.btn.big', { type: 'button', onclick: () => { body.innerHTML = ''; renderPractise((attempt || 1) + 1); } }, tr('Try new questions →', 'Nowe pytania →')), h('button.btn.secondary', { type: 'button', onclick: () => { step = 'learn'; renderStep(); } }, tr('↺ Re-read the lesson', '↺ Przeczytaj lekcję'))));
+      }
+      body.appendChild(card);
+      LA.renderChrome();
+    }
+
+    function renderHomework() {
+      const cur = S.P().hwSets[l.key];
+      const card = h('div.card.col');
+      card.append(h('div.eyebrow', tr('Homework · on your own', 'Praca domowa · samodzielnie')), h('h2', l.title));
+      if (!S.isLessonDone(l.key)) {
+        card.append(h('p', tr('Do the lesson and practice first — then your homework appears here.', 'Najpierw lekcja i ćwiczenia — potem pojawi się tu praca domowa.')), h('button.btn', { type: 'button', onclick: () => { step = 'learn'; renderStep(); } }, tr('Start the lesson', 'Zacznij lekcję')));
+      } else {
+        if (cur && cur.status === 'done') card.append(h('div.feedback.good', h('h4', tr('✓ Homework done', '✓ Praca domowa zrobiona') + (cur.total ? ` — ${cur.score}/${cur.total}` : ''))));
+        card.append(h('p', tr('Try to do this without help. If you get stuck, press 🔊 or ask for a hint.', 'Spróbuj bez pomocy. Gdy utkniesz, naciśnij 🔊 albo poproś o podpowiedź.')),
+          h('div.row', h('button.btn.big', { type: 'button', onclick: startHw }, cur && cur.status === 'done' ? tr('Do it again', 'Zrób jeszcze raz') : tr('Start homework', 'Zacznij pracę domową'))));
+      }
+      body.appendChild(card);
+    }
+    function startHw() {
+      const qs = LA.lessonHomework(l, S.mastery(l.key));
+      body.innerHTML = '';
+      const area = h('div');
+      body.appendChild(area);
+      UI.runQuestions(area, qs, { mode: 'homework', ctx: l, onDone: (results) => {
+        const r = T.afterHomework(l, results);
+        T.markPlan('hw', l.key);
+        if (r.score >= 0.8) UI.confetti();
+        body.innerHTML = '';
+        renderSeg();
+        body.appendChild(h('div.card.col', { style: { textAlign: 'center', alignItems: 'center' } }, h('div.result-big', `${r.right}/${r.total}`),
+          h('h2', r.score >= 0.8 ? tr('🌟 Brilliant homework!', '🌟 Świetna praca domowa!') : r.score >= 0.6 ? tr('Good work!', 'Dobra robota!') : tr('Keep going — extra practice added 💪', 'Ćwiczymy dalej — dodano dodatkowe ćwiczenia 💪')),
+          h('div.row.center', h('button.btn', { type: 'button', onclick: () => LA.go('home') }, tr('Back to today', 'Wróć do planu')), h('button.btn.secondary', { type: 'button', onclick: () => LA.go('homework') }, tr('More homework', 'Inne prace domowe')))));
+        LA.renderChrome();
+      } });
+    }
+    renderStep();
   }
 
-  /* ---------- quiz ---------- */
+  /* ---------- quizzes, challenges, exams ---------- */
+  function resultList(results) {
+    const list = h('div');
+    results.forEach((res, i) => {
+      const q = res.q;
+      const correctTxt = q.type === 'mc' ? q.options[q.answer] : Array.isArray(q.answer) ? q.answer[0] : q.answer;
+      const givenTxt = q.type === 'mc' ? q.options[res.given] : res.given;
+      const item = h('div.review-q' + (res.correct ? '.ok' : ''),
+        h('div', h('strong', `${i + 1}. `), h('span', { html: q.dictation ? tr('Dictation: ', 'Dyktando: ') + U.esc(q.say) : U.fmtInline(q.q) })),
+        q.svg && !res.correct ? h('div.visual', { html: q.svg }) : null,
+        h('div.small', res.correct ? '✅ ' + U.plain(String(givenTxt)) : `❌ ${tr('You said', 'Twoja odpowiedź')}: ${U.plain(String(givenTxt || '—'))} · ✅ ${U.plain(String(correctTxt))}`),
+        !res.correct && q.explain ? h('div.small', { html: U.fmt(q.explain) }) : null);
+      if (!res.correct && AI.available()) {
+        const b = h('button.btn.secondary.small', { type: 'button' }, tr('Explain this one', 'Wytłumacz'));
+        b.addEventListener('click', () => b.replaceWith(UI.aiBox(tr('Explanation', 'Wyjaśnienie'), (on) => AI.explainMistake(q, res.given, null, on))));
+        item.appendChild(b);
+      }
+      list.appendChild(item);
+    });
+    return list;
+  }
+
   function viewQuiz(key, params) {
     const ch = LA.index.chapters[key];
-    if (!ch) return LA.go('home');
+    if (!ch) return LA.go('home', null, { replace: true });
     const s = LA.index.subjects[ch.subjectKey];
     const mode = params.mode === 'testout' ? 'testout' : 'quiz';
-    UI.koa.context = Object.assign({}, ch);
+    UI.tutor.context = ch;
     const blocking = S.openRemediation().filter((r) => r.chapterKey === ch.key && r.blocking);
-    main.append(crumbs([['Home', '#/home'], [s.name, '#/subject/' + s.key], [ch.title, '#/chapter/' + ch.key], [mode === 'testout' ? 'Test out' : 'Quiz']]));
+    const c = h('div.content');
+    main.appendChild(c);
+    c.appendChild(crumbs([[s.name, 'subject/' + s.key], [ch.title, 'chapter/' + ch.key], [mode === 'testout' ? tr('Test out', 'Zalicz testem') : tr('Quiz', 'Sprawdzian')]]));
     const area = h('div');
-    const intro = h('div.card.stack', { style: { textAlign: 'center', maxWidth: '640px', margin: '0 auto' } },
+    const intro = h('div.card.col', { style: { textAlign: 'center', alignItems: 'center', maxWidth: '640px', margin: '0 auto' } },
       h('div', { style: { fontSize: '3em' } }, mode === 'testout' ? '⚡' : '📝'),
-      h('h1', (mode === 'testout' ? 'Test out: ' : 'Quiz: ') + ch.title),
-      h('p', mode === 'testout'
-        ? `Think you already know this chapter? Score ${Math.round(T.PASS_QUIZ * 100)}% or more and the whole chapter is ticked off — a great way to catch up fast!`
-        : `Show what you know! You need ${Math.round(T.PASS_QUIZ * 100)}% to pass. You won’t see answers until the end.`),
-      h('p.small.muted', 'Take your time. Press 🔊 on any question to hear it read out.'),
-      blocking.length && mode !== 'testout' ? h('div.banner.warn', 'Koa suggests finishing your extra practice first: ', blocking.map((r) => h('div', h('a', { href: '#/practice/rem/' + r.id }, '🎯 ' + LA.skillLabel(r.skill))))) : null,
-      h('div.row', { style: { justifyContent: 'center' } },
-        h('button.btn.big', { type: 'button', disabled: blocking.length && mode !== 'testout' ? true : null, onclick: start }, 'Start →'),
-        blocking.length && mode !== 'testout' ? h('a.btn.secondary', { href: '#/practice/rem/' + blocking[0].id }, 'Do extra practice') : null)
-    );
-    main.append(intro, area);
-
+      h('h1', ch.title),
+      h('p', mode === 'testout' ? tr(`Already know this chapter? Score ${Math.round(T.PASS_QUIZ * 100)}% or more and the whole chapter is ticked off — a fast way to catch up.`, `Znasz już ten rozdział? Zdobądź ${Math.round(T.PASS_QUIZ * 100)}% lub więcej, a cały rozdział zostanie zaliczony.`) : tr(`Show what you know! ${Math.round(T.PASS_QUIZ * 100)}% to pass. Answers are shown at the end.`, `Pokaż, co umiesz! Zaliczenie od ${Math.round(T.PASS_QUIZ * 100)}%. Odpowiedzi zobaczysz na końcu.`)),
+      h('p.small.muted', tr('Take your time. Press 🔊 to hear any question.', 'Nie spiesz się. 🔊 przeczyta każde pytanie.')),
+      blocking.length && mode !== 'testout' ? h('div.feedback.warn', tr('Finish your extra practice first.', 'Najpierw dodatkowe ćwiczenia.'), blocking.map((r) => h('div', h('button.btn.ghost.small', { type: 'button', onclick: () => LA.go('practice/rem/' + r.id) }, '🎯 ' + LA.skillLabel(r.skill))))) : null,
+      h('button.btn.big', { type: 'button', disabled: blocking.length && mode !== 'testout' ? true : null, onclick: start }, tr('Start →', 'Start →')));
+    c.append(intro, area);
     function start() {
       intro.remove();
-      const qs = LA.chapterQuiz(ch);
-      UI.runQuestions(area, qs, { mode: 'quiz', ctx: ch, onDone: (results) => showResults(results) });
+      UI.runQuestions(area, LA.chapterQuiz(ch), { mode: 'quiz', ctx: ch, onDone: show });
     }
-
-    function showResults(results) {
+    function show(results) {
       const r = T.afterQuiz(ch, results, mode);
-      T.markHomework('quiz', ch.key);
-      renderTop();
+      T.markPlan('quiz', ch.key);
       area.innerHTML = '';
       if (r.passed) UI.confetti();
-      const card = h('div.card.stack', { style: { maxWidth: '760px', margin: '0 auto' } },
-        h('div.result-big', `${r.right}/${r.total}`),
-        h('h2', { style: { textAlign: 'center' } }, r.passed ? (mode === 'testout' ? '⚡ Tested out! Chapter complete!' : '🏆 You passed! Chapter complete!') : mode === 'testout' ? 'Not quite enough to test out — no problem!' : 'Not passed yet — let’s fix the tricky bits 💪'),
-        h('p', { style: { textAlign: 'center' } }, r.passed
-          ? (r.weak.length ? 'Koa added a quick review of the ones you missed.' : 'Perfect — nothing to review!')
-          : mode === 'testout' ? 'Work through the lessons and you’ll have it in no time. Koa noted which parts to focus on.' : 'Koa has set up extra practice on exactly the parts you missed. Finish it, then retake the quiz.')
-      );
-      // per-question review
-      const list = h('div');
-      results.forEach((res, i) => {
-        const q = res.q;
-        const correctTxt = q.type === 'mc' ? q.options[q.answer] : Array.isArray(q.answer) ? q.answer[0] : q.answer;
-        const givenTxt = q.type === 'mc' ? q.options[res.given] : res.given;
-        const item = h('div.review-q' + (res.correct ? '.ok' : ''),
-          h('div', h('strong', `${i + 1}. `), h('span', { html: U.fmt(q.q).replace(/^<p>|<\/p>$/g, '') })),
-          q.svg && !res.correct ? h('div.visual', { html: q.svg }) : null,
-          h('div.small', res.correct ? '✅ ' + givenTxt : `❌ You said: ${givenTxt || '(blank)'} · ✅ Answer: ${correctTxt}`),
-          !res.correct && q.explain ? h('div.small', { html: U.fmt(q.explain) }) : null);
-        if (!res.correct && T.ai.available()) {
-          const b = h('button.btn.secondary.small', { type: 'button' }, '🐨 Explain this one');
-          b.addEventListener('click', () => b.replaceWith(UI.aiBox('Koa explains', () => T.ai.explainMistake(q, res.given, ch))));
-          item.appendChild(b);
-        }
-        list.appendChild(item);
-      });
-      card.appendChild(h('details', { open: !r.passed ? true : null }, h('summary', h('strong', 'See all answers')), list));
       const rems = S.openRemediation().filter((x) => x.chapterKey === ch.key);
-      if (rems.length) card.appendChild(h('div.stack', h('h3', '🎯 Your extra practice'), rems.map((x) => h('a.hw-item', { href: '#/practice/rem/' + x.id }, h('span.tick', '🎯'), h('div', { style: { flex: 1 } }, h('strong', LA.skillLabel(x.skill)), h('div.small.muted', x.reason)), h('span', '→')))));
-      card.appendChild(h('div.row', { style: { justifyContent: 'center' } },
-        r.passed ? h('a.btn.big', { href: '#/subject/' + s.key }, 'Back to ' + s.name + ' →') : rems.length ? h('a.btn.big', { href: '#/practice/rem/' + rems[0].id }, 'Start extra practice →') : h('a.btn.big', { href: '#/chapter/' + ch.key }, 'Back to lessons'),
-        h('a.btn.secondary', { href: '#/home' }, 'Home')));
-      area.appendChild(card);
+      area.appendChild(h('div.card.col', { style: { maxWidth: '780px', margin: '0 auto' } },
+        h('div.result-big', `${r.right}/${r.total}`),
+        h('h2', { style: { textAlign: 'center' } }, r.passed ? (mode === 'testout' ? tr('⚡ Tested out — chapter complete!', '⚡ Zaliczone testem!') : tr('🏆 Passed — chapter complete!', '🏆 Zaliczone!')) : tr('Not yet — let’s fix the tricky bits 💪', 'Jeszcze nie — poćwiczmy trudne miejsca 💪')),
+        r.passed && LA.hasChallenge(ch) ? h('div.feedback.info', h('h4', tr('★ Ready for more?', '★ Chcesz więcej?')), h('div.small', tr('Try the above-par challenge for this chapter.', 'Spróbuj zadań z gwiazdką z tego rozdziału.')), h('button.btn.small', { type: 'button', style: { marginTop: '8px' }, onclick: () => LA.go('challenge/' + ch.key) }, tr('★ Challenge', '★ Zadania z gwiazdką'))) : null,
+        h('details', { open: !r.passed ? true : null }, h('summary', h('strong', tr('See all answers', 'Zobacz wszystkie odpowiedzi'))), resultList(results)),
+        rems.length ? h('div.col', h('h3', tr('🎯 Your extra practice', '🎯 Twoje dodatkowe ćwiczenia')), rems.map((x) => h('button.plan-item', { type: 'button', onclick: () => LA.go('practice/rem/' + x.id) }, h('span.ico', '🎯'), h('div', { style: { flex: 1 } }, h('div.t', LA.skillLabel(x.skill)), h('div.small.muted', x.reason)), h('span', '›')))) : null,
+        h('div.row.center', h('button.btn', { type: 'button', onclick: () => LA.go(r.passed ? 'subject/' + s.key : rems.length ? 'practice/rem/' + rems[0].id : 'chapter/' + ch.key) }, r.passed ? tr('Back to ', 'Wróć do: ') + s.name : rems.length ? tr('Start extra practice →', 'Dodatkowe ćwiczenia →') : tr('Back to lessons', 'Wróć do lekcji')), h('button.btn.secondary', { type: 'button', onclick: () => LA.go('home') }, tr('Today', 'Dzisiaj')))));
+      LA.renderChrome();
     }
   }
 
-  /* ---------- practice (remediation / review / mixed) ---------- */
+  function viewChallenge(key) {
+    const ch = LA.index.chapters[key];
+    if (!ch) return LA.go('home', null, { replace: true });
+    const s = LA.index.subjects[ch.subjectKey];
+    UI.tutor.context = ch;
+    const c = h('div.content');
+    main.appendChild(c);
+    const area = h('div');
+    c.append(crumbs([[s.name, 'subject/' + s.key], [ch.title, 'chapter/' + ch.key], [tr('Challenge', 'Wyzwanie')]]),
+      h('div.card.col', { style: { textAlign: 'center', alignItems: 'center', maxWidth: '640px', margin: '0 auto' } }, h('div', { style: { fontSize: '3em' } }, '★'), h('h1', ch.title),
+        h('p', tr('These questions go a little beyond the year level. Getting 75% or more earns an “Above par” star for this chapter.', 'Te zadania wykraczają trochę poza poziom klasy. 75% lub więcej daje gwiazdkę „Powyżej poziomu”.')),
+        h('button.btn.big', { type: 'button', onclick: (e) => { e.target.closest('.card').remove(); UI.runQuestions(area, LA.chapterChallenge(ch), { mode: 'challenge', ctx: ch, onDone: done }); } }, tr('Start →', 'Start →'))), area);
+    function done(results) {
+      const r = T.afterChallenge(ch, results);
+      if (r.passed) UI.confetti();
+      area.innerHTML = '';
+      area.appendChild(h('div.card.col', { style: { maxWidth: '780px', margin: '0 auto' } }, h('div.result-big', `${r.right}/${r.total}`),
+        h('h2', { style: { textAlign: 'center' } }, r.passed ? tr('★ Above par! Amazing thinking.', '★ Powyżej poziomu! Wspaniale.') : tr('Great try — these are meant to be hard!', 'Świetna próba — te zadania są naprawdę trudne!')),
+        h('details', h('summary', h('strong', tr('See all answers', 'Zobacz odpowiedzi'))), resultList(results)),
+        h('div.row.center', h('button.btn', { type: 'button', onclick: () => LA.go('chapter/' + ch.key) }, tr('Back to chapter', 'Wróć do rozdziału')))));
+    }
+  }
+
+  function viewExam(key) {
+    const s = LA.index.subjects[key];
+    if (!s) return LA.go('home', null, { replace: true });
+    UI.tutor.context = s;
+    const c = h('div.content');
+    main.appendChild(c);
+    const area = h('div');
+    const hist = (S.P().exams[s.key] || []).slice(-3);
+    c.append(crumbs([[s.name, 'subject/' + s.key], [tr('Practice exam', 'Próbny sprawdzian')]]),
+      h('div.card.col', { style: { textAlign: 'center', alignItems: 'center', maxWidth: '680px', margin: '0 auto' } }, h('div', { style: { fontSize: '3em' } }, '🎓'),
+        h('h1', tr('End-of-year practice exam', 'Próbny sprawdzian końcoworoczny')),
+        h('p', tr(`30 questions from every chapter of ${s.name}, including some above-par questions. ${Math.round(T.PASS_EXAM * 100)}%+ means ready for any Year ${s.year} test.`, `30 pytań ze wszystkich rozdziałów (${s.name}), w tym kilka z gwiazdką. ${Math.round(T.PASS_EXAM * 100)}% i więcej oznacza gotowość na każdy sprawdzian klasy ${s.year}.`)),
+        s.prog === 'au' && s.year === 3 && ['english', 'maths'].includes(s.id) ? h('p.small.muted', tr('Year 3 also sits NAPLAN in Australia — this covers similar reading, language conventions and numeracy skills.', '')) : null,
+        hist.length ? h('div.small.muted', tr('Recent: ', 'Ostatnio: ') + hist.map((x) => Math.round((x.score / x.total) * 100) + '%').join(', ')) : null,
+        h('button.btn.big', { type: 'button', onclick: (e) => { e.target.closest('.card').remove(); UI.runQuestions(area, LA.subjectExam(s, 30), { mode: 'exam', ctx: s, onDone: done }); } }, tr('Start the exam →', 'Rozpocznij →'))), area);
+    function done(results) {
+      const r = T.afterExam(s, results);
+      if (r.passed) UI.confetti();
+      area.innerHTML = '';
+      area.appendChild(h('div.card.col', { style: { maxWidth: '780px', margin: '0 auto' } }, h('div.result-big', `${Math.round(r.score * 100)}%`),
+        h('h2', { style: { textAlign: 'center' } }, r.passed ? tr('🎓 Exam ready!', '🎓 Gotowa na sprawdzian!') : tr('Good practice — the missed topics are now in extra practice.', 'Dobre ćwiczenie — błędne tematy trafiły do dodatkowych ćwiczeń.')),
+        h('details', h('summary', h('strong', tr('See all answers', 'Zobacz odpowiedzi'))), resultList(results)),
+        h('div.row.center', h('button.btn', { type: 'button', onclick: () => LA.go('subject/' + s.key) }, tr('Back', 'Wróć')))));
+      LA.renderChrome();
+    }
+  }
+
+  /* ---------- extra practice / review ---------- */
   function viewPractice(kind, ref, params) {
     let rem = null, skill = ref;
-    if (kind === 'rem') {
-      rem = S.P().remediation.find((r) => r.id === ref);
-      if (!rem) return LA.go('home');
-      skill = rem.skill;
-    }
-    if (!LA.index.lessons[skill] && !LA.index.chapters[skill]) return LA.go('home');
+    if (kind === 'rem') { rem = S.P().remediation.find((r) => r.id === ref); if (!rem) return LA.go('home', null, { replace: true }); skill = rem.skill; }
+    if (!LA.index.lessons[skill] && !LA.index.chapters[skill]) return LA.go('home', null, { replace: true });
     const lesson = LA.index.lessons[skill];
     const ch = lesson ? LA.index.chapters[lesson.chapterKey] : LA.index.chapters[skill];
     const s = LA.index.subjects[ch.subjectKey];
-    UI.koa.context = lesson || ch;
-    const title = rem ? 'Extra practice' : params.review ? 'Quick review' : 'Mixed practice';
-    main.append(crumbs([['Home', '#/home'], [s.name, '#/subject/' + s.key], [ch.title, '#/chapter/' + ch.key], [title]]));
+    UI.tutor.context = lesson || ch;
+    const title = rem ? tr('Extra practice', 'Dodatkowe ćwiczenia') : params.review ? tr('Quick review', 'Szybka powtórka') : tr('Mixed practice', 'Ćwiczenia mieszane');
+    const c = h('div.content');
+    main.appendChild(c);
     const area = h('div');
     const m = S.mastery(skill);
-    const intro = h('div.card.stack', { style: { maxWidth: '700px', margin: '0 auto' } },
-      h('h1', '🎯 ' + title + ': ' + LA.skillLabel(skill)),
-      rem ? h('div.banner.info', rem.reason) : null,
-      m != null ? h('div.small.muted', `Koa’s mastery meter for this skill: ${Math.round(m * 100)}%`) : null,
-      h('p', rem ? `Get ${Math.round(T.PASS_REMEDIATION * 100)}% or more to finish this task.` : 'A short set of questions to keep this skill sharp.'),
-      h('div.row',
-        lesson ? h('a.btn.secondary', { href: '#/lesson/' + lesson.key }, '📖 Re-read the lesson') : null,
-        T.ai.available() ? h('button.btn.secondary', { type: 'button', onclick: (e) => { e.target.replaceWith(UI.aiBox('Koa teaches it again', () => T.ai.reteach(skill))); } }, '🐨 Teach me again a different way') : null),
-      h('div.row', { style: { marginTop: '8px' } },
-        h('button.btn.big', { type: 'button', onclick: () => start(LA.skillPractice(skill, 6)) }, 'Start practice →'),
-        T.ai.available() ? h('button.btn.secondary', { type: 'button', onclick: aiStart }, '🐨 Koa, make me new questions') : null)
-    );
-    main.append(intro, area);
-
+    const intro = h('div.card.col', { style: { maxWidth: '720px', margin: '0 auto' } },
+      h('div.eyebrow', title), h('h1', LA.skillLabel(skill)),
+      rem ? h('div.feedback.info', rem.source === 'parent' ? h('strong', tr('From your grown-up: ', 'Od rodzica: ')) : null, rem.reason) : null,
+      m != null ? h('div.small.muted', tr('Mastery: ', 'Opanowanie: ') + Math.round(m * 100) + '%') : null,
+      h('p', rem ? tr(`Get ${Math.round(T.PASS_REMEDIATION * 100)}% or more to finish this task.`, `Zdobądź ${Math.round(T.PASS_REMEDIATION * 100)}% lub więcej, aby zaliczyć.`) : tr('A short set to keep this skill sharp.', 'Krótki zestaw, by utrwalić umiejętność.')),
+      h('div.row', lesson ? h('button.btn.secondary', { type: 'button', onclick: () => LA.go('lesson/' + lesson.key) }, tr('📖 Re-read the lesson', '📖 Przeczytaj lekcję')) : null,
+        AI.available() ? h('button.btn.secondary', { type: 'button', onclick: (e) => e.target.replaceWith(UI.aiBox(tr('Teach me again', 'Wytłumacz jeszcze raz'), (on) => AI.reteach(skill, on))) }, tr('🧑‍🏫 Teach me again differently', '🧑‍🏫 Wytłumacz inaczej')) : null,
+        AI.available() ? UI.otherLangBtn((on, lang) => AI.reteach(skill, on, lang)) : null),
+      h('div.row', { style: { marginTop: '6px' } }, h('button.btn.big', { type: 'button', onclick: () => start(LA.skillPractice(skill, rem && rem.n ? rem.n : 6, { stretch: rem && rem.stretch })) }, tr('Start →', 'Start →')),
+        AI.available() ? h('button.btn.secondary', { type: 'button', onclick: aiStart }, tr('✨ New questions from ', '✨ Nowe pytania od ') + LA.PROGRAMMES[s.prog].tutor) : null));
+    c.append(crumbs([[s.name, 'subject/' + s.key], [ch.title, 'chapter/' + ch.key], [title]]), intro, area);
     function aiStart(e) {
-      const b = e.target;
+      const b = e.currentTarget;
       b.disabled = true;
-      b.textContent = 'Koa is writing questions…';
-      T.ai.generatePractice(skill, 6)
-        .then((qs) => start(qs))
-        .catch((err) => { b.textContent = '⚠️ ' + err.message + ' — using built-in questions'; setTimeout(() => start(LA.skillPractice(skill, 6)), 1500); });
+      b.textContent = tr('Writing questions…', 'Przygotowuję pytania…');
+      AI.generatePractice(skill, 6, rem && rem.stretch).then(start).catch((err) => { b.textContent = '⚠️ ' + err.message; setTimeout(() => start(LA.skillPractice(skill, 6)), 1500); });
     }
-
     function start(qs) {
       intro.classList.add('hidden');
-      UI.runQuestions(area, qs, { mode: 'practice', ctx: lesson || ch, onDone: done });
+      UI.runQuestions(area, qs, { mode: 'review', ctx: lesson || ch, onDone: done });
     }
     function done(results) {
       area.innerHTML = '';
-      let ok = true, right = results.filter((r) => r.correct).length, total = results.length;
-      if (rem) { const r = T.afterRemediation(rem, results); ok = r.ok; T.markHomework('remediation', rem.id); }
-      else { ok = total ? right / total >= 0.8 : true; T.markHomework('review', skill); S.log('review', skill, 6); }
+      let ok, right = results.filter((r) => r.correct).length, total = results.length;
+      if (rem) { ok = T.afterRemediation(rem, results).ok; T.markPlan('remediation', rem.id); }
+      else { ok = total ? right / total >= 0.8 : true; T.markPlan('review', skill); S.log('review', skill, 6); }
       if (ok) UI.confetti();
-      renderTop();
       const blockingLeft = S.openRemediation().filter((r) => r.chapterKey === ch.key && r.blocking);
-      const nextRem = S.openRemediation().find((r) => r.skill.startsWith('y' + S.activeProfile().year + '.'));
-      area.appendChild(h('div.card.stack', { style: { textAlign: 'center', maxWidth: '640px', margin: '0 auto' } },
-        h('div.result-big', `${right}/${total}`),
-        h('h2', ok ? '🌟 Nailed it!' : 'Getting there! Let’s keep at it 💪'),
-        h('p', ok ? (rem ? 'This extra practice is finished.' : 'Great review!') : 'Have another go with fresh questions. Re-reading the lesson or asking Koa helps too.'),
-        !ok && T.ai.available() ? UI.aiBox('Koa teaches it again', () => T.ai.reteach(skill)) : null,
-        h('div.row', { style: { justifyContent: 'center' } },
-          !ok ? h('button.btn.big', { type: 'button', onclick: () => start(LA.skillPractice(skill, 6)) }, 'Try again →') : null,
-          ok && rem && rem.blocking && !blockingLeft.length ? h('a.btn.big', { href: '#/quiz/' + ch.key }, '📝 Retake the quiz →') : null,
-          ok && nextRem ? h('a.btn' + (rem && rem.blocking && !blockingLeft.length ? '.secondary' : ''), { href: '#/practice/rem/' + nextRem.id }, 'Next practice: ' + LA.skillLabel(nextRem.skill)) : null,
-          h('a.btn.secondary', { href: '#/home' }, 'Home'))
-      ));
+      const nextRem = S.openRemediation(s.prog)[0];
+      area.appendChild(h('div.card.col', { style: { textAlign: 'center', alignItems: 'center', maxWidth: '640px', margin: '0 auto' } }, h('div.result-big', `${right}/${total}`),
+        h('h2', ok ? tr('🌟 Nailed it!', '🌟 Super!') : tr('Getting there — let’s keep at it 💪', 'Już blisko — ćwiczymy dalej 💪')),
+        !ok && AI.available() ? UI.aiBox(tr('Teach me again', 'Wytłumacz jeszcze raz'), (on) => AI.reteach(skill, on)) : null,
+        h('div.row.center',
+          !ok ? h('button.btn.big', { type: 'button', onclick: () => start(LA.skillPractice(skill, 6)) }, tr('Try again →', 'Jeszcze raz →')) : null,
+          ok && rem && rem.blocking && !blockingLeft.length ? h('button.btn.big', { type: 'button', onclick: () => LA.go('quiz/' + ch.key) }, tr('📝 Retake the quiz', '📝 Popraw sprawdzian')) : null,
+          ok && nextRem ? h('button.btn.secondary', { type: 'button', onclick: () => LA.go('practice/rem/' + nextRem.id) }, tr('Next practice', 'Następne ćwiczenie')) : null,
+          h('button.btn.secondary', { type: 'button', onclick: () => LA.go('home') }, tr('Today', 'Dzisiaj')))));
+      LA.renderChrome();
     }
   }
 
-  /* ---------- parent area ---------- */
-  let parentUnlocked = false;
-  function viewParent(tab) {
-    const st = S.settings();
-    if (st.pin && !parentUnlocked) {
-      const inp = h('input', { type: 'password', inputmode: 'numeric', placeholder: 'PIN', 'aria-label': 'Parent PIN' });
-      const msg = h('div.small');
-      const go = () => { if (inp.value === st.pin) { parentUnlocked = true; route(); } else { msg.textContent = 'That PIN is not right.'; inp.value = ''; } };
-      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-      main.append(h('div.card.stack', { style: { maxWidth: '420px', margin: '30px auto' } }, h('h1', '👪 Grown-ups only'), h('p', 'Enter the parent PIN.'), inp, msg, h('button.btn', { type: 'button', onclick: go }, 'Unlock')));
-      setTimeout(() => inp.focus(), 30);
-      return;
-    }
-    const tabs = [['report', '📊 Report'], ['settings', '⚙️ Settings'], ['children', '👧 Learners'], ['data', '💾 Backup']];
-    main.append(h('h1', '👪 Parent area'), h('div.row', { style: { marginBottom: '14px' } }, tabs.map(([k, l]) => h('a.btn' + (k === tab ? '' : '.secondary') + '.small', { href: '#/parent/' + k }, l)), h('span.spacer'), h('a.btn.ghost.small', { href: '#/curriculum' }, 'Curriculum coverage')));
-    if (tab === 'settings') return parentSettings();
-    if (tab === 'children') return parentChildren();
-    if (tab === 'data') return parentData();
-    return parentReport();
-  }
-
-  function parentReport() {
-    const p = S.activeProfile();
-    if (!p) { main.appendChild(h('div.card', h('p', 'Add a learner first.'), h('a.btn', { href: '#/profiles' }, 'Add learner'))); return; }
+  /* ---------- homework list ---------- */
+  function viewHomework() {
+    const prog = LA.state.prog;
+    const open = S.openHomework(prog);
     const P = S.P();
-    const subjects = LA.curriculum[p.year].subjects;
-    main.appendChild(h('div.row', h('h2', { style: { margin: 0 } }, `${p.avatar} ${p.name} — Year ${p.year}`), h('span.spacer'), h('button.btn.secondary.small', { type: 'button', onclick: () => window.print() }, '🖨 Print')));
-    const totalMin = P.log.reduce((s2, l) => s2 + (l.minutes || 0), 0);
-    const week = P.log.filter((l) => Date.now() - l.at < 7 * 86400000).reduce((s2, l) => s2 + (l.minutes || 0), 0);
-    main.appendChild(h('div.grid.cols-3', { style: { margin: '12px 0' } },
-      h('div.card.stat', h('div.n', String(P.streak.count || 0)), h('div.muted', 'day streak')),
-      h('div.card.stat', h('div.n', '~' + week), h('div.muted', 'minutes this week')),
-      h('div.card.stat', h('div.n', '~' + totalMin), h('div.muted', 'minutes total')),
-      h('div.card.stat', h('div.n', String(S.openRemediation().filter((r) => r.skill.startsWith('y' + p.year + '.')).length)), h('div.muted', 'open extra-practice tasks'))));
-
-    main.appendChild(h('div.card', h('h3', 'Progress by subject'), h('table.report', h('tr', h('th', 'Subject'), h('th', 'Lessons'), h('th', 'Chapters passed'), h('th', 'Expected by now*'), h('th', 'Status')),
-      subjects.map((s) => { const st = T.subjectStats(s); return h('tr', h('td', s.icon + ' ' + s.name), h('td', `${st.done}/${st.lessons}`), h('td', `${st.passed}/${st.chapters}`), h('td', String(st.expected)), h('td', st.behind ? h('span.tag.warn', st.behind + ' behind') : h('span.tag.good', 'On track'))); })),
-      h('p.small.muted', '*Based on how far through the school year (Feb–Dec) today is. Terms differ slightly between states.')));
-
-    const weak = T.weakSkills(12);
-    main.appendChild(h('div.card', h('h3', 'Skills needing attention'), weak.length ? h('table.report', h('tr', h('th', 'Skill'), h('th', 'Recent accuracy'), h('th', 'Answers'), h('th', '')), weak.map((w) => h('tr', h('td', LA.skillLabel(w.skill)), h('td', h('span.tag.bad', Math.round(w.m * 100) + '%')), h('td', String(w.n)), h('td', h('a.btn.small.secondary', { href: '#/practice/skill/' + encodeURIComponent(w.skill) }, 'Practise'))))) : h('p.muted', 'Nothing flagged yet — keep going!')));
-
-    const quizRows = [];
-    Object.keys(P.chapters).forEach((k) => { const ch = LA.index.chapters[k]; if (!ch || !k.startsWith('y' + p.year + '.')) return; P.chapters[k].attempts.forEach((a) => quizRows.push({ ch, a, passed: P.chapters[k].passed, via: P.chapters[k].via })); });
-    quizRows.sort((a, b) => b.a.at - a.a.at);
-    main.appendChild(h('div.card', h('h3', 'Quiz history'), quizRows.length ? h('table.report', h('tr', h('th', 'Date'), h('th', 'Chapter'), h('th', 'Score')), quizRows.slice(0, 30).map((r) => h('tr', h('td', new Date(r.a.at).toLocaleDateString('en-AU')), h('td', LA.subjectOf(r.ch.key).name + ': ' + r.ch.title), h('td', `${r.a.score}/${r.a.total} (${Math.round((r.a.score / r.a.total) * 100)}%)`)))) : h('p.muted', 'No quizzes yet.')));
-
-    const mistakes = P.mistakes.filter((m) => m.skill.startsWith('y' + p.year + '.')).slice(-20).reverse();
-    main.appendChild(h('div.card', h('h3', 'Recent mistakes'), mistakes.length ? h('table.report', h('tr', h('th', 'Skill'), h('th', 'Question'), h('th', 'Said'), h('th', 'Answer')), mistakes.map((m) => h('tr', h('td.small', LA.skillLabel(m.skill)), h('td.small', m.q), h('td', m.given), h('td', m.correct)))) : h('p.muted', 'None yet.')));
-
-    const ai = h('div.card', h('h3', '🐨 AI progress summary'));
-    if (T.ai.available()) ai.appendChild(h('button.btn', { type: 'button', onclick: (e) => e.target.replaceWith(UI.aiBox('Summary for parents', () => T.ai.parentSummary())) }, 'Write a summary with suggestions'));
-    else ai.appendChild(h('p.muted', 'Add an API key in Settings to get an AI-written summary of strengths, misconceptions and a plan for next week.'));
-    main.appendChild(ai);
+    const done = Object.keys(P.hwSets).filter((k) => P.hwSets[k].status === 'done' && LA.progOfKey(k) === prog && LA.index.lessons[k]).sort((a, b) => P.hwSets[b].doneAt - P.hwSets[a].doneAt).slice(0, 12);
+    const rems = S.openRemediation(prog);
+    const c = h('div.content', h('div.eyebrow', LA.PROGRAMMES[prog].flag + ' ' + LA.PROGRAMMES[prog].short), h('h1', tr('Homework', 'Prace domowe')),
+      h('p.muted', tr('Homework sets appear after each lesson is learnt together. Do them on your own.', 'Prace domowe pojawiają się po każdej lekcji zrobionej razem. Rób je samodzielnie.')));
+    main.appendChild(c);
+    const list = h('div.plan');
+    if (!open.length) list.appendChild(h('p', tr('✨ No homework waiting. Learn a new lesson to get some!', '✨ Brak zadań. Zrób nową lekcję, aby dostać pracę domową!')));
+    open.forEach((k) => { const l = LA.index.lessons[k]; list.appendChild(h('button.plan-item', { type: 'button', onclick: () => LA.go('lesson/' + k, { step: 'homework' }) }, h('span.ico', '🎒'), h('div', { style: { flex: 1 } }, h('div.k', LA.subjectOf(k).name), h('div.t', l.title)), h('span', '›'))); });
+    c.appendChild(h('div.card', h('h2', tr('To do', 'Do zrobienia')), list));
+    if (rems.length) c.appendChild(h('div.card', { style: { marginTop: '14px' } }, h('h2', tr('🎯 Extra practice', '🎯 Dodatkowe ćwiczenia')), h('div.plan', rems.slice(0, 10).map((r) => h('button.plan-item', { type: 'button', onclick: () => LA.go('practice/rem/' + r.id) }, h('span.ico', r.source === 'parent' ? '👪' : '🎯'), h('div', { style: { flex: 1 } }, h('div.t', LA.skillLabel(r.skill)), h('div.small.muted', r.reason)), h('span', '›'))))));
+    if (done.length) c.appendChild(h('div.card.soft', { style: { marginTop: '14px' } }, h('h3', tr('Recently done', 'Ostatnio zrobione')), h('div.col', { style: { gap: '6px' } }, done.map((k) => h('div.row', h('span', '✓'), h('span', LA.index.lessons[k].title), h('span.spacer'), h('span.small.muted', P.hwSets[k].total ? `${P.hwSets[k].score}/${P.hwSets[k].total}` : ''))))));
   }
 
-  function parentSettings() {
-    const st = S.settings();
-    const key = h('input', { type: 'password', placeholder: 'sk-ant-…', value: st.apiKey || '', autocomplete: 'off', 'aria-label': 'Anthropic API key' });
-    const model = h('select', { 'aria-label': 'AI model' }, [['claude-opus-5-5', 'Claude Opus 5.5 — best explanations (default)'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5 — fast and capable, lower cost'], ['claude-haiku-5-5', 'Claude Haiku 5.5 — fastest, lowest cost']].map(([v, l]) => h('option', { value: v, selected: st.model === v ? true : null }, l)));
-    const aiOn = h('input', { type: 'checkbox', checked: st.aiEnabled ? true : null });
-    const testOut = h('div.small');
-    const voices = SP.voices();
-    const voice = h('select', { 'aria-label': 'Voice' }, h('option', { value: '' }, 'Automatic (Australian English if available)'), voices.map((v) => h('option', { value: v.voiceURI, selected: st.voiceURI === v.voiceURI ? true : null }, `${v.name} (${v.lang})`)));
-    const rate = h('input', { type: 'range', min: 0.6, max: 1.3, step: 0.05, value: st.rate, 'aria-label': 'Reading speed' });
-    const autoRead = h('input', { type: 'checkbox', checked: st.autoRead ? true : null });
-    const mins = h('select', { 'aria-label': 'Daily minutes' }, [15, 20, 30, 45, 60, 90].map((m) => h('option', { value: m, selected: +st.dailyMinutes === m ? true : null }, m + ' minutes' + (m >= 45 ? ' (catch-up pace)' : m <= 20 ? ' (light)' : ''))));
-    const theme = h('select', { 'aria-label': 'Theme' }, [['auto', 'Match device'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => h('option', { value: v, selected: (st.theme || 'auto') === v ? true : null }, l)));
-    const big = h('input', { type: 'checkbox', checked: st.bigText ? true : null });
-    const spacing = h('input', { type: 'checkbox', checked: st.spacing ? true : null });
-    const pin = h('input', { type: 'password', inputmode: 'numeric', placeholder: 'Leave blank for no PIN', value: st.pin || '', maxlength: 8, 'aria-label': 'Parent PIN' });
-    const saved = h('span.small.muted');
-
-    function saveAll() {
-      S.setSetting('apiKey', key.value.trim());
-      S.setSetting('model', model.value);
-      S.setSetting('aiEnabled', aiOn.checked);
-      S.setSetting('voiceURI', voice.value);
-      S.setSetting('rate', +rate.value);
-      S.setSetting('autoRead', autoRead.checked);
-      if (+mins.value !== +st.dailyMinutes) { S.setSetting('dailyMinutes', +mins.value); if (S.activeProfile()) T.planToday(true); }
-      S.setSetting('theme', theme.value);
-      S.setSetting('bigText', big.checked);
-      S.setSetting('spacing', spacing.checked);
-      S.setSetting('pin', pin.value.trim());
-      S.saveNow();
-      applyTheme();
-      saved.textContent = '✓ Saved';
-      setTimeout(() => (saved.textContent = ''), 2000);
+  /* ---------- tricky words (spelling list + dictation) ---------- */
+  function viewWords() {
+    const prog = LA.state.prog;
+    const P = S.P();
+    const words = T.trickyWords(prog);
+    const mastered = Object.keys(P.spelling).filter((w) => P.spelling[w].lang === LA.PROGRAMMES[prog].lang && P.spelling[w].mastered);
+    const c = h('div.content', h('div.eyebrow', LA.PROGRAMMES[prog].flag), h('h1', tr('My tricky words', 'Moje trudne wyrazy')),
+      h('p.muted', tr('Words you nearly spelt right are collected here automatically. Practise them with dictation — say it, hear it, write it. Three correct in a row and a word is mastered.', 'Tu automatycznie trafiają wyrazy, w których był błąd. Ćwicz je dyktandem — posłuchaj i napisz. Trzy razy dobrze z rzędu i wyraz jest opanowany.')));
+    main.appendChild(c);
+    const area = h('div');
+    if (words.length) {
+      c.appendChild(h('div.card', h('div.row', h('h2', { style: { margin: 0 } }, `${words.length} ${tr('words to practise', 'wyrazów do ćwiczenia')}`), h('span.spacer'), h('button.btn', { type: 'button', onclick: start }, tr('▶ Dictation practice', '▶ Dyktando'))),
+        h('div.row', { style: { marginTop: '12px' } }, words.slice(0, 40).map((w) => h('span.chip', { title: (P.spelling[w].wrong || []).join(', ') }, w, P.spelling[w].ok ? ' ' + '•'.repeat(P.spelling[w].ok) : '')))));
+    } else c.appendChild(h('div.card', h('p', tr('No tricky words yet — great spelling! Words appear here when a spelling slip is spotted.', 'Na razie brak trudnych wyrazów — świetna ortografia! Wyrazy pojawią się, gdy zdarzy się błąd.'))));
+    if (prog === 'pl') c.appendChild(h('div.card.soft', { style: { marginTop: '14px' } }, h('h3', 'Dyktando ortograficzne'), h('p.small.muted', 'Ćwicz wyrazy z ó/u, rz/ż i ch/h z wyjaśnieniem reguły.'), h('div.row', [['ou', 'ó / u'], ['rz', 'rz / ż'], ['ch', 'ch / h'], ['all', 'wszystkie']].map(([k, lbl]) => h('button.btn.secondary.small', { type: 'button', onclick: () => run(LA.expand([LA.Q.gen('plDyktando', { set: k }, 8)], 'p3.polski')) }, lbl)))));
+    if (mastered.length) c.appendChild(h('div.card.soft', { style: { marginTop: '14px' } }, h('h3', tr('Mastered ✓', 'Opanowane ✓')), h('div.row', mastered.slice(-40).map((w) => h('span.tag.good', w)))));
+    c.appendChild(area);
+    function start() {
+      const qs = U.shuffle(words).slice(0, 10).map((w) => Object.assign(LA.Q.dict(w), { lang: LA.PROGRAMMES[prog].lang, skill: null, iid: U.uid(), explain: tr(`Spelt: ${w.split('').join(' - ')}`, `Pisownia: ${w.split('').join(' - ')}`) }));
+      run(qs);
     }
-
-    main.append(
-      h('div.card.stack',
-        h('h3', '🐨 AI tutor (Claude)'),
-        h('p.small', 'The app works fully without AI: lessons, read-aloud, quizzes, automatic extra practice and progress tracking are all built in. Adding a Claude API key switches on Koa’s chat, “explain it another way”, re-teaching, custom extra questions, writing feedback and the parent summary.'),
-        h('div', h('label.field', 'Anthropic API key'), key, h('div.field-hint', 'Get a key at console.anthropic.com. It is stored only in this browser on this device and is sent only to api.anthropic.com. Usage is billed to your Anthropic account. Don’t use this on a shared computer.')),
-        h('div', h('label.field', 'Model'), model, h('div.field-hint', 'Opus 5.5 gives the best explanations. Sonnet 5.5 and Haiku 5.5 cost less per answer.')),
-        h('label.row', aiOn, 'AI features switched on'),
-        h('div.row', h('button.btn.secondary.small', { type: 'button', onclick: () => { saveAll(); testOut.textContent = 'Testing…'; T.ai.call([{ role: 'user', content: 'Say a one-sentence hello to a Year 3 student.' }], { max_tokens: 300 }).then((t) => (testOut.textContent = '✓ Working: ' + t)).catch((e) => (testOut.textContent = '⚠️ ' + e.message)); } }, 'Test the AI connection'), testOut)
-      ),
-      h('div.card.stack',
-        h('h3', '🔊 Reading aloud'),
-        h('p.small', 'Read-aloud uses your device’s built-in voices (no internet or key needed). For the best Australian voice on Windows/Android/iPad, install an “English (Australia)” voice in your device’s speech settings.'),
-        h('div', h('label.field', 'Voice'), voice),
-        h('div', h('label.field', 'Reading speed'), rate),
-        h('label.row', autoRead, 'Read lessons and questions out loud automatically (great for early readers)'),
-        h('button.btn.secondary.small', { type: 'button', onclick: () => { saveAll(); SP.say('G’day! I am going to read your lessons to you. Let’s learn together!'); } }, '▶ Test voice')
-      ),
-      h('div.card.stack',
-        h('h3', '📅 Homework & pace'),
-        h('div', h('label.field', 'Daily homework time'), mins, h('div.field-hint', 'Higher settings add more lessons per day to help a child catch up faster. Chapters a child already knows can be skipped with “⚡ Test out”.'))
-      ),
-      h('div.card.stack',
-        h('h3', '👀 Display'),
-        h('div', h('label.field', 'Theme'), theme),
-        h('label.row', big, 'Larger text'),
-        h('label.row', spacing, 'Extra letter and line spacing (can help with reading difficulties)')
-      ),
-      h('div.card.stack', h('h3', '🔒 Parent PIN'), pin, h('div.field-hint', 'Stops children changing settings or seeing answers in the report.')),
-      h('div.row', h('button.btn.big', { type: 'button', onclick: saveAll }, 'Save settings'), saved)
-    );
+    function run(qs) {
+      c.querySelectorAll('.card').forEach((x) => x.classList.add('hidden'));
+      UI.runQuestions(area, qs, { mode: 'review', onDone: (results) => {
+        T.markPlan('spelling', prog);
+        area.innerHTML = '';
+        const right = results.filter((r) => r.correct).length;
+        area.appendChild(h('div.card.col', { style: { textAlign: 'center', alignItems: 'center' } }, h('div.result-big', `${right}/${results.length}`), h('button.btn', { type: 'button', onclick: () => LA.refresh() }, tr('Done', 'Gotowe'))));
+      } });
+    }
+    if (current.params.start && words.length) setTimeout(start, 50);
   }
 
-  function parentChildren() {
-    S.profiles().forEach((p) => {
-      const name = h('input', { type: 'text', value: p.name, 'aria-label': 'Name' });
-      const yr = h('select', { 'aria-label': 'Year' }, [3, 4].map((y) => h('option', { value: y, selected: p.year === y ? true : null }, 'Year ' + y)));
-      main.appendChild(h('div.card.stack', h('div.row', h('span', { style: { fontSize: '2em' } }, p.avatar), h('strong', p.name), S.state().active === p.id ? h('span.tag.good', 'Active') : null),
-        h('div.row', h('div', { style: { flex: 2, minWidth: '180px' } }, name), h('div', { style: { flex: 1, minWidth: '120px' } }, yr)),
-        h('div.small.muted', 'Changing year switches to that year’s workbook. Progress in each year is kept separately.'),
-        h('div.row',
-          h('button.btn.small', { type: 'button', onclick: () => { S.updateProfile(p.id, { name: name.value.trim() || p.name, year: +yr.value }); S.saveNow(); route(); } }, 'Save'),
-          h('button.btn.small.secondary', { type: 'button', onclick: () => { S.setActive(p.id); LA.go('home'); } }, 'Switch to this learner'),
-          h('button.btn.small.ghost', { type: 'button', onclick: () => UI.confirm('Delete ' + p.name + '?', 'All of ' + p.name + '’s progress will be deleted from this device. This cannot be undone.', () => { S.deleteProfile(p.id); route(); }, 'Delete') }, '🗑 Delete'))));
+  /* ---------- bridge (combined view) ---------- */
+  function viewBridge() {
+    const p = S.activeProfile();
+    const c = h('div.content', h('div.eyebrow', '🇦🇺 ⇄ 🇵🇱'), h('h1', tr('Bridge', 'Most')),
+      h('p.muted', tr('One place to see both programmes together: today’s work in each, topics that overlap (so nothing is learnt twice), and a two-language word list.', 'Jedno miejsce dla obu programów: dzisiejsza praca, tematy wspólne (żeby nie uczyć się dwa razy) i dwujęzyczny słowniczek.')));
+    main.appendChild(c);
+    const cols = h('div.grid.two');
+    ['au', 'pl'].forEach((prog) => {
+      if (!p[prog].on) return;
+      const P = LA.PROGRAMMES[prog];
+      const plan = T.planToday(prog);
+      const left = plan.items.filter((i) => !i.done).length;
+      cols.appendChild(h('div.card', h('div.row', h('span', { style: { fontSize: '1.8em' } }, P.flag), h('div', h('div.display', { style: { fontWeight: 800 } }, P.short + ' · ' + P.yearLabel(p[prog].year)), h('div.small.muted', `${left} ${prog === 'pl' ? 'zadań na dziś' : 'tasks left today'}`))),
+        h('div.plan', { style: { marginTop: '10px' } }, plan.items.slice(0, 6).map((it) => h('button.plan-item' + (it.done ? '.done' : ''), { type: 'button', onclick: () => { LA.state.prog = prog; LA.go(it.kind === 'lesson' ? 'lesson/' + it.ref : it.kind === 'hw' ? 'lesson/' + it.ref : it.kind === 'quiz' ? 'quiz/' + it.ref : it.kind === 'remediation' ? 'practice/rem/' + it.ref : 'home', it.kind === 'hw' ? { step: 'homework' } : null); } }, h('div', { style: { flex: 1 } }, h('div.t', { style: { fontSize: '0.92em' } }, it.title)), h('span.chk', it.done ? '✓' : ''))))));
     });
-    main.appendChild(h('button.btn', { type: 'button', onclick: () => { S.setActive(null); LA.go('home'); } }, '+ Add a learner'));
+    c.appendChild(cols);
+    // overlaps
+    const pairs = LA.bridge.overlaps(p);
+    c.appendChild(h('div.card', { style: { marginTop: '14px' } }, h('h2', tr('Topics in both programmes', 'Tematy wspólne')),
+      h('p.small.muted', tr('When a topic is passed in one programme, try ⚡ Test out in the other — it saves time and checks the skill in the second language.', 'Gdy temat jest zaliczony w jednym programie, spróbuj ⚡ „Zalicz testem” w drugim — oszczędza to czas i sprawdza umiejętność w drugim języku.')),
+      pairs.length ? h('div.tablewrap', h('table.report', h('tr', h('th', '🇦🇺'), h('th', '🇵🇱'), h('th', '')), pairs.map((x) => h('tr', h('td', x.au.title, ' ', x.auDone ? h('span.tag.good', '✓') : null), h('td', x.pl.title, ' ', x.plDone ? h('span.tag.good', '✓') : null),
+        h('td', x.auDone && !x.plDone ? h('button.btn.small.secondary', { type: 'button', onclick: () => LA.go('quiz/' + x.pl.key, { mode: 'testout' }) }, '⚡ PL') : !x.auDone && x.plDone ? h('button.btn.small.secondary', { type: 'button', onclick: () => LA.go('quiz/' + x.au.key, { mode: 'testout' }) }, '⚡ AU') : null))))) : h('p', tr('Overlaps appear when both programmes are switched on.', 'Wspólne tematy pojawią się, gdy oba programy są włączone.'))));
+    // glossary
+    const gl = LA.bridge.glossary(p);
+    c.appendChild(h('div.card', { style: { marginTop: '14px' } }, h('h2', tr('Two-language word list', 'Słowniczek dwujęzyczny')), h('p.small.muted', tr('Key words from the Australian lessons with their Polish meaning. Tap 🔊 to hear each one.', 'Ważne słowa z lekcji australijskich z polskim znaczeniem. Dotknij 🔊, aby usłyszeć.')),
+      h('div.tablewrap', h('table.report', h('tr', h('th', 'English'), h('th', 'Polski'), h('th', '')), gl.slice(0, 200).map((g) => h('tr', h('td', h('strong', g.en)), h('td', g.pl), h('td', UI.speakBtn(g.en, '', 'en-AU'), ' ', UI.speakBtn(g.pl, '', 'pl-PL'))))))));
   }
 
-  function parentData() {
-    const file = h('input', { type: 'file', accept: '.json,application/json', 'aria-label': 'Backup file' });
-    const msg = h('div.small');
-    file.addEventListener('change', () => {
-      const f = file.files[0];
-      if (!f) return;
-      const r = new FileReader();
-      r.onload = () => { try { S.importJSON(r.result); msg.textContent = '✓ Backup restored.'; renderTop(); } catch (e) { msg.textContent = '⚠️ ' + e.message; } };
-      r.readAsText(f);
-    });
-    main.append(
-      h('div.card.stack', h('h3', '💾 Back up progress'), h('p.small', 'All progress is saved in this browser automatically. Download a backup to keep it safe or move it to another device (your API key is not included).'),
-        h('button.btn', { type: 'button', onclick: () => { const blob = new Blob([S.exportJSON()], { type: 'application/json' }); const a = h('a', { href: URL.createObjectURL(blob), download: 'learning-workbook-backup-' + U.todayKey() + '.json' }); document.body.appendChild(a); a.click(); a.remove(); } }, '⬇ Download backup')),
-      h('div.card.stack', h('h3', '⬆ Restore a backup'), file, msg),
-      h('div.card.stack', h('h3', '⚠️ Start over'), h('p.small', 'Deletes every learner and all progress and settings on this device.'), h('button.btn.secondary', { type: 'button', onclick: () => UI.confirm('Delete everything?', 'This removes all learners, progress and settings from this device.', () => { S.wipeAll(); parentUnlocked = false; LA.go('home'); }, 'Delete everything') }, 'Delete all data'))
-    );
+  /* ---------- how it works (tutorial) ---------- */
+  function viewHelp() {
+    const first = current.params.first;
+    const steps = [
+      ['🧭', tr('Two programmes, one app', 'Dwa programy w jednej aplikacji'), tr('Switch between 🇦🇺 Australia (English, tutor Koa 🐨) and 🇵🇱 Polska (po polsku, Sowa Zosia 🦉) at the top. Each follows its own curriculum for the grade chosen in the Parent area.', 'U góry przełączasz 🇦🇺 Australia (po angielsku, Koa 🐨) i 🇵🇱 Polska (po polsku, Sowa Zosia 🦉). Każdy program ma własną podstawę dla wybranej klasy.')],
+      ['📖', tr('1 · Learn together', '1 · Uczymy się razem'), tr('A grown-up and child go through the lesson step by step. Each step has a tip for the grown-up and a 🔊 button that reads it aloud.', 'Rodzic i dziecko przechodzą lekcję krok po kroku. Każdy krok ma wskazówkę dla rodzica i przycisk 🔊.')],
+      ['✏️', tr('2 · Practise together', '2 · Ćwiczymy razem'), tr('Questions straight after the lesson. Two tries, then an explanation. If it’s tricky, the app goes over it again and adds extra practice.', 'Pytania zaraz po lekcji. Dwie próby, potem wyjaśnienie. Gdy jest trudno, aplikacja wraca do tematu i dodaje ćwiczenia.')],
+      ['🎒', tr('3 · Homework on her own', '3 · Praca domowa samodzielnie'), tr('A short independent set appears in Homework. Strong answers unlock ★ above-par questions.', 'Krótki zestaw do samodzielnej pracy. Dobre wyniki odblokowują ★ zadania z gwiazdką.')],
+      ['📝', tr('Quizzes, challenges and exams', 'Sprawdziany, wyzwania, egzaminy'), tr('Each chapter ends with a quiz (80% to pass), plus an optional ★ challenge. Each subject has an end-of-year practice exam.', 'Każdy rozdział kończy się sprawdzianem (80%), a także opcjonalnym ★ wyzwaniem. Każdy przedmiot ma próbny sprawdzian końcoworoczny.')],
+      ['✍️', tr('Apple Pencil', 'Apple Pencil'), tr('Tap ✍️ next to an answer to write by hand. The tutor reads the writing, asks “Is that what you wrote?”, and remembers confirmed samples to read her handwriting better over time. You can also write straight into any answer box (iPad Scribble).', 'Dotknij ✍️ przy odpowiedzi, aby pisać ręcznie. Asystent odczyta pismo, zapyta „Czy to napisałaś?” i zapamięta próbki, by coraz lepiej czytać jej pismo. Można też pisać rysikiem prosto w pole odpowiedzi (Scribble).')],
+      ['🎤', tr('Answer by voice', 'Odpowiedź głosem'), tr('Tap the 🎤 on the iPad keyboard and say the answer — it works in every answer box, including the “say your answer” box under multiple-choice questions.', 'Dotknij 🎤 na klawiaturze iPada i powiedz odpowiedź — działa w każdym polu, także w polu „powiedz odpowiedź” pod pytaniami z wyborem.')],
+      ['🔤', tr('Spelling', 'Ortografia'), tr('Near-misses (like “freind”) are spotted and collected in Tricky words for dictation practice.', 'Drobne błędy (np. „ksiąszka”) są wychwytywane i trafiają do „Trudnych wyrazów” na dyktando.')],
+      ['☁️', tr('Saved everywhere', 'Zapis wszędzie'), tr('Progress saves on the iPad instantly and, when opened on claude.ai, to your private cloud space. Sign in to the same claude.ai account on another device to carry on there.', 'Postęp zapisuje się od razu na iPadzie, a na claude.ai także w prywatnej chmurze. Zaloguj się na to samo konto claude.ai na innym urządzeniu, aby kontynuować.')],
+      ['📱', tr('Put it on the Home Screen', 'Dodaj do ekranu głównego'), tr('In Safari, tap Share → Add to Home Screen. For the best voices: Settings → Accessibility → Spoken Content → Voices → English (Australia) → Karen, and Polish → Zosia (download the Enhanced versions).', 'W Safari: Udostępnij → Do ekranu początkowego. Najlepsze głosy: Ustawienia → Dostępność → Mowa → Głosy → angielski (Australia) → Karen oraz polski → Zosia (pobierz wersje „Rozszerzone”).')],
+    ];
+    const c = h('div.content', h('div.eyebrow', tr('Tutorial', 'Samouczek')), h('h1', tr('How it works', 'Jak to działa')));
+    main.appendChild(c);
+    c.appendChild(h('div.grid.two', steps.map(([ic, t, d]) => h('div.card', h('div', { style: { fontSize: '2em' } }, ic), h('h3', t), h('p.small.muted', d), UI.speakBtn(t + '. ' + d, '')))));
+    c.appendChild(h('div.row', { style: { marginTop: '18px' } }, h('button.btn.big', { type: 'button', onclick: () => LA.go('home') }, first ? tr('Let’s begin →', 'Zaczynamy →') : tr('Back to today', 'Wróć'))));
   }
 
   /* ---------- curriculum coverage ---------- */
   function viewCurriculum() {
-    main.append(crumbs([['Home', '#/home'], ['Curriculum coverage']]),
-      h('h1', 'Curriculum coverage'),
-      h('div.card.stack',
-        h('p', 'The workbooks follow the learning areas, strands and content of the Australian Curriculum Version 9.0 for Year 3 and Year 4. Where a chapter shows a content-description code (e.g. AC9S3U01) it has been matched to that code. Each school and state (e.g. NSW syllabus, Victorian Curriculum) may order topics differently — use “Choose where to start” and “Test out” to line the app up with your child’s class.'),
-        h('p', h('strong', 'Languages: '), 'Schools choose which language to teach (e.g. Japanese, Indonesian, Italian, Auslan), so a languages workbook is not included.'),
-        h('p.small.muted', 'This app supports learning at home. It is not an official ACARA product and does not replace your child’s school reports or teacher.')
-      )
-    );
-    [3, 4].forEach((y) => {
-      main.appendChild(h('h2', { style: { marginTop: '22px' } }, 'Year ' + y));
-      LA.curriculum[y].subjects.forEach((s) => {
-        main.appendChild(h('details.card', h('summary', h('strong', `${s.icon} ${s.long || s.name}`), ` — ${s.chapters.length} chapters, ${s.chapters.reduce((n, c) => n + c.lessons.length, 0)} lessons`),
-          h('table.report', h('tr', h('th', 'Term'), h('th', 'Chapter'), h('th', 'Strand'), h('th', 'Code')), s.chapters.map((c) => h('tr', h('td', String(c.term || 1)), h('td', c.title), h('td.small', c.strand || ''), h('td.small', c.code || ''))))));
-      });
+    const c = h('div.content', h('h1', 'Curriculum coverage'),
+      h('div.card.col',
+        h('p', 'Australian section: follows the learning areas, strands and year-level content of the Australian Curriculum v9.0 for Years 3 and 4. A content-description code is shown only where it was checked against published lists; other chapters are labelled by strand. Physical Education (movement) is left out because it is covered at school; Health topics stay. Languages are not included because schools choose the language.'),
+        h('p', 'Polish section: follows the topics of the podstawa programowa — edukacja wczesnoszkolna for klasa 3 and the klasa 4 subjects (język polski, matematyka, przyroda, historia), with plastyka/muzyka and technika/informatyka as optional enrichment. Physical education and the foreign language are left out.'),
+        h('p.small.muted', 'This is a home-learning aid, not an official ACARA or MEN product, and does not replace school reports.')));
+    main.appendChild(c);
+    Object.keys(LA.curriculum).forEach((ck) => {
+      const prog = ck.slice(0, 2), year = +ck.slice(2);
+      const P = LA.PROGRAMMES[prog];
+      const subs = LA.curriculum[ck].subjects;
+      const lessons = subs.reduce((n, s) => n + s.chapters.reduce((m, ch) => m + ch.lessons.length, 0), 0);
+      c.appendChild(h('h2', { style: { marginTop: '22px' } }, `${P.flag} ${P.yearLabel(year)} — ${subs.length} subjects, ${lessons} lessons`));
+      subs.forEach((s) => c.appendChild(h('details.card', { style: { marginTop: '8px' } }, h('summary', h('strong', `${s.icon} ${s.long || s.name}`), ` — ${s.chapters.length} chapters, ${s.chapters.reduce((n, ch) => n + ch.lessons.length, 0)} lessons`),
+        h('div.tablewrap', h('table.report', h('tr', h('th', 'Term'), h('th', 'Chapter'), h('th', 'Strand'), h('th', 'Lessons'), h('th', 'Code')), s.chapters.map((ch) => h('tr', h('td', String(ch.term || 1)), h('td', ch.title), h('td.small', ch.strand || ''), h('td', String(ch.lessons.length)), h('td.small', ch.code || ''))))))));
     });
   }
 
   /* ---------- boot ---------- */
-  LA.start = function () {
-    topbar = document.getElementById('topbar');
-    main = document.getElementById('main');
-    UI.initKoa();
-    window.addEventListener('hashchange', route);
-    // a link to the page we're already on should still refresh it (e.g. "Take quiz" from its own results)
-    document.addEventListener('click', (e) => {
-      const a = e.target.closest && e.target.closest('a[href^="#/"]');
-      if (a && a.getAttribute('href') === location.hash) { e.preventDefault(); route(); }
-    });
+  LA.start = async function () {
+    shell = document.getElementById('app');
+    shell.innerHTML = '';
+    topbar = h('header.topbar');
+    sidebar = h('aside.sidebar');
+    main = h('div.content');
+    const mainWrap = h('main.main', main);
+    tabbar = h('nav.tabbar');
+    shell.append(sidebar, h('div', { style: { minWidth: 0 } }, topbar, mainWrap), tabbar);
+    shell.classList.add('app');
+    UI.initTutor();
+    LA.state.prog = S.settings().lastProg || 'au';
+    const hash = (location.hash || '').replace(/^#\/?/, '');
+    if (hash && !window.claude) current = { path: hash, params: {} };
+    LA.cloud.onStatus(() => { const el = sidebar.querySelector('.sync'); if (el) el.replaceWith(syncChip()); });
     route();
+    await AI.init();
+    const changed = await LA.cloud.init((scope) => { if (!document.querySelector('.q-wrap')) route(); else LA.renderChrome(); });
+    if (changed) route();
+    else LA.renderChrome();
   };
 })();
