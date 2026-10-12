@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.12';
+export const APP_VERSION = '1.0.13';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -1749,6 +1749,7 @@ function viewComplaint() {
   const p = complaintPatient(c), vs = complaintVisits(c);
   const chip = (x) => `<span class="vh-chip" style="${specStyle(x.spec || 'hig')}"><b>${x.fdi}</b>${esc(x.label)}</span>`;
   const r = c.response || {}, hasDraft = (r.paragraphs || []).length, out = c.mode === 'outside';
+  const liveKey = jobOf('draft', c.id) ? jobKey('draft', c.id) : jobOf('revise', c.id) ? jobKey('revise', c.id) : '', liveJob = liveKey ? JOBS.get(liveKey) : null;
   const doctorField = `<label class="f" style="flex:1;min-width:220px"><span>Lekarz prowadzący leczenie</span><input type="text" data-c="doctor" value="${esc(c.doctor)}" placeholder="np. lek. dent. Anna Nowak"></label>`;
   return `<div class="pagehead"><button class="btn btn-ghost" data-nav="complaints">${I('back')} Skargi</button><div><h2>Skarga — ${esc(patientName(p) || 'wybierz pacjenta')}</h2><div class="small muted">wpłynęła ${fmtDate(c.received)} · ${esc(SOURCES[c.source])}</div></div><span class="grow"></span>
     <button class="btn btn-ghost btn-danger" data-act="complaint-delete">${I('trash')}</button></div>
@@ -1784,13 +1785,14 @@ function viewComplaint() {
       <label class="f" style="margin-top:10px"><span>Propozycja dla pacjenta (opcjonalnie)</span><textarea data-c="offer" rows="2" placeholder="np. bezpłatna wizyta kontrolna i konsultacja z ordynatorem">${esc(c.offer)}</textarea></label>
       <div class="f" style="margin-top:10px"><span>Ton odpowiedzi</span><div class="seg" data-cseg="tone">${Object.entries(TONES).map(([k, l]) => `<button type="button" data-v="${k}" class="${c.tone === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       ${aiKey() ? `<div class="f" style="margin-top:10px"><span>Poziom analizy AI</span><div class="seg" data-cseg="effort">${Object.entries(COMPLAINT_EFFORTS).map(([k, l]) => `<button type="button" data-v="${k}" class="${cmpEffort(c) === k ? 'on' : ''}">${l}</button>`).join('')}</div><div class="hint" id="effort-hint" style="margin-top:6px">${EFFORT_HINT[cmpEffort(c)]}</div></div>` : ''}
-      ${jobOf('draft', c.id) ? `<button class="btn btn-primary btn-xl" disabled style="margin-top:16px;width:100%"><span class="spin"></span> AI pisze odpowiedź — <span data-job="${jobKey('draft', c.id)}">${jobState(jobOf('draft', c.id))}</span></button><div class="hint" style="margin-top:6px">Praca trwa w tle: możesz przejść do innych pacjentów lub innego okna — odpowiedź zapisze się tutaj sama.</div>`
+      ${jobOf('draft', c.id) ? `<div class="job-inline" style="margin-top:16px"><div class="job-h"><span class="pulse"></span><b>AI przygotowuje odpowiedź</b><span class="grow"></span><span class="muted small" data-job="${jobKey('draft', c.id)}">${jobState(jobOf('draft', c.id))}</span></div>${jobBar(jobKey('draft', c.id), jobOf('draft', c.id))}<div data-jsteps="${jobKey('draft', c.id)}" data-step="${jobStep(jobOf('draft', c.id))}">${jobStepsHTML(jobOf('draft', c.id))}</div></div><div class="hint" style="margin-top:6px">Praca trwa w tle: możesz przejść do innych pacjentów lub innego okna — odpowiedź zapisze się tutaj sama.</div>`
         : `<button class="btn btn-primary btn-xl" data-act="complaint-draft" style="margin-top:16px;width:100%">${I('spark')} ${hasDraft ? 'Przygotuj odpowiedź od nowa' : 'Przygotuj projekt odpowiedzi'}${aiKey() ? ' (AI)' : ''}</button>`}
       ${aiKey() ? '' : '<div class="hint" style="margin-top:6px">Bez klucza AI powstanie projekt z generatora wbudowanego (fakty z dokumentacji + zaznaczone argumenty + Twoje stanowisko).</div>'}
     </div></section>
     <section class="panel"><header><h3>4. Odpowiedź</h3>${hasDraft ? `<span class="sub">${r.source === 'ai' ? 'projekt AI' : 'generator wbudowany'}</span>` : ''}<span class="grow"></span><select data-c="status" title="Status" style="width:auto;min-width:170px">${Object.entries(STATUS).map(([k, l]) => `<option value="${k}" ${c.status === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></header><div class="body">
-      ${jobOf('revise', c.id) ? `<div class="banner info" style="margin-bottom:12px"><span class="spin"></span><span class="grow small"><b>AI poprawia odpowiedź w tle</b> — <span data-job="${jobKey('revise', c.id)}">${jobState(jobOf('revise', c.id))}</span>. Możesz pracować dalej.</span></div>` : ''}
-      ${hasDraft ? `${analysisHTML(r.analysis)}${(r.warnings || []).length ? `<div class="banner warn" style="margin-bottom:12px"><span class="grow small"><b>Do sprawdzenia:</b> ${r.warnings.map(esc).join(' · ')}</span></div>` : ''}
+      ${jobOf('revise', c.id) ? `<div class="job-inline" style="margin-bottom:12px"><div class="job-h"><span class="pulse"></span><b>AI poprawia odpowiedź w tle</b><span class="grow"></span><span class="muted small" data-job="${jobKey('revise', c.id)}">${jobState(jobOf('revise', c.id))}</span></div>${jobBar(jobKey('revise', c.id), jobOf('revise', c.id))}<div class="hint" style="margin-top:6px">Możesz pracować dalej.</div></div>` : ''}
+      ${liveJob ? `<div class="live-head"><span class="pulse"></span><b>Na żywo</b><span class="muted small">AI wciąż pisze — tekst może się jeszcze zmienić; gotowe pismo pojawi się tu samo.</span></div><div class="paper cpaper live" data-live="${liveKey}">${liveHTML(c, liveJob)}</div>`
+      : hasDraft ? `${analysisHTML(r.analysis)}${(r.warnings || []).length ? `<div class="banner warn" style="margin-bottom:12px"><span class="grow small"><b>Do sprawdzenia:</b> ${r.warnings.map(esc).join(' · ')}</span></div>` : ''}
         <div class="paper-tools" style="margin-bottom:10px">${S.cmpManual ? '<span class="hint">Edycja ręczna: popraw temat i treść bezpośrednio.</span>' : `<div class="ai-tip">${I('spark')}<span><b>Coś nie ma sensu lub powinno brzmieć inaczej?</b> ${COARSE ? 'Przytrzymaj palec na tekście i zaznacz fragment' : 'Zaznacz myszką fragment'} — w okienku napisz, co jest nie tak albo jak ma brzmieć${aiKey() ? ', a AI poprawi odpowiedź' : ''}.</span></div>`}<span class="grow"></span>
           <label class="switch"><input type="checkbox" id="cmp-manual" ${S.cmpManual ? 'checked' : ''}><span class="track"><span class="thumb"></span></span>Edycja ręczna</label></div>
         ${S.cmpManual ? `<label class="f"><span>Temat</span><input type="text" data-cr="subject" value="${esc(r.subject)}"></label>
@@ -1809,7 +1811,7 @@ const cmpEffort = (c) => (c.effort in COMPLAINT_EFFORTS ? c.effort : settings().
 const DIGEST_KIND = { zarzut: ['Zarzut', 'r'], 'żądanie': ['Żądanie', 'o'], termin: ['Termin', 'b'], fakt: ['Fakt', 'g'] };
 function digestHTML(c) {
   const d = c.digest, j = jobOf('digest', c.id);
-  if (j) return `<header><h3>${I('spark')} Streszczenie skargi</h3></header><div class="body"><div class="row" style="gap:10px"><span class="spin"></span><span class="muted small">AI <span data-job="${jobKey('digest', c.id)}">${jobState(j)}</span></span></div><div class="hint">Możesz w tym czasie pracować dalej.</div></div>`;
+  if (j) return `<header><h3>${I('spark')} Streszczenie skargi</h3></header><div class="body"><div class="job-inline"><div class="job-h"><span class="pulse"></span><span class="muted small" data-job="${jobKey('digest', c.id)}">${jobState(j)}</span></div>${jobBar(jobKey('digest', c.id), j)}</div><div class="hint">Możesz w tym czasie pracować dalej.</div></div>`;
   const head = `<header><h3>${I('spark')} Streszczenie skargi</h3>${d ? `<span class="grow"></span><button class="btn btn-ghost btn-sm" data-act="complaint-digest" title="Streść ponownie">${I('refresh')}</button>` : ''}</header>`;
   if (!d) {
     const can = c.scans.length || c.summary.trim();
@@ -1860,30 +1862,96 @@ const jobKey = (kind, id) => `${kind}:${id}`;
 const jobOf = (kind, id) => JOBS.get(jobKey(kind, id));
 const JOB_TITLE = { draft: 'Odpowiedź na skargę', digest: 'Streszczenie skargi', revise: 'Poprawa odpowiedzi' };
 const mmss = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-const jobState = (j) => (j.chars ? `pisze (${j.chars.toLocaleString('pl-PL')} znaków)` : j.kind === 'digest' ? 'czyta pismo' : 'analizuje');
-function runJob(kind, complaintId, fn) {
-  const k = jobKey(kind, complaintId), j = { kind, complaintId, t0: Date.now(), chars: 0 };
-  JOBS.set(k, j); renderJobs();
-  return fn((what, n) => { if (what === 'text') j.chars = n; }).finally(() => { JOBS.delete(k); renderJobs(); });
+/* Steps shown to the doctor. The real share of the work is unknown: the bar is an estimate that moves smoothly with
+   time while the AI analyses and with the amount of text while it writes; it reaches the end only when the answer is in. */
+const JOB_STEPS = ['Wysyłanie', 'Analiza', 'Pisanie', 'Zapis'];
+const JOB_EXPECT = { draft: 11000, revise: 8000, digest: 1200 }; // typical answer length (characters)
+const jobStep = (j) => (j.chars ? 2 : j.connected ? 1 : 0);
+const jobState = (j) => (j.chars ? `pisze odpowiedź (${j.chars.toLocaleString('pl-PL')} znaków)` : j.connected ? (j.kind === 'digest' ? 'czyta pismo' : 'analizuje skargę i dokumentację') : 'łączy się z AI');
+function jobPct(j) {
+  const t = (Date.now() - j.t0) / 1000;
+  const p = j.chars ? 35 + 60 * Math.min(1, j.chars / JOB_EXPECT[j.kind]) : j.connected ? 6 + 29 * (1 - Math.exp(-t / (j.kind === 'digest' ? 8 : 45))) : Math.min(5, 1 + t);
+  return (j.pct = Math.max(j.pct || 0, Math.min(97, p)));
 }
+function runJob(kind, complaintId, fn) {
+  const k = jobKey(kind, complaintId), j = { kind, complaintId, t0: Date.now(), chars: 0, connected: false, pct: 0 };
+  JOBS.set(k, j); renderJobs();
+  return fn((what, n, text, pseudo) => { if (what === 'connect') j.connected = true; if (what === 'text') { j.connected = true; j.chars = n; j.text = text; j.pseudo = pseudo; } })
+    .finally(() => { JOBS.delete(k); renderJobs(); });
+}
+const jobBar = (k, j) => `<div class="jbar" data-jbar="${k}"><i style="width:${jobPct(j).toFixed(1)}%"></i></div>`;
+const jobStepsHTML = (j) => `<ol class="jsteps">${JOB_STEPS.map((x, i) => `<li class="${i < jobStep(j) ? 'done' : i === jobStep(j) ? 'on' : ''}">${x}</li>`).join('')}</ol>`;
+/** Reads an unfinished JSON answer (as it streams in): closes open strings, arrays and objects; null if not readable yet. */
+function partialJSON(t) {
+  const st = []; let inStr = false, bs = false;
+  for (const ch of t) {
+    if (inStr) { if (bs) bs = false; else if (ch === '\\') bs = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true; else if (ch === '{' || ch === '[') st.push(ch); else if (ch === '}' || ch === ']') st.pop();
+  }
+  let out = bs ? t.slice(0, -1) : t;
+  if (inStr) out += '"';
+  out = out.replace(/[,:]\s*$/, '');
+  if (st.at(-1) === '{') out = out.replace(/([{,])\s*"[^"]*"\s*$/, (m, c) => (c === '{' ? '{' : ''));
+  out += st.reverse().map((c) => (c === '{' ? '}' : ']')).join('');
+  try { return JSON.parse(out); } catch { return null; }
+}
+/** What the AI has written so far, shown in the complaint while it is still writing. */
+function livePreview(j) {
+  if (!j?.text) return null;
+  let o = partialJSON(j.text); if (!o) return j.preview || null;
+  try { if (j.pseudo) o = j.pseudo.restore(o); } catch {}
+  return (j.preview = o);
+}
+function liveHTML(c, j) {
+  const o = livePreview(j) || {}, paras = (o.paragraphs || []).filter((x) => typeof x === 'string' && x.trim()), algs = (o.analysis?.allegations || []).filter((x) => x?.claim);
+  if (paras.length || o.subject) return `${o.subject ? `<p class="lp lp-subj"><b>Dotyczy:</b> ${esc(o.subject)}</p>` : ''}<p class="lp">${esc(salutationFor(c))}</p>${paras.map((x, i) => `<p class="lp">${esc(x)}${i === paras.length - 1 ? '<span class="live-caret"></span>' : ''}</p>`).join('')}`;
+  if (algs.length) return `<p class="lp live-k">AI analizuje zarzuty — pismo zacznie się pojawiać za chwilę:</p><ol class="live-algs">${algs.map((x) => `<li><b>${esc(x.claim)}</b>${x.assessment ? ` <span class="tag ${{ bezzasadny: 'ok', 'częściowo zasadny': 'o', zasadny: 'r' }[x.assessment] || 'g'}">${esc(x.assessment)}</span>` : ''}</li>`).join('')}</ol>`;
+  return `<p class="lp live-k">${j.chars ? 'AI zaczyna pisać…' : 'AI analizuje skargę i dokumentację — tekst pojawi się tutaj, gdy AI zacznie pisać.'}</p>`;
+}
+/** The job cards are built once and then only their text, bar and steps change — no re-drawing, no flicker. */
 function renderJobs() {
-  let el = $('#jobs');
-  if (!JOBS.size) { el?.remove(); return; }
+  let el = $('#jobs'), top = $('#ai-top');
+  if (!JOBS.size) { el?.remove(); top?.remove(); setJobTitle(''); return; }
   if (!el) { el = document.createElement('div'); el.id = 'jobs'; el.setAttribute('aria-live', 'polite'); document.body.appendChild(el); }
-  el.innerHTML = [...JOBS.values()].map((j) => `<button class="job" data-act="job-open" data-id="${j.complaintId}" title="Pokaż skargę"><span class="spin"></span><span><b>AI: ${esc(JOB_TITLE[j.kind])}</b><small>${jobState(j)} · <span class="job-t">${mmss(Date.now() - j.t0)}</span> · możesz pracować dalej</small></span></button>`).join('');
+  if (!top) { top = document.createElement('div'); top.id = 'ai-top'; top.innerHTML = '<i></i>'; document.body.appendChild(top); }
+  for (const card of $$('.job', el)) if (!JOBS.has(card.dataset.key)) card.remove();
+  let best = 0;
+  for (const [k, j] of JOBS) {
+    let card = $(`.job[data-key="${k}"]`, el);
+    if (!card) {
+      card = document.createElement('button'); card.className = 'job'; card.dataset.key = k; card.dataset.act = 'job-open'; card.dataset.id = j.complaintId; card.title = 'Pokaż skargę';
+      card.innerHTML = `<div class="job-h"><span class="pulse"></span><b>AI: ${esc(JOB_TITLE[j.kind])}</b><span class="grow"></span><span class="job-t"></span></div><div class="jbar"><i></i></div><div class="job-steps"></div><small class="job-s"></small>`;
+      el.appendChild(card);
+    }
+    const pct = jobPct(j); best = Math.max(best, pct);
+    $('.job-t', card).textContent = mmss(Date.now() - j.t0);
+    $('.jbar i', card).style.width = pct.toFixed(1) + '%';
+    const st = jobStep(j); if (card.dataset.step !== String(st)) { card.dataset.step = st; $('.job-steps', card).innerHTML = jobStepsHTML(j); }
+    $('.job-s', card).textContent = `${jobState(j)} · możesz pracować dalej`;
+  }
+  $('i', top).style.width = best.toFixed(1) + '%';
+  const first = JOBS.values().next().value; setJobTitle(`⏳ AI ${mmss(Date.now() - first.t0)}`);
+}
+/** The tab title shows the running time, so the doctor sees the AI is working even from another window. */
+let titleBase = '';
+function setJobTitle(prefix) {
+  if (prefix) { titleBase ||= document.title.replace(/^(⏳ AI \d+:\d\d|✓ [^·]+) · /, ''); document.title = `${prefix} · ${titleBase}`; }
+  else if (titleBase && !document.title.startsWith('✓')) { document.title = titleBase; titleBase = ''; }
 }
 setInterval(() => {
   if (!JOBS.size) return;
   renderJobs();
   for (const b of $$('[data-job]')) { const j = JOBS.get(b.dataset.job); if (j) b.textContent = `${jobState(j)} · ${mmss(Date.now() - j.t0)}`; }
+  for (const b of $$('[data-jbar] i')) { const j = JOBS.get(b.parentElement.dataset.jbar); if (j) b.style.width = jobPct(j).toFixed(1) + '%'; }
+  for (const b of $$('[data-live]')) { const j = JOBS.get(b.dataset.live), c = j && D().complaints.get(j.complaintId); if (c) { const h = liveHTML(c, j); if (b.__h !== h) { b.__h = h; b.innerHTML = h; } } }
+  for (const b of $$('[data-jsteps]')) { const j = JOBS.get(b.dataset.jsteps); if (j && b.dataset.step !== String(jobStep(j))) { b.dataset.step = jobStep(j); b.innerHTML = jobStepsHTML(j); } }
 }, 1000);
 /** When the window is in the background, the tab title says the result is ready. */
-let titleBase = '';
 function jobDone(msg) {
   toast(msg, 'ok');
-  if (document.visibilityState === 'hidden') { titleBase ||= document.title; document.title = '✓ ' + msg; }
+  if (document.visibilityState === 'hidden') { titleBase ||= document.title.replace(/^(⏳ AI \d+:\d\d|✓ [^·]+) · /, ''); document.title = `✓ ${msg} · ${titleBase}`; }
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && titleBase) { document.title = titleBase; titleBase = ''; } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && titleBase && !JOBS.size) { document.title = titleBase; titleBase = ''; } });
 const showingComplaint = (id) => S.view === 'complaint' && S.complaintId === id;
 const caseVisits = (c) => { const all = complaintVisits(c); return c.visitIds.map((id) => all.find((v) => v.id === id)).filter(Boolean); };
 const aiReady = () => aiKey() && settings().ai.enabled !== false && aiAllowed();
@@ -2728,4 +2796,4 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 boot().catch((e) => { console.error(e); $('#root').innerHTML = `<div class="auth"><div class="auth-card"><h1>Błąd uruchomienia</h1><p class="lead">${esc(e.message)}</p><p class="hint">Upewnij się, że nie używasz trybu prywatnego / incognito.</p></div></div>`; });
 
 // test hooks (used by the automated tests only)
-window.__dentlist = { S, save, settings, curVisit, rerender: () => (S.view === 'letter' ? rerenderLetter() : renderView()), refreshClinic, go };
+window.__dentlist = { S, save, settings, curVisit, partialJSON, JOBS, rerender: () => (S.view === 'letter' ? rerenderLetter() : renderView()), refreshClinic, go };

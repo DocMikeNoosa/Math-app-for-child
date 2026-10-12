@@ -91,7 +91,8 @@ Available to administrators (or to a single doctor without a clinic).
    - It never admits liability unless your position says so.
    - Warnings point out things to check.
    - Save it as PDF, print it or copy it.
-   - **The AI works in the background.** No window blocks the app: a small panel at the bottom left shows progress, and you can open other patients or other windows. The answer is saved into the complaint when it arrives, and the app does not auto-lock while the AI works.
+   - **The AI works in the background.** No window blocks the app. A progress card at the bottom left (steps: Wysyłanie → Analiza → Pisanie → Zapis, a progress bar and the time), a thin bar along the top of the window and the tab title (⏳ AI 1:23) show it is working. You can open other patients or other windows.
+   - **Live text:** the reply appears in step 4 ("Na żywo") while the AI is still writing it. The letter is complete but concise (usually 6–10 paragraphs), so it is ready sooner. The answer is saved into the complaint when it arrives, and the app does not auto-lock while the AI works.
    - **Correcting the reply:** select any passage that doesn't make sense or should be different. A small window opens: write what is wrong or your own wording. Add as many notes as you like, then "Popraw odpowiedź z AI". "Przywróć poprzednią wersję" undoes a change; "Edycja ręczna" lets you edit the text directly.
    - Patient, sender and address data are pseudonymised before reaching the AI. The scan is sent to the AI **only** if you tick "Pozwól AI odczytać skan pisma".
    - The response is always a **draft** for the medical director. For letters from a law firm or compensation claims, consult a lawyer or the liability (OC) insurer.

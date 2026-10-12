@@ -249,19 +249,38 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   ok((await p.$$eval('[data-cseg=effort] button', (e) => e.map((x) => x.textContent))).join('|') === 'Szybki|Dokładny|Najwyższy' && (await p.getAttribute('[data-cseg=effort] button.on', 'data-v')) === 'high', 'AI level selector: Szybki / Dokładny (default) / Najwyższy');
   await p.click('[data-cseg=effort] button[data-v=max]'); await p.waitForTimeout(150);
   // a slow answer: the app stays usable, the job shows its progress and the result lands in the complaint
-  mockDelay = 2500;
+  mockDelay = 4500;
   await p.click('[data-act=complaint-draft]'); await p.waitForSelector('#jobs .job');
   ok((await p.textContent('#jobs')).includes('Odpowiedź na skargę') && (await p.locator('.modal').count()) === 0, 'AI works in the background: no blocking window, progress pill shown');
+  await p.evaluate(() => { document.querySelector('#jobs .job').__mark = 1; window.__w0 = parseFloat(document.querySelector('#jobs .jbar i').style.width); });
+  await p.waitForTimeout(2200);
+  const jb = await p.evaluate(() => ({ same: document.querySelector('#jobs .job')?.__mark === 1, w: parseFloat(document.querySelector('#jobs .jbar i').style.width), w0: window.__w0, top: !!document.querySelector('#ai-top i'), steps: [...document.querySelectorAll('#jobs .jsteps li')].map((x) => x.textContent).join('|'), title: document.title, inline: !!document.querySelector('.job-inline [data-jbar] i') }));
+  await shot(p, '15-job');
+  ok(jb.same, 'progress card is updated in place (not re-drawn every second — no flashing)');
+  ok(jb.w > jb.w0 && jb.w < 100 && jb.top && jb.inline, 'status bar moves (card, top of the window, and in the complaint): ' + jb.w0 + '% → ' + jb.w + '%');
+  ok(jb.steps === 'Wysyłanie|Analiza|Pisanie|Zapis' && /^⏳ AI \d+:\d\d · /.test(jb.title), 'steps shown; tab title shows the running time: ' + jb.title);
   const cmpId = await p.evaluate(() => window.__dentlist.S.complaintId);
   await p.click('[data-nav=patients]'); await p.waitForTimeout(300);
   ok((await p.locator('#view .pagehead h2').textContent()).includes('Pacjenci') && (await p.locator('#jobs .job').count()) === 1, 'while AI works the doctor can use other parts of the app');
   await p.waitForSelector('#jobs', { state: 'detached', timeout: 15000 });
+  ok(!(await p.evaluate(() => document.title)).startsWith('⏳') && !(await p.locator('#ai-top').count()), 'status bar and title cleared when the answer is in');
   const cmax = calls.at(-1);
   ok(cmax.output_config?.effort === 'max' && cmax.max_tokens >= 64000, 'level "Najwyższy" sends effort max with room for a long letter');
   ok(await p.evaluate((id) => window.__dentlist.S.data.complaints.get(id).response.paragraphs.some((x) => x.includes('zgodnie z zasadami')), cmpId), 'result saved into the complaint although the doctor was elsewhere');
   mockDelay = 0;
   await p.click('#jobs .job').catch(() => {}); await p.evaluate((id) => window.__dentlist.go('complaint', { complaintId: id }), cmpId); await p.waitForSelector('#cpaper');
   await p.click('[data-cseg=effort] button[data-v=high]'); await p.waitForTimeout(150);
+  // live preview while the AI is still writing (partial answer read as it streams in)
+  const pj = await p.evaluate(() => { const f = window.__dentlist.partialJSON; return [
+    f('{"analysis":{"allegations":[{"claim":"Ból po zab'), f('{"analysis":{"allegations":[]},"subject":"Odp","paragraphs":["Akapit pierwszy.","Akapit dru'), f('{"subject":"A","paragraphs":["x\\'), f('{"analysis":{"alleg'), f('{"a":1,'), f('')]; });
+  ok(pj[0]?.analysis.allegations[0].claim === 'Ból po zab' && pj[1]?.paragraphs.length === 2 && pj[1].paragraphs[1] === 'Akapit dru' && pj[2]?.paragraphs[0] === 'x' && pj[3] && typeof pj[3].analysis === 'object' && pj[4]?.a === 1 && pj[5] === null, 'unfinished AI answer is readable while it streams in: ' + JSON.stringify(pj.slice(0, 2)));
+  await p.evaluate((id) => { window.__dentlist.JOBS.set('draft:' + id, { kind: 'draft', complaintId: id, t0: Date.now(), chars: 900, connected: true, pct: 0, text: '{"analysis":{"allegations":[{"claim":"Ból i obrzęk","record":"x","clinical":"y","assessment":"bezzasadny","rebuttal":"z"}],"overall":"o","risk":"niskie","missing":[]},"subject":"Odpowiedź na pismo","paragraphs":["W odpowiedzi na pismo przedstawiam stanowisko.","Zabieg przeprowadzono zgo' }); window.__dentlist.rerender(); }, cmpId);
+  await p.waitForTimeout(1300);
+  await p.locator('[data-live]').scrollIntoViewIfNeeded(); await shot(p, '14-live');
+  const lv = await p.textContent('[data-live]').catch(() => '');
+  ok(lv.includes('Dotyczy: Odpowiedź na pismo') && lv.includes('Zabieg przeprowadzono zgo') && (await p.textContent('.live-head')).includes('Na żywo'), 'reply appears on screen while the AI is still writing ("Na żywo")');
+  await p.evaluate((id) => { window.__dentlist.JOBS.delete('draft:' + id); window.__dentlist.rerender(); }, cmpId); await p.waitForSelector('#cpaper');
+  ok(cmax.system[0].text.includes('500–900 słów') && cmax.system[0].text.includes('(1–2 zdania)'), 'prompt asks for a complete but concise reply (faster)');
   // highlight a passage of the reply → small window → the doctor's own wording → AI revises
   await p.locator('#cpaper [data-loc="paragraphs.1"]').scrollIntoViewIfNeeded();
   await p.evaluate(() => { const el = document.querySelector('#cpaper [data-loc="paragraphs.1"]'); const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); });

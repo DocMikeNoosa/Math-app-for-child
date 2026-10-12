@@ -99,7 +99,7 @@ async function call(apiKey, system, payload, schema, effort, pseudo = null, atta
       output_config: { effort, format: { type: 'json_schema', schema } },
       messages: [{ role: 'user', content: attachments.length ? [...attachments, { type: 'text', text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 1) }] : (typeof payload === 'string' ? payload : JSON.stringify(payload, null, 1)) }],
     });
-    if (onProgress) { let n = 0; onProgress('start', 0); st.on('text', (d) => { n += d.length; onProgress('text', n); }); }
+    if (onProgress) { let n = 0; onProgress('start', 0); st.on('connect', () => onProgress('connect', 0)); let acc = ''; st.on('text', (d) => { n += d.length; acc += d; onProgress('text', n, acc, pseudo); }); }
     resp = await st.finalMessage();
   } catch (e) {
     if (globalThis.__DENTLIST_AI_DEBUG) console.error('AI error', e, e?.cause);
@@ -131,21 +131,21 @@ Otrzymasz JSON z: "letter_from" (kto napisał), "received" (data pisma), "compla
 
 KROK 1 — ANALIZA (pole "analysis"; to materiał roboczy dla dyrektora, nie trafia do pisma):
 - Rozbij pismo na pojedyncze zarzuty i żądania ("allegations"). Dla każdego:
-  • "claim": co dokładnie zarzuca lub czego żąda pismo (własnymi słowami, precyzyjnie);
-  • "record": co na ten temat wynika z dokumentacji — konkretnie (daty, numery zębów, rozpoznania, procedury, materiały, zalecenia, kontrole); jeśli dokumentacja milczy, napisz to wprost;
-  • "clinical": ocena kliniczna z perspektywy aktualnej wiedzy medycznej i stomatologicznej oraz przyjętych standardów postępowania: czy wskazania, technika i kolejność postępowania były prawidłowe; czy opisany objaw lub skutek jest znanym, możliwym powikłaniem lub naturalnym przebiegiem gojenia; związek przyczynowy i jego wiarygodność (np. czas wystąpienia, mechanizm), inne możliwe przyczyny (np. choroba przyzębia, uraz, parafunkcje, niedokończone leczenie, niezastosowanie się do zaleceń, brak ostatecznej odbudowy, upływ czasu); czego standard wymagał i czy zostało to spełnione;
+  • "claim": co dokładnie zarzuca lub czego żąda pismo (jedno zdanie);
+  • "record": co na ten temat wynika z dokumentacji — konkretnie (daty, numery zębów, rozpoznania, procedury, materiały, zalecenia, kontrole), 1–2 zdania; jeśli dokumentacja milczy, napisz to wprost;
+  • "clinical": ocena kliniczna z perspektywy aktualnej wiedzy medycznej i stomatologicznej oraz przyjętych standardów postępowania: czy wskazania, technika i kolejność postępowania były prawidłowe; czy opisany objaw lub skutek jest znanym, możliwym powikłaniem lub naturalnym przebiegiem gojenia; związek przyczynowy i jego wiarygodność (np. czas wystąpienia, mechanizm), inne możliwe przyczyny (np. choroba przyzębia, uraz, parafunkcje, niedokończone leczenie, niezastosowanie się do zaleceń, brak ostatecznej odbudowy, upływ czasu); czego standard wymagał i czy zostało to spełnione — zwięźle, 2–4 zdania;
   • "assessment": "bezzasadny" | "częściowo zasadny" | "zasadny" | "nie można ocenić";
-  • "rebuttal": najmocniejsza, uczciwa i merytoryczna linia odpowiedzi na ten zarzut (2–5 zdań).
-- "overall": syntetyczna ocena całej sprawy (3–6 zdań): mocne strony stanowiska placówki, słabe punkty, ryzyko eskalacji.
+  • "rebuttal": najmocniejsza, uczciwa i merytoryczna linia odpowiedzi na ten zarzut (1–2 zdania).
+- "overall": syntetyczna ocena całej sprawy (2–4 zdania): mocne strony stanowiska placówki, słabe punkty, ryzyko eskalacji.
 - "risk": "niskie" | "średnie" | "wysokie" (ryzyko prawne / odszkodowawcze), "missing": lista informacji lub dokumentów, które dyrektor powinien sprawdzić lub uzupełnić przed wysłaniem (np. podpisana zgoda, RTG kontrolne, karta znieczulenia, dokumentacja fotograficzna).
 
 KROK 2 — PISMO (pola "subject" i "paragraphs"): pełna, przemyślana odpowiedź napisana jak przez doświadczonego dyrektora medycznego — logiczna, spójna, uprzejma i stanowcza w treści, zrozumiała dla osoby bez wiedzy medycznej, ale merytorycznie na poziomie eksperta:
 1. Wprowadzenie: odniesienie do pisma (data, nadawca), podziękowanie za zgłoszenie i zapewnienie, że sprawa została szczegółowo przeanalizowana na podstawie dokumentacji medycznej i wyjaśnień lekarza prowadzącego.
 2. Przebieg leczenia: rzeczowy, chronologiczny opis (z datami i numerami zębów) — co rozpoznano, dlaczego zaproponowano dane leczenie, jak je przeprowadzono i jakie były zalecenia; w razie potrzeby krótko wyjaśnij cel i istotę procedury prostym językiem.
-3. Odpowiedź na każdy zarzut po kolei — każdy zarzut w osobnym akapicie (lub kilku), rozwiniętym, co najmniej 4–8 zdań: przywołaj zarzut, przedstaw fakty z dokumentacji, wyjaśnij medycznie, dlaczego postępowanie było prawidłowe (lub co się stało i dlaczego), odnieś się do możliwych przyczyn dolegliwości, do świadomej zgody i poinformowania o ryzyku, jeśli wynika to z danych, i wyciągnij wniosek. Unikaj ogólników i powtórzeń; nie odpowiadaj jednym zdaniem.
+3. Odpowiedź na każdy zarzut po kolei — każdy zarzut w osobnym, rozwiniętym akapicie (3–6 zdań): przywołaj zarzut, przedstaw fakty z dokumentacji, wyjaśnij medycznie, dlaczego postępowanie było prawidłowe (lub co się stało i dlaczego), odnieś się do możliwych przyczyn dolegliwości, do świadomej zgody i poinformowania o ryzyku, jeśli wynika to z danych, i wyciągnij wniosek. Unikaj ogólników i powtórzeń (nie powtarzaj w piśmie całej analizy); nie odpowiadaj jednym zdaniem.
 4. Żądania (np. zwrot kosztów, odszkodowanie): odnieś się do nich jasno, zgodnie ze stanowiskiem dyrektora i propozycją ("offer").
 5. Zakończenie: propozycja dalszego postępowania (np. wizyta kontrolna, konsultacja), dostęp do dokumentacji, zaproszenie do kontaktu.
-Ton zgodny z "tone". Typowo 8–15 akapitów; długość dopasuj do liczby i wagi zarzutów.
+Ton zgodny z "tone". Pismo ma być pełne, ale zwięzłe: typowo 6–10 akapitów, łącznie ok. 500–900 słów; więcej tylko przy wielu poważnych zarzutach.
 
 "warnings": krótkie uwagi dla dyrektora: brakujące dane, zarzuty bez pokrycia w dokumentacji, sprzeczności, sugestia konsultacji z prawnikiem lub ubezpieczycielem OC (zwłaszcza przy piśmie od kancelarii, żądaniu odszkodowania lub wysokim ryzyku), fragmenty wymagające sprawdzenia.
 
