@@ -29,6 +29,16 @@ There are 10 specialties, each with its own subdued colour gradient. The colours
 
 On the visit screen, press **Mapa próchnicy** above the chart, then tap every tooth with caries (no need to open each tooth). For each tooth you can tick surfaces (O, M, D, B, L) and ICDAS. The teeth get amber dots on the chart, and the findings go into the letter, the ProDentis record and the AI data. Treat a tooth now with the tooth icon, or leave it: at the patient's next visit the teeth appear as **"Do leczenia"** (chips and dashed outlines on the chart). One tap opens the tooth with a filling already prepared on the recorded surfaces; once filled (or extracted, crowned…), the tooth leaves the list.
 
+**Inside the tooth card** (general dentistry and paediatrics), Badanie has a small chart of all teeth. Tap the other carious teeth, set the severity (ICDAS), the surfaces and the visit to treat them at (this visit, visit 2, 3, 4 or later). "Lecz teraz" saves the current tooth and opens the next one with a filling prepared, so several teeth can be treated in one session.
+
+**Root canal in a general dentist's card:** "Dodaj leczenie kanałowe" in Zabiegi adds the Endodoncja (and Anatomia) steps to the same card. The card stays in general dentistry: Badanie → Zabiegi → Endodoncja → Anatomia → Materiały → Opis własny → Zalecenia.
+
+## Finishing: the letter right away
+
+When the data is entered, the letter is one tap away, with no need to look for the patient:
+- **Last step of the tooth card:** "Zapisz i utwórz list", "Zapisz, utwórz i drukuj", "Zapisz, utwórz i zapisz PDF".
+- **Visit screen:** a "Zakończ wizytę" panel with "Utwórz list", "Utwórz i drukuj", "Utwórz i zapisz PDF".
+
 ## Visit history (patient card)
 
 - Each visit shows short chips per tooth, plus "JU" for whole-mouth procedures, coloured by specialty.
@@ -71,7 +81,10 @@ Available to administrators (or to a single doctor without a clinic).
 3. **Position:**
    - Tick the **preset arguments** that are true in this case (informed consent, current medical knowledge, documentation and X-rays, known complication, prognosis, non-compliance with instructions, and more).
    - Write your **own position** and, optionally, an **offer**, and choose a **tone**.
-4. **Response:** an **AI-drafted response** (or a built-in draft without AI):
+4. **Response:** the AI works like an experienced dental expert at its highest reasoning level. It reads the letter (scan, if allowed) and the treatment record or documents, then produces:
+   - an **analysis** for the director: each allegation separately, what the documentation shows, the clinical assessment (standard of care, known complications, causation and other possible causes), a verdict (unfounded / partly founded / founded / cannot be assessed), the rebuttal line, the overall risk, and what to check before sending;
+   - a **full response letter** that answers every allegation in its own reasoned paragraphs (not single sentences).
+   Without AI, a built-in draft is used:
    - It describes the treatment from the documentation and answers each allegation.
    - It never admits liability unless your position says so.
    - Warnings point out things to check.

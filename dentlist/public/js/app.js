@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS = {
   security: { autolock: 15 },
   used: {},
 };
-export const APP_VERSION = '1.0.10';
+export const APP_VERSION = '1.0.11';
 const WRITER = 2; // letter writer generation (first-person narrative)
 const S = { session: null, folder: null, data: null, view: 'visit', visitId: null, fdi: null, ttab: 'anat', letterId: null, patientId: null, search: '', saving: 0, backingUp: false, installEvt: null, lastActive: Date.now(), previewUrl: null, sync: null, syncStatus: null };
 const D = () => S.data;
@@ -573,6 +573,13 @@ function cariesTodo(v) {
   return out;
 }
 const archOpts = (v) => { const { marks, inv } = visitMarks(v); return { marks, multi: inv, dentition: dentitionOf(v, D().patients.get(v.patientId)), caries: v.caries || {}, todo: new Set(cariesTodo(v).keys()), pick: !!S.cariesMode }; };
+/** Data entry done: create the letter, print it or save the PDF right here (no need to look for the patient). */
+function finishPanel(v) {
+  const ok = v.teeth.length || (v.procs || []).length || Object.keys(v.caries || {}).length;
+  if (!ok) return '';
+  return `<div class="finish"><div class="grow"><b>Zakończ wizytę</b><small>List z tej wizyty — od razu, bez szukania pacjenta</small></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" data-act="gen-letter">${I('spark')} Utwórz list</button><button class="btn btn-soft btn-sm" data-act="gen-letter" data-then="print">${I('print')} Utwórz i drukuj</button><button class="btn btn-soft btn-sm" data-act="gen-letter" data-then="pdf">${I('save')} Utwórz i zapisz PDF</button></div></div>`;
+}
 function cariesPanel(v) {
   const todo = cariesTodo(v), c = v.caries || {}, ks = Object.keys(c).map(Number).sort((a, b) => a - b), on = !!S.cariesMode;
   if (!on && !ks.length && !todo.size) return '';
@@ -580,9 +587,7 @@ function cariesPanel(v) {
   return `${todo.size ? `<div class="label" style="margin-top:0">Do leczenia — próchnica z poprzednich wizyt</div><div class="chips">${[...todo].sort((a, b) => a[0] - b[0]).map(([f, x]) => `<button type="button" class="chip on todo-chip" data-act="caries-treat" data-fdi="${f}" title="Otwórz ząb ${f} z przygotowanym wypełnieniem (badanie z ${esc(fmtDate(x.date))})">${f}${(x.surf || []).length ? ` <small>${esc(x.surf.join(''))}</small>` : ''}</button>`).join('')}</div>` : ''}
     ${on || ks.length ? `<div class="row" style="margin-top:${todo.size ? 14 : 0}px"><span class="label" style="margin:0">Próchnica${ks.length ? ` · ${ks.length} ${ks.length === 1 ? 'ząb' : ks.length < 5 ? 'zęby' : 'zębów'}` : ''}</span><span class="grow"></span>${on ? '' : `<button class="btn btn-ghost btn-sm" data-act="caries-mode">${I('edit')} Edytuj</button>`}</div>
     ${on ? '<div class="hint" style="margin:4px 0 8px">Klikaj zęby na schemacie — każdy kliknięty ząb trafia na listę. Zaznacz powierzchnie i ICDAS (opcjonalnie). Leczenie możesz wykonać teraz lub na kolejnej wizycie — wtedy zęby pojawią się jako „Do leczenia".</div>' : ''}
-    ${ks.map((f) => { const x = c[f] || {}; return `<div class="car-row"><b>${f}</b><span class="car-s">${SURF.map((k) => `<button type="button" class="${(x.surf || []).includes(k) ? 'on' : ''}" data-act="caries-surf" data-fdi="${f}" data-s="${k}">${k}</button>`).join('')}</span>
-      <select data-car-icdas="${f}" title="ICDAS"><option value="">ICDAS</option>${[1, 2, 3, 4, 5, 6].map((n) => `<option ${String(x.icdas) === String(n) ? 'selected' : ''}>${n}</option>`).join('')}</select>
-      <button type="button" class="btn btn-ghost btn-sm" data-act="caries-treat" data-fdi="${f}" title="Lecz teraz: otwórz ząb z wypełnieniem">${I('tooth')}</button><button type="button" class="btn btn-ghost btn-sm" data-act="caries-rm" data-fdi="${f}" title="Usuń z listy">${I('x')}</button></div>`; }).join('') || (on ? '<div class="faint small">Nie zaznaczono jeszcze zębów.</div>' : '')}
+    ${ks.map((f) => carRow(f, c[f] || {})).join('') || (on ? '<div class="faint small">Nie zaznaczono jeszcze zębów.</div>' : '')}
     ${on ? `<div class="row" style="margin-top:10px"><span class="grow"></span><button class="btn btn-primary btn-sm" data-act="caries-mode">${I('check')} Gotowe</button></div>` : ''}` : ''}`;
 }
 function visitMarks(v) {
@@ -612,6 +617,7 @@ function viewVisit() {
     </section>
     <section class="panel vside">
       <header><h3>Zęby w tej wizycie</h3><span class="sub" id="vcount">${v.teeth.length || ''}</span></header>
+      <div class="body finish-box" id="vfinish">${finishPanel(v)}</div>
       <div class="body caries-box" id="vcaries" ${cariesPanel(v) ? '' : 'hidden'}>${cariesPanel(v)}</div>
       <div class="body" id="vteeth">${visitTeethList(v)}</div>
       <div class="body mouth" style="border-top:1px solid var(--line)" id="vmouth">${mouthPanel(v)}</div>
@@ -664,6 +670,7 @@ function refreshVisit() {
   const v = curVisit(); if (!v || S.view !== 'visit') return;
   $('#arch').innerHTML = archSVG({ ...archOpts(v), selected: S.ws?.fdi ?? null });
   const cb = $('#vcaries'); if (cb) { const h = cariesPanel(v); cb.innerHTML = h; cb.hidden = !h; }
+  const fb = $('#vfinish'); if (fb) fb.innerHTML = finishPanel(v);
   $('#vteeth').innerHTML = visitTeethList(v); $('#vcount').textContent = v.teeth.length || '';
   afterVisit();
 }
@@ -672,8 +679,9 @@ function refreshVisit() {
 function toggleCaries(fdi) {
   const v = ensureVisit(); v.caries ??= {};
   if (v.caries[fdi]) delete v.caries[fdi]; else v.caries[fdi] = { surf: [], icdas: '' };
-  save('visits', v); refreshVisit();
+  save('visits', v); refreshVisit(); refreshCariesInCard();
 }
+function refreshCariesInCard() { if (S.ws && S.ttab === 'dx' && $('#mini-arch')) { const y = $('#ws-tab').scrollTop; $('#ws-tab').innerHTML = tabBody(S.ws.draft); $('#ws-tab').scrollTop = y; renderDx(); } }
 function openTooth(fdi) {
   const v = curVisit(), ex = v.teeth.find((t) => t.fdi === fdi);
   S.ws = { fdi, isNew: !ex, draft: clone(ex || newToothRec(fdi, v.performer === 'other')), dirty: !ex };
@@ -716,9 +724,11 @@ const wsSpec = () => (S.ws?.spec && SPECS[S.ws.spec] ? S.ws.spec : home());
  *  examination and its own procedures step (e.g. "Ortodoncja"), without root-canal steps. */
 function wsSteps(t = S.ws?.draft) {
   const sp = wsSpec(), noRoots = (t?.work || []).some((x) => IMPLANT_WORK.includes(x.type) || ['EXT', 'IMPACT', 'EXT_P'].includes(x.type));
-  const order = sp === 'endo' && !noRoots ? [['anat'], ['dx'], ['endo'], ['work', true], ['mat'], ['manual', true], ['rec']] : [['dx'], ['work'], ['mat'], ['manual', true], ['rec']];
+  const inStream = sp !== 'endo' && !noRoots && (S.ws?.withEndo || !!ENDO[t?.endo?.proc]);
+  const order = sp === 'endo' && !noRoots ? [['anat'], ['dx'], ['endo'], ['work', true], ['mat'], ['manual', true], ['rec']] : [['dx'], ['work'], ...(inStream ? [['endo'], ['anat', true]] : []), ['mat'], ['manual', true], ['rec']];
   return order.map(([k, opt]) => {
     if (k === 'work' && sp !== 'endo') return [k, 'Zabiegi', `Zabiegi — ${SPECS[sp].label}`, false, SPECS[sp].short];
+    if (k === 'endo' && sp !== 'endo') return [k, 'Endodoncja', 'Leczenie kanałowe w ramach tej karty', false, 'leczenie kanałowe'];
     if (k === 'dx' && SPEC_EXAM[sp]) return [k, 'Badanie', `Badanie ogólne i ${SPEC_EXAM[sp].title.toLowerCase()}`, false, SPECS[sp].short];
     return [k, STEP_DEF[k][0], STEP_DEF[k][1], !!opt];
   });
@@ -750,13 +760,15 @@ function stepNav() {
   const W = wsSteps(), i = W.findIndex(([k]) => k === S.ttab), prev = W[i - 1], next = W[i + 1];
   return `<div class="step-nav">${prev ? `<button class="btn btn-ghost" data-ttab="${prev[0]}">${I('back')} ${esc(prev[1])}</button>` : '<span></span>'}
     <span class="step-of">Krok ${i + 1} z ${W.length}</span>
-    ${next ? `<button class="btn btn-soft btn-lg" data-ttab="${next[0]}">Dalej: ${esc(next[1])} ${I('next')}</button>` : `<button class="btn btn-primary btn-lg" data-act="ws-save">${I('check')} Zapisz ząb</button>`}</div>`;
+    ${next ? `<button class="btn btn-soft btn-lg" data-ttab="${next[0]}">Dalej: ${esc(next[1])} ${I('next')}</button>` : `<span class="row" style="gap:8px;flex-wrap:wrap;justify-content:flex-end"><button class="btn btn-lg" data-act="ws-save">${I('check')} Zapisz ząb</button><button class="btn btn-primary btn-lg" data-act="ws-save-letter">${I('spark')} Zapisz i utwórz list</button></span>`}</div>
+    ${next ? '' : `<div class="finish-row"><span class="faint small">Gotowe? List od razu:</span><button class="btn btn-ghost btn-sm" data-act="ws-save-letter" data-then="print">${I('print')} Zapisz, utwórz i drukuj</button><button class="btn btn-ghost btn-sm" data-act="ws-save-letter" data-then="pdf">${I('save')} Zapisz, utwórz i zapisz PDF</button></div>`}`;
 }
 const tabBody = (t) => ({ anat: tabAnat, dx: tabDx, endo: tabEndo, work: tabWork, mat: tabMat, manual: tabManual, rec: tabRec }[S.ttab])(t) + stepNav();
 function refreshWorkspace({ tabs = true, model = false } = {}) {
   if (!S.ws) return;
   const t = S.ws.draft;
-  if (['endo', 'anat'].includes(S.ttab) && S.ws.spec !== 'endo') setWsSpec('endo');
+  // a root canal inside another specialty's card: the endodontic steps join that card's stream (no profile switch)
+  if (['endo', 'anat'].includes(S.ttab) && wsSpec() !== 'endo') S.ws.withEndo = true;
   if (!wsSteps(t).some(([k]) => k === S.ttab)) S.ttab = wsSteps(t)[0][0];
   const bd = $('#ws-spec'); if (bd) { bd.setAttribute('style', specStyle(wsSpec())); bd.innerHTML = `${specDot(wsSpec())}${esc(SPECS[wsSpec()].label)}`; }
   // the model follows what is done to the tooth (implant, extraction, canals) — redraw when that changes
@@ -771,7 +783,7 @@ function refreshWorkspace({ tabs = true, model = false } = {}) {
   if (model) update3D();
 }
 /** Root canals belong to endodontics: shown for an endodontist, or when this tooth has endodontic work. */
-function endoOn(t) { const noRoots = (t?.work || []).some((x) => IMPLANT_WORK.includes(x.type) || ['EXT', 'IMPACT', 'EXT_P'].includes(x.type)); return (!noRoots && wsSpec() === 'endo') || !!(t && (ENDO[t.endo?.proc] || t.anatOk)); }
+function endoOn(t) { const noRoots = (t?.work || []).some((x) => IMPLANT_WORK.includes(x.type) || ['EXT', 'IMPACT', 'EXT_P'].includes(x.type)); return (!noRoots && (wsSpec() === 'endo' || !!S.ws?.withEndo)) || !!(t && (ENDO[t.endo?.proc] || t.anatOk)); }
 const IMPLANT_WORK = ['IMPLANT', 'UNCOVER', 'ABUT', 'IMPL_PROS', 'PERIIMPL'], CROWN_WORK = ['IMPL_PROS', 'CROWN', 'TEMPCROWN'];
 /** What the model shows: an implant, a removed tooth, a tooth with its canal system, or a plain tooth. */
 function toothMode(t) {
@@ -875,6 +887,22 @@ function specExamHTML(t, sp) {
   };
   return `<div class="label" style="color:var(--accent)">${esc(e.title)}</div>${e.fields.map(f).join('')}`;
 }
+/** Inside the tooth card: the doctor marks caries on the other teeth (severity, surfaces, which visit) and can treat them now. */
+const CAR_PLAN = { now: 'ta wizyta', v2: 'wizyta 2', v3: 'wizyta 3', v4: 'wizyta 4', later: 'do ustalenia' };
+function otherCariesHTML(t) {
+  const v = curVisit(); if (!v) return '';
+  const c = v.caries || {}, ks = Object.keys(c).map(Number).filter((f) => f !== t.fdi).sort((a, b) => a - b);
+  return `<div class="label" style="margin-top:18px;color:var(--accent)">Próchnica innych zębów</div>
+    <div class="hint" style="margin:0 0 8px">Kliknij zęby z próchnicą, które widzisz w badaniu — trafią do planu leczenia (na tę lub kolejne wizyty). „Lecz teraz" zapisuje ten ząb i otwiera następny.</div>
+    <div class="mini-arch" id="mini-arch">${archSVG({ ...archOpts(v), selected: t.fdi, pick: true })}</div>
+    <div id="mini-car">${ks.map((f) => carRow(f, c[f], true)).join('') || '<div class="faint small">Nie zaznaczono innych zębów.</div>'}</div>`;
+}
+function carRow(f, x = {}, inCard = false) {
+  return `<div class="car-row"><b>${f}</b><span class="car-s">${['O', 'M', 'D', 'B', 'L'].map((k) => `<button type="button" class="${(x.surf || []).includes(k) ? 'on' : ''}" data-act="caries-surf" data-fdi="${f}" data-s="${k}">${k}</button>`).join('')}</span>
+    <select data-car-icdas="${f}" title="Zaawansowanie (ICDAS)"><option value="">ICDAS</option>${[1, 2, 3, 4, 5, 6].map((n) => `<option ${String(x.icdas) === String(n) ? 'selected' : ''}>${n}</option>`).join('')}</select>
+    <select data-car-plan="${f}" title="Kiedy leczyć">${Object.entries(CAR_PLAN).map(([k, l]) => `<option value="${k}" ${(x.plan || 'later') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <button type="button" class="btn btn-ghost btn-sm" data-act="caries-treat" data-fdi="${f}" title="${inCard ? 'Zapisz ten ząb i otwórz ząb ' + f : 'Lecz teraz: otwórz ząb z wypełnieniem'}">${I('tooth')}${inCard ? ' Lecz teraz' : ''}</button><button type="button" class="btn btn-ghost btn-sm" data-act="caries-rm" data-fdi="${f}" title="Usuń z listy">${I('x')}</button></div>`;
+}
 function tabDx(t) {
   const sp = wsSpec(), own = SPEC_EXAM[sp] && !['ped', 'zach'].includes(sp);
   const pulp = `
@@ -904,7 +932,7 @@ function tabDx(t) {
       ${sel('t.dx.pulp', 'Miazga (zmień ręcznie)', { '': 'jak sugerowane', ...Object.fromEntries(Object.entries(PULP_DX).map(([k, v]) => [k, v.label])) })}
       ${sel('t.dx.peri', 'Tkanki okołowierzchołkowe', { '': 'jak sugerowane', ...Object.fromEntries(Object.entries(PERI_DX).map(([k, v]) => [k, v.label])) })}
     </div>`;
-  if (!own) return `${head}<div class="label">Testy</div>${pulp}${['ped', 'zach'].includes(sp) ? specExamHTML(t, sp) : ''}${tail}`;
+  if (!own) return `${head}<div class="label">Testy</div>${pulp}${['ped', 'zach'].includes(sp) ? specExamHTML(t, sp) + otherCariesHTML(t) : ''}${tail}`;
   // other specialties: their own examination first; the pulp tests and the endodontic diagnosis fold away
   const [rtg, dxPart] = tail.split('<div class="label">Rozpoznanie</div>');
   const general = `<div class="label">Badanie ogólne</div>
@@ -1030,7 +1058,7 @@ function procPicker(scope, cur, actAdd, actSpec) {
 function tabWork(t) {
   const lists = new Set();
   const items = (t.work || []).map((w, i) => procCard('t.work', i, w, lists, 'rm-work')).join('');
-  const endoTip = ENDO[t.endo?.proc] ? '' : `<div class="banner info" style="margin:14px 0 0"><span class="grow small">Leczenie kanałowe, pulpotomia, resekcja i inne zabiegi endodontyczne mają osobny, szczegółowy krok.</span><button class="btn btn-sm" data-ttab="endo">${specDot('endo')} Endodoncja</button></div>`;
+  const endoTip = ENDO[t.endo?.proc] ? '' : `<div class="banner info" style="margin:14px 0 0"><span class="grow small">Ząb wymaga leczenia kanałowego? Dodaj krok <b>Endodoncja</b> do tej karty — po nim wrócisz do materiałów i zaleceń w tej samej specjalności.</span><button class="btn btn-sm" data-ttab="endo">${specDot('endo')} Dodaj leczenie kanałowe</button></div>`;
   return `${items || '<div class="hint" style="margin-bottom:12px">Brak zabiegów przy tym zębie.</div>'}
     ${procPicker('t', wsSpec() === 'endo' ? (S.workSpec && S.workSpec !== 'endo' ? S.workSpec : 'zach') : wsSpec(), 'add-work', 'work-spec')}${wsSpec() === 'endo' ? '' : endoTip}
     ${datalists(lists)}
@@ -1219,7 +1247,7 @@ async function execAssist({ action: act, params: p = {}, reply = '' }) {
       if (S.ws && S.ws.fdi !== +fdi) { if (S.ws.dirty) saveWorkspace(); else closeWorkspace(); }
       if (!S.ws) openTooth(+fdi);
       if (act === 'add_procedure') { S.ws.draft.work ??= []; S.ws.draft.work.push(newProc(type)); S.ws.dirty = true; setWsSpec(pr.spec); S.ttab = 'work'; }
-      else if (STEP_DEF[p.step]) { if (['endo', 'anat'].includes(p.step)) setWsSpec('endo'); S.ttab = p.step; }
+      else if (STEP_DEF[p.step]) { if (['endo', 'anat'].includes(p.step) && wsSpec() !== 'endo') S.ws.withEndo = true; S.ttab = p.step; }
       refreshWorkspace({ model: true }); const b = $('#ws-tab'); if (b) b.scrollTop = 0; if (act === 'add_procedure') $$('#ws-tab .spcard').at(-1)?.scrollIntoView({ block: 'start' });
       return done(reply || `Ząb ${fdi}.`);
     }
@@ -1378,7 +1406,7 @@ function askSignerName() {
       } }], onClose: () => res(false) });
   });
 }
-async function startLetter(fromVisitId) {
+async function startLetter(fromVisitId, then = '') {
   if (!settings().doctor.last && !(await askSignerName())) return;
   let v = D().visits.get(fromVisitId);
   if (!v.patientId) { const p = await pickPatient(); if (!p) return; v.patientId = p.id; save('visits', v); }
@@ -1387,10 +1415,10 @@ async function startLetter(fromVisitId) {
   const others = visitsOf(v.patientId).filter((x) => x.id !== v.id && (x.teeth.length || (x.procs || []).length));
   let ids = [v.id];
   if (others.length) { ids = await pickVisits(v.patientId, [v.id]); if (!ids) return; }
-  await createLetter({ patientId: v.patientId, referrerId: v.referrerId, visitIds: ids });
+  await createLetter({ patientId: v.patientId, referrerId: v.referrerId, visitIds: ids, then });
 }
 function usedFor(refId) { const st = settings(); st.used[refId] ??= { openings: [], closings: [] }; return st.used[refId]; }
-async function createLetter({ patientId, referrerId, visitIds, existing }) {
+async function createLetter({ patientId, referrerId, visitIds, existing, then = '' }) {
   audit('letter-create', existing ? 'ponowne wygenerowanie' : '', patientId);
   const patient = D().patients.get(patientId), referrer = D().referrers.get(referrerId);
   const visits = visitIds.map((id) => D().visits.get(id)).filter(Boolean);
@@ -1421,6 +1449,8 @@ async function createLetter({ patientId, referrerId, visitIds, existing }) {
   used.closings = [...used.closings, letter.content.closing].slice(-10);
   save('settings', st); save('letters', letter);
   go('letter', { letterId: letter.id });
+  // "create and print" / "create and save PDF": straight on, from the letter screen
+  if (then) setTimeout(() => action(then === 'pdf' ? 'save-pdf' : 'print', document.body).catch((e) => toast(e.message, 'err')), 400);
 }
 
 /* ================================================================ LETTER view (przegląd, uwagi, poprawki AI) */
@@ -1751,7 +1781,7 @@ function viewComplaint() {
       ${aiKey() ? '' : '<div class="hint" style="margin-top:6px">Bez klucza AI powstanie projekt z generatora wbudowanego (fakty z dokumentacji + zaznaczone argumenty + Twoje stanowisko).</div>'}
     </div></section>
     <section class="panel"><header><h3>4. Odpowiedź</h3>${hasDraft ? `<span class="sub">${r.source === 'ai' ? 'projekt AI' : 'generator wbudowany'}</span>` : ''}<span class="grow"></span><select data-c="status" title="Status" style="width:auto;min-width:170px">${Object.entries(STATUS).map(([k, l]) => `<option value="${k}" ${c.status === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></header><div class="body">
-      ${hasDraft ? `${(r.warnings || []).length ? `<div class="banner warn" style="margin-bottom:12px"><span class="grow small"><b>Do sprawdzenia:</b> ${r.warnings.map(esc).join(' · ')}</span></div>` : ''}
+      ${hasDraft ? `${analysisHTML(r.analysis)}${(r.warnings || []).length ? `<div class="banner warn" style="margin-bottom:12px"><span class="grow small"><b>Do sprawdzenia:</b> ${r.warnings.map(esc).join(' · ')}</span></div>` : ''}
         <label class="f"><span>Temat</span><input type="text" data-cr="subject" value="${esc(r.subject)}"></label>
         <label class="f" style="margin-top:10px"><span>Treść (akapity oddzielone pustą linią)</span><textarea data-cr="body" rows="16">${esc((r.paragraphs || []).join('\n\n'))}</textarea></label>
         <label class="f" style="margin-top:10px"><span>Podpisujący — funkcja</span><input type="text" data-c="role" value="${esc(c.role ?? 'Dyrektor medyczny')}"></label>
@@ -1769,21 +1799,32 @@ async function complaintDraft() {
   const all = complaintVisits(c), visits = c.visitIds.map((id) => all.find((v) => v.id === id)).filter(Boolean);
   let out = builtinComplaintDraft(c, { patient, visits }), aiErr = '';
   if (aiKey() && settings().ai.enabled !== false && aiAllowed()) {
-    const busy = modal({ title: 'Asystent AI przygotowuje odpowiedź…', body: '<p class="muted" style="margin:0">Dane pacjenta są zanonimizowane przed wysłaniem.</p>' });
+    const busy = modal({ title: 'AI analizuje skargę i leczenie…', body: '<p class="muted" style="margin:0;line-height:1.6">Analiza każdego zarzutu z perspektywy wiedzy medycznej i dokumentacji, a potem pełna odpowiedź — przy najwyższym poziomie rozumowania może to potrwać kilka minut.<br>Dane pacjenta są zanonimizowane przed wysłaniem.</p><div class="row" style="margin-top:12px"><span class="spin"></span><span class="muted small">Proszę czekać…</span></div>' });
     try {
       const pseudo = pseudoFor(patient, null, visits);
       // the sender, their address and the treating doctor are hidden from the AI as well
       for (const x of [c.sender, c.doctor, ...(c.senderAddress || '').split('\n'), ...(c.mode === 'outside' ? [c.outside.where] : [])].map((v) => (v || '').trim()).filter((v) => v.length > 3)) pseudo.rules.push({ re: new RegExp(x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), tok: '[DANE]' });
       const att = (x) => ({ type: x.type.startsWith('image/') ? 'image' : 'document', source: { type: 'base64', media_type: x.type, data: x.data.split(',')[1] } });
       const attachments = [...(c.allowScanAI ? c.scans.map(att) : []), ...(c.mode === 'outside' && c.allowDocsAI ? c.outside.docs.map(att) : [])];
-      const ai = await draftComplaint(aiKey(), complaintPayload(c, { patient, visits, doctor: settings().doctor }), { effort: settings().ai.effort, pseudo, attachments });
-      out = { subject: ai.subject, salutation: salutationFor(c), paragraphs: ai.paragraphs, warnings: ai.warnings || [], source: 'ai' };
+      if (!c.summary.trim() && !(c.allowScanAI && c.scans.length)) toast('Wskazówka: wpisz zarzuty w skrócie albo pozwól AI odczytać skan pisma — AI odpowie wtedy na każdy zarzut osobno.', 'err');
+      const ai = await draftComplaint(aiKey(), complaintPayload(c, { patient, visits, doctor: settings().doctor }), { pseudo, attachments });
+      out = { subject: ai.subject, salutation: salutationFor(c), paragraphs: ai.paragraphs, warnings: ai.warnings || [], analysis: ai.analysis || null, source: 'ai' };
       audit('ai', 'projekt odpowiedzi na skargę (dane zanonimizowane' + (attachments.length ? '; skan wysłany za zgodą' : '') + ')', patient.id);
     } catch (e) { aiErr = e.message; toast(`AI nie zadziałało: ${e.message} Użyto generatora wbudowanego.`, 'err'); }
     busy.close();
   }
   c.response = out; if (c.status === 'new') c.status = 'work';
   save('complaints', c); audit('complaint', 'projekt odpowiedzi', patient.id); renderView();
+}
+/** The AI's working analysis for the director: each allegation with the record, the clinical assessment and the rebuttal. */
+function analysisHTML(a) {
+  if (!a || !(a.allegations || []).length) return '';
+  const tag = { 'bezzasadny': 'ok', 'częściowo zasadny': 'o', 'zasadny': 'r', 'nie można ocenić': 'g' };
+  return `<details class="cmp-analysis" open><summary><b>${I('spark')} Analiza AI</b><span class="tag ${a.risk === 'wysokie' ? 'r' : a.risk === 'średnie' ? 'o' : 'ok'}">ryzyko: ${esc(a.risk || '—')}</span><span class="faint small">${a.allegations.length} ${a.allegations.length === 1 ? 'zarzut' : a.allegations.length < 5 ? 'zarzuty' : 'zarzutów'} · materiał roboczy, nie trafia do pisma</span></summary>
+    ${a.allegations.map((x, i) => `<div class="alg"><div class="alg-h"><span class="alg-n">${i + 1}</span><b class="grow">${esc(x.claim)}</b><span class="tag ${tag[x.assessment] ?? ''}">${esc(x.assessment)}</span></div>
+      <div class="alg-r"><span>Dokumentacja</span><p>${esc(x.record)}</p></div><div class="alg-r"><span>Ocena kliniczna</span><p>${esc(x.clinical)}</p></div><div class="alg-r"><span>Odpowiedź</span><p>${esc(x.rebuttal)}</p></div></div>`).join('')}
+    ${a.overall ? `<div class="alg-r" style="margin-top:8px"><span>Ocena ogólna</span><p>${esc(a.overall)}</p></div>` : ''}
+    ${(a.missing || []).length ? `<div class="alg-r"><span>Do uzupełnienia</span><p>${a.missing.map(esc).join(' · ')}</p></div>` : ''}</details>`;
 }
 function complaintLetter(c) {
   const r = c.response || {};
@@ -2153,6 +2194,7 @@ document.addEventListener('click', async (e) => {
   const segb = t.closest('.seg[data-seg] button');
   if (segb) { const sg = segb.parentElement; setBound(sg.dataset.seg, segb.dataset.v); $$('button', sg).forEach((b) => b.classList.toggle('on', b === segb)); if (sg.classList.contains('prog-seg')) { const c = sg.closest('.prog-card'), v = segb.dataset.v; c.className = `prog-card ${v ? 'set p-' + v : ''}`; $('.pc-h small', c).textContent = v ? `w liście: „Rokowanie: ${PROG[v]}”` : 'wybierz — pojawi się w zaleceniach listu'; if (S.ws) $('#ws-tabs').innerHTML = stepsHTML(S.ws.draft); } if (sg.dataset.re || sg.dataset.seg.startsWith('v.')) rerender(sg.dataset.seg); return; }
   const mic = t.closest('[data-mic]'); if (mic) { toggleMic(mic); return; }
+  const mt = t.closest('#mini-arch g.tooth'); if (mt) { const f = +mt.dataset.fdi; if (S.ws && f !== S.ws.fdi) toggleCaries(f); return; }
   const tooth = t.closest('#arch g.tooth'); if (tooth) { if (S.cariesMode) return toggleCaries(+tooth.dataset.fdi); openTooth(+tooth.dataset.fdi); return; }
   const tch = t.closest('[data-open-tooth]'); if (tch) { openTooth(+tch.dataset.openTooth); return; }
   const tt = t.closest('[data-ttab]'); if (tt) { const ch = S.ttab !== tt.dataset.ttab; S.ttab = tt.dataset.ttab; refreshWorkspace(); if (ch) { const b = $('#ws-tab'); if (b) b.scrollTop = 0; } return; }
@@ -2252,11 +2294,14 @@ async function action(act, a) {
     }
     case 'flow-letter': return $('#actionbar [data-act=gen-letter]')?.click();
     case 'caries-mode': S.cariesMode = !S.cariesMode; if (!S.cariesMode && v) save('visits', v); return renderView();
-    case 'caries-surf': { const c = v.caries[a.dataset.fdi]; const i = c.surf.indexOf(a.dataset.s); if (i < 0) c.surf.push(a.dataset.s); else c.surf.splice(i, 1); c.surf.sort((x, y) => 'OMDBL'.indexOf(x) - 'OMDBL'.indexOf(y)); save('visits', v); return refreshVisit(); }
-    case 'caries-rm': delete v.caries[a.dataset.fdi]; save('visits', v); return refreshVisit();
+    case 'caries-surf': { const c = v.caries[a.dataset.fdi]; const i = c.surf.indexOf(a.dataset.s); if (i < 0) c.surf.push(a.dataset.s); else c.surf.splice(i, 1); c.surf.sort((x, y) => 'OMDBL'.indexOf(x) - 'OMDBL'.indexOf(y)); save('visits', v); refreshVisit(); return refreshCariesInCard(); }
+    case 'caries-rm': delete v.caries[a.dataset.fdi]; save('visits', v); refreshVisit(); return refreshCariesInCard();
     case 'caries-treat': {
       // treat now: open the tooth with a filling prepared on the recorded surfaces
       const f = +a.dataset.fdi, x = (v.caries || {})[f] || cariesTodo(v).get(f) || {};
+      // from inside a tooth card: save this tooth first, then continue with the next one
+      if (S.ws) { if (S.ws.fdi === f) return; saveWorkspace(); }
+      if (v.caries?.[f]) v.caries[f].plan = 'now';
       S.cariesMode = false; renderView(); openTooth(f);
       if (!(S.ws.draft.work || []).some((w) => w.type === 'FILL')) { const w = newProc('FILL'); w.surf = [...(x.surf || [])]; (S.ws.draft.work ??= []).push(w); S.ws.dirty = true; }
       if (x.icdas) { (S.ws.draft.sx ??= {}).zach = { ...(S.ws.draft.sx.zach || {}), icdas: String(x.icdas), surf: [...(x.surf || [])] }; }
@@ -2298,7 +2343,8 @@ async function action(act, a) {
     case 'pick-patient': { const p = await pickPatient(); if (p) { v.patientId = p.id; save('visits', v); renderView(); } return; }
     case 'pick-referrer': { const r = await pickReferrer(); if (r) { v.referrerId = r.id; save('visits', v); renderView(); } return; }
     case 'save-visit': if (!v.patientId) { const p = await pickPatient(); if (!p) return; v.patientId = p.id; } save('visits', v); renderView(); return toast('Wizyta zapisana.', 'ok');
-    case 'gen-letter': save('visits', v); return startLetter(v.id);
+    case 'gen-letter': save('visits', v); return startLetter(v.id, a?.dataset?.then || '');
+    case 'ws-save-letter': { const then = a.dataset.then || ''; saveWorkspace(); const cv = curVisit(); save('visits', cv); return startLetter(cv.id, then); }
     case 'ws-save': return saveWorkspace();
     case 'ws-cancel': if (S.ws.dirty && !(await confirmBox('Odrzucić zmiany?', `Zmiany w zębie ${S.ws.fdi} nie zostały zapisane.`, 'Odrzuć'))) return; return closeWorkspace();
     case 'rm-tooth': if (!(await confirmBox('Usunąć ząb z wizyty?', `Ząb ${rec.fdi} i wszystkie wpisane dla niego dane zostaną usunięte z tej wizyty.`))) return; v.teeth = v.teeth.filter((x) => x.fdi !== rec.fdi); save('visits', v); return closeWorkspace();
@@ -2422,7 +2468,7 @@ document.addEventListener('mouseup', (e) => { if (e.target.closest && e.target.c
 document.addEventListener('change', (e) => {
   const el = e.target;
   if (el.id === 'scan-input') { addScans([...el.files]); return; }
-  if (el.dataset.carIcdas) { const v = curVisit(); if (v?.caries?.[el.dataset.carIcdas]) { v.caries[el.dataset.carIcdas].icdas = el.value; save('visits', v); refreshVisit(); } return; }
+  if (el.dataset.carIcdas || el.dataset.carPlan) { const v = curVisit(), f = el.dataset.carIcdas || el.dataset.carPlan; if (v?.caries?.[f]) { v.caries[f][el.dataset.carIcdas ? 'icdas' : 'plan'] = el.value; save('visits', v); refreshVisit(); } return; }
   if (el.id === 'doc-input') { addScans([...el.files], $('#doc-kind')?.value || 'record'); return; }
   if (el.id === 'doc-kind') { S.docKind = el.value; return; }
   if (el.dataset.co && el.tagName === 'SELECT') { const c = curComplaint(); if (!c) return; (c.outside ??= newOutside())[el.dataset.co] = el.value; save('complaints', c); return; }

@@ -503,7 +503,8 @@ const HIST_STATUS = { treated: 'ząb leczony wcześniej kanałowo', initiated: '
 /** Caries map of a visit as text: "16 (OD, ICDAS 3), 26 (O)". */
 export function cariesText(v) {
   const c = v?.caries || {}; const ks = Object.keys(c).map(Number).sort((a, b) => a - b);
-  return ks.map((f) => { const x = c[f] || {}, d = [(x.surf || []).join(''), x.icdas !== '' && x.icdas != null ? `ICDAS ${x.icdas}` : ''].filter(Boolean); return `${f}${d.length ? ` (${d.join(', ')})` : ''}`; }).join(', ');
+  const PLAN = { now: 'leczony na tej wizycie', v2: 'plan: wizyta 2', v3: 'plan: wizyta 3', v4: 'plan: wizyta 4' };
+  return ks.map((f) => { const x = c[f] || {}, d = [(x.surf || []).join(''), x.icdas !== '' && x.icdas != null ? `ICDAS ${x.icdas}` : '', PLAN[x.plan] || ''].filter(Boolean); return `${f}${d.length ? ` (${d.join(', ')})` : ''}`; }).join(', ');
 }
 export function recordEntry({ visits, patient = {}, doctor = '', fmtDate = (d) => d }) {
   const P = PT[patient.sex === 'm' ? 'm' : 'f'];

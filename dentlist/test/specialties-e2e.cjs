@@ -217,7 +217,7 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.route('https://api.anthropic.com/**', async (route) => {
     const body = route.request().postDataJSON(); calls.push(body);
     const tok = (JSON.stringify(body.messages).match(/\[OSOBA-\d+\]/) || ['[?]'])[0]; // a real model echoes the tokens it was given
-    const out = { subject: 'Odpowiedź na pismo z dnia 10.10.2026 dotyczące leczenia Pacjenta', paragraphs: [`W odpowiedzi na pismo w sprawie ${tok} przedstawiam stanowisko.`, 'Usunięcie zatrzymanego zęba 48 przeprowadzono zgodnie z zasadami.'], warnings: ['Sprawdź, czy w dokumentacji jest podpisana zgoda.'] };
+    const out = { analysis: { allegations: [{ claim: 'Ból i obrzęk po usunięciu zęba 48', record: 'Dłutowanie zęba 48, szwy Vicryl 4-0.', clinical: 'Obrzęk i ból do 7 dni są typowym następstwem dłutowania zęba zatrzymanego.', assessment: 'bezzasadny', rebuttal: 'Objawy mieszczą się w prawidłowym przebiegu gojenia.' }], overall: 'Leczenie zgodne ze sztuką (MOCK).', risk: 'niskie', missing: ['podpisana zgoda'] }, subject: 'Odpowiedź na pismo z dnia 10.10.2026 dotyczące leczenia Pacjenta', paragraphs: [`W odpowiedzi na pismo w sprawie ${tok} przedstawiam stanowisko.`, 'Usunięcie zatrzymanego zęba 48 przeprowadzono zgodnie z zasadami.'], warnings: ['Sprawdź, czy w dokumentacji jest podpisana zgoda.'] };
     const text = JSON.stringify(out), ev = (e, d) => `event: ${e}\ndata: ${JSON.stringify(d)}\n\n`;
     await route.fulfill({ status: 200, contentType: 'text/event-stream', body: ev('message_start', { type: 'message_start', message: { id: 'm', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } }) + ev('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) + ev('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }) + ev('content_block_stop', { type: 'content_block_stop', index: 0 }) + ev('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 5 } }) + ev('message_stop', { type: 'message_stop' }) });
   });
@@ -225,6 +225,9 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.click('[data-act=complaint-draft]'); await p.waitForFunction(() => document.querySelector('[data-cr=body]')?.value.includes('zgodnie z zasadami'), null, { timeout: 15000 });
   const c1 = calls.at(-1), txt1 = JSON.stringify(c1.messages);
   ok(c1.system[0].text.includes('dyrektora medycznego') && typeof c1.messages[0].content === 'string', 'AI request: complaint prompt, no scan without consent');
+  ok(c1.output_config?.effort === 'max' && c1.max_tokens >= 64000 && c1.system[0].text.includes('ANALIZA'), 'AI request: deepest reasoning (effort max), room for a long letter, analysis step');
+  await p.locator('.cmp-analysis').scrollIntoViewIfNeeded(); await shot(p, '14-complaint-analysis');
+  ok((await p.locator('.cmp-analysis .alg').count()) === 1 && (await p.textContent('.cmp-analysis')).includes('bezzasadny') && (await p.textContent('.cmp-analysis')).includes('ryzyko: niskie'), 'AI analysis shown to the director: allegation, record, clinical assessment, rebuttal, risk');
   ok(!/Nowicki|Tomasz|Zając|Marek|Długa/.test(txt1) && txt1.includes('Usunięto zatrzymany ząb'), 'AI request: patient, sender and address pseudonymised; treatment record included');
   ok((await p.textContent('.cmp')).includes('Sprawdź, czy w dokumentacji jest podpisana zgoda') && /Tomasz Nowicki|Nowicki/.test(await p.inputValue('[data-cr=body]')), 'AI draft shown with warnings; tokens restored locally');
   await p.click('label.cmp-check'); await p.waitForTimeout(200);
@@ -334,6 +337,33 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   ok((await p.textContent('#stage-legend')).includes('wypełnienie (OD)') && (await p.locator('#ws-tabs .step.on[data-ttab=work]').count()) === 1, 'treat from the list: tooth 16 opens with a filling prepared on O and D');
   await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
   ok((await p.locator('#vcaries .todo-chip').count()) === 2, 'after the filling, 16 leaves "Do leczenia"');
+  // ---------- inside a general dentist's tooth card: caries of other teeth (mini chart), treat the next tooth, root canal in the same stream
+  await p.click('#arch g.tooth[data-fdi="25"]'); await p.waitForSelector('#ws'); await p.waitForTimeout(500);
+  ok((await p.locator('#mini-arch g.tooth').count()) >= 32, 'tooth card Badanie: mini chart for caries of other teeth');
+  await p.click('#mini-arch g.tooth[data-fdi="24"]'); await p.waitForTimeout(300);
+  ok((await p.locator('#mini-car .car-row').count()) === 1 && (await p.evaluate(() => !!window.__dentlist.curVisit().caries?.[24])), 'clicking 24 on the mini chart adds it to the caries plan');
+  await p.selectOption('[data-car-plan="24"]', 'v2'); await p.selectOption('#mini-car [data-car-icdas="24"]', '4'); await p.waitForTimeout(200);
+  ok((await p.evaluate(() => window.__dentlist.curVisit().caries[24])).plan === 'v2', 'severity and the visit to treat it are saved');
+  await shot(p, '13-ws-mini-caries');
+  await p.click('#mini-car [data-act=caries-treat][data-fdi="24"]'); await p.waitForTimeout(700);
+  ok((await p.getAttribute('#ws .ws', 'aria-label')) === 'Ząb 24' && (await p.textContent('#stage-legend')).includes('wypełnienie') && (await p.evaluate(() => window.__dentlist.curVisit().teeth.some((t) => t.fdi === 25))), '"Lecz teraz": tooth 25 saved, tooth 24 opened with a filling prepared');
+  await p.click('#ws-tab [data-ttab=endo]'); await p.waitForTimeout(300);
+  const st2 = await p.$$eval('#ws-tabs .step .l', (els) => els.map((e) => e.firstChild.textContent));
+  ok(st2.join('|') === 'Badanie|Zabiegi|Endodoncja|Anatomia|Materiały|Opis własny|Zalecenia' && (await p.textContent('#ws-spec')).includes('zachowawcza'), 'root canal inside the general-dentistry card: Endodoncja joins the stream, the card stays Zachowawcza: ' + st2.join(', '));
+  await shot(p, '15-ws-zach-endo');
+  await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
+  await p.locator('#vfinish').scrollIntoViewIfNeeded(); await shot(p, '16-visit-finish');
+  // ---------- finishing: letter (and PDF / print) straight from where the data was entered
+  ok((await p.locator('#vfinish [data-act=gen-letter][data-then=pdf]').count()) === 1 && (await p.locator('#vfinish [data-act=gen-letter][data-then=print]').count()) === 1, 'visit screen: "Zakończ wizytę" with Utwórz list / drukuj / PDF');
+  const pdfBefore = (await opfsTree(p)).filter((x) => x.startsWith('Listy/') && x.endsWith('.pdf')).length;
+  await p.click('#arch g.tooth[data-fdi="24"]'); await p.waitForSelector('#ws'); await p.click('#ws-tabs [data-ttab=rec]'); await p.waitForTimeout(300);
+  await p.locator('#ws-tab [data-act=ws-save-letter]').first().scrollIntoViewIfNeeded(); await shot(p, '17-ws-finish');
+  ok((await p.locator('#ws-tab [data-act=ws-save-letter]').count()) === 3, 'last step of the tooth card: Zapisz i utwórz list (+ drukuj, + PDF)');
+  await p.click('#ws-tab [data-act=ws-save-letter][data-then=pdf]'); await p.waitForTimeout(800);
+  if (await p.locator('.modal footer .btn-primary').count()) await p.click('.modal footer .btn-primary');
+  await p.waitForFunction(() => window.__dentlist.S.view === 'letter', null, { timeout: 20000 }); await p.waitForTimeout(3500);
+  const pdfAfter = (await opfsTree(p)).filter((x) => x.startsWith('Listy/') && x.endsWith('.pdf')).length;
+  ok(pdfAfter === pdfBefore + 1, `"Zapisz, utwórz i zapisz PDF": letter created and the PDF saved in one go (${pdfBefore} → ${pdfAfter})`);
   console.log('ERRORS', p.errs);
   ok(!p.errs.length, 'no page errors');
   await ctx.close();

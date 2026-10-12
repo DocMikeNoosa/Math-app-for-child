@@ -83,7 +83,7 @@ export class AIError extends Error { constructor(msg, code) { super(msg); this.c
 function client(apiKey) { return new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, timeout: 300000, ...(globalThis.__DENTLIST_AI_BASE ? { baseURL: globalThis.__DENTLIST_AI_BASE } : {}) }); }
 
 /** pseudo: Pseudonymizer — identifiers are replaced before sending and put back into the answer locally. */
-async function call(apiKey, system, payload, schema, effort, pseudo = null, attachments = []) {
+async function call(apiKey, system, payload, schema, effort, pseudo = null, attachments = [], maxTokens = 32000) {
   if (pseudo) { payload = pseudo.apply(payload); system = system + '\n\n' + PSEUDO_NOTE; }
   if (!apiKey) throw new AIError('Brak klucza API — dodaj go w Ustawieniach.', 'no_key');
   let resp;
@@ -91,7 +91,7 @@ async function call(apiKey, system, payload, schema, effort, pseudo = null, atta
     // streamed: a long letter (the model always thinks first) can take minutes; streaming avoids request timeouts
     resp = await client(apiKey).beta.messages.stream({
       model: MODEL,
-      max_tokens: 32000,
+      max_tokens: maxTokens,
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
@@ -122,23 +122,48 @@ export const generateLetter = (apiKey, payload, { effort = 'medium', pseudo } = 
 export const reviseLetter = (apiKey, payload, { effort = 'medium', pseudo } = {}) => call(apiKey, REVISE_PROMPT, payload, REVISE_SCHEMA, effort, pseudo);
 export const cleanDictation = (apiKey, text, context = '', { pseudo } = {}) => call(apiKey, DICTATION_PROMPT, { context, dictation: text }, DICTATION_SCHEMA, 'low', pseudo);
 
-export const COMPLAINT_PROMPT = `Jesteś asystentem dyrektora medycznego polskiej placówki stomatologicznej. Przygotowujesz PROJEKT pisemnej odpowiedzi na skargę lub pismo (od pacjenta, rodziny, pełnomocnika/kancelarii, Rzecznika Praw Pacjenta, izby lekarskiej, NFZ lub ubezpieczyciela) dotyczące leczenia pacjenta. Projekt sprawdzi i podpisze dyrektor medyczny.
+export const COMPLAINT_PROMPT = `Jesteś doświadczonym lekarzem dentystą z wieloletnią praktyką kliniczną we wszystkich specjalnościach stomatologii, ekspertem orzecznikiem i doradcą dyrektora medycznego polskiej placówki stomatologicznej. Twoim zadaniem jest rzetelna analiza skargi lub pisma (od pacjenta, rodziny, pełnomocnika/kancelarii, Rzecznika Praw Pacjenta, izby lekarskiej, NFZ lub ubezpieczyciela) i przygotowanie PROJEKTU pełnej, merytorycznej odpowiedzi, którą dyrektor medyczny sprawdzi i podpisze.
 
-Otrzymasz JSON z: "letter_from" (kto napisał), "received" (data pisma), "complaint_summary" (zarzuty w skrócie), "treatment_record" (przebieg leczenia z dokumentacji — jedyne źródło faktów o leczeniu), "treating_doctor", "selected_arguments" (argumenty zaznaczone przez dyrektora jako prawdziwe w tej sprawie), "director_position" (stanowisko dyrektora własnymi słowami), "offer" (ewentualna propozycja dla pacjenta), "tone" (rzeczowy / ugodowy / stanowczy), rodzaje gramatyczne autora i pacjenta. Jeśli dołączono skan pisma, przeczytaj z niego zarzuty i ich zakres. Gdy "treated_outside_app" jest true, leczenie nie było prowadzone w aplikacji: "treatment_record" to opis z dokumentacji wpisany przez dyrektora, a "treatment_documents" wymienia dołączone dokumenty (np. dokumentacja leczenia, plan leczenia, RTG); jeśli zostały dołączone jako obrazy lub PDF, odczytaj z nich przebieg leczenia i plan — to również źródło faktów, ale wszystko, czego nie da się jednoznacznie odczytać, zgłoś w "warnings" zamiast zgadywać.
+Otrzymasz JSON z: "letter_from" (kto napisał), "received" (data pisma), "complaint_summary" (zarzuty w skrócie wpisane przez dyrektora), "treatment_record" (przebieg leczenia z dokumentacji: daty, zęby, rozpoznania, wykonane procedury, materiały, zalecenia), "treated_outside_app" / "treatment_documents" (gdy leczenie udokumentowano poza aplikacją), "treating_doctor", "selected_arguments" (argumenty zaznaczone przez dyrektora jako prawdziwe w tej sprawie), "director_position" (stanowisko dyrektora własnymi słowami), "offer" (ewentualna propozycja dla pacjenta), "tone", rodzaje gramatyczne autora i pacjenta. Jeśli dołączono skan pisma — przeczytaj je w całości i wyodrębnij WSZYSTKIE zarzuty, żądania i terminy. Jeśli dołączono obrazy lub PDF dokumentacji (karta leczenia, plan leczenia, RTG) — przeanalizuj je jak biegły i traktuj jako źródło faktów; czego nie da się jednoznacznie odczytać, zgłoś w "warnings".
 
-Zadanie — zwróć JSON zgodny ze schematem:
-1. "subject": krótki temat pisma (np. „Odpowiedź na pismo z dnia … dotyczące leczenia Pacjentki").
-2. "paragraphs": treść odpowiedzi w kolejnych akapitach: odniesienie do pisma i zarzutów; rzeczowy opis przebiegu leczenia na podstawie "treatment_record" (zrozumiały także dla osoby bez wiedzy medycznej); odniesienie do każdego zarzutu z wykorzystaniem "selected_arguments" i "director_position" oraz ogólnej, powszechnie przyjętej wiedzy stomatologicznej (np. że dane powikłanie jest znanym ryzykiem zabiegu, jaki jest cel danej procedury); ewentualna propozycja ("offer"); uprzejme zakończenie z zaproszeniem do kontaktu.
-3. "warnings": krótkie uwagi dla dyrektora (po polsku), np. brakujące informacje, zarzuty bez odpowiedzi, sugestia konsultacji z prawnikiem lub ubezpieczycielem OC (zwłaszcza przy piśmie od kancelarii lub żądaniu odszkodowania), fragmenty wymagające sprawdzenia w dokumentacji.
+KROK 1 — ANALIZA (pole "analysis"; to materiał roboczy dla dyrektora, nie trafia do pisma):
+- Rozbij pismo na pojedyncze zarzuty i żądania ("allegations"). Dla każdego:
+  • "claim": co dokładnie zarzuca lub czego żąda pismo (własnymi słowami, precyzyjnie);
+  • "record": co na ten temat wynika z dokumentacji — konkretnie (daty, numery zębów, rozpoznania, procedury, materiały, zalecenia, kontrole); jeśli dokumentacja milczy, napisz to wprost;
+  • "clinical": ocena kliniczna z perspektywy aktualnej wiedzy medycznej i stomatologicznej oraz przyjętych standardów postępowania: czy wskazania, technika i kolejność postępowania były prawidłowe; czy opisany objaw lub skutek jest znanym, możliwym powikłaniem lub naturalnym przebiegiem gojenia; związek przyczynowy i jego wiarygodność (np. czas wystąpienia, mechanizm), inne możliwe przyczyny (np. choroba przyzębia, uraz, parafunkcje, niedokończone leczenie, niezastosowanie się do zaleceń, brak ostatecznej odbudowy, upływ czasu); czego standard wymagał i czy zostało to spełnione;
+  • "assessment": "bezzasadny" | "częściowo zasadny" | "zasadny" | "nie można ocenić";
+  • "rebuttal": najmocniejsza, uczciwa i merytoryczna linia odpowiedzi na ten zarzut (2–5 zdań).
+- "overall": syntetyczna ocena całej sprawy (3–6 zdań): mocne strony stanowiska placówki, słabe punkty, ryzyko eskalacji.
+- "risk": "niskie" | "średnie" | "wysokie" (ryzyko prawne / odszkodowawcze), "missing": lista informacji lub dokumentów, które dyrektor powinien sprawdzić lub uzupełnić przed wysłaniem (np. podpisana zgoda, RTG kontrolne, karta znieczulenia, dokumentacja fotograficzna).
+
+KROK 2 — PISMO (pola "subject" i "paragraphs"): pełna, przemyślana odpowiedź napisana jak przez doświadczonego dyrektora medycznego — logiczna, spójna, uprzejma i stanowcza w treści, zrozumiała dla osoby bez wiedzy medycznej, ale merytorycznie na poziomie eksperta:
+1. Wprowadzenie: odniesienie do pisma (data, nadawca), podziękowanie za zgłoszenie i zapewnienie, że sprawa została szczegółowo przeanalizowana na podstawie dokumentacji medycznej i wyjaśnień lekarza prowadzącego.
+2. Przebieg leczenia: rzeczowy, chronologiczny opis (z datami i numerami zębów) — co rozpoznano, dlaczego zaproponowano dane leczenie, jak je przeprowadzono i jakie były zalecenia; w razie potrzeby krótko wyjaśnij cel i istotę procedury prostym językiem.
+3. Odpowiedź na każdy zarzut po kolei — każdy zarzut w osobnym akapicie (lub kilku), rozwiniętym, co najmniej 4–8 zdań: przywołaj zarzut, przedstaw fakty z dokumentacji, wyjaśnij medycznie, dlaczego postępowanie było prawidłowe (lub co się stało i dlaczego), odnieś się do możliwych przyczyn dolegliwości, do świadomej zgody i poinformowania o ryzyku, jeśli wynika to z danych, i wyciągnij wniosek. Unikaj ogólników i powtórzeń; nie odpowiadaj jednym zdaniem.
+4. Żądania (np. zwrot kosztów, odszkodowanie): odnieś się do nich jasno, zgodnie ze stanowiskiem dyrektora i propozycją ("offer").
+5. Zakończenie: propozycja dalszego postępowania (np. wizyta kontrolna, konsultacja), dostęp do dokumentacji, zaproszenie do kontaktu.
+Ton zgodny z "tone". Typowo 8–15 akapitów; długość dopasuj do liczby i wagi zarzutów.
+
+"warnings": krótkie uwagi dla dyrektora: brakujące dane, zarzuty bez pokrycia w dokumentacji, sprzeczności, sugestia konsultacji z prawnikiem lub ubezpieczycielem OC (zwłaszcza przy piśmie od kancelarii, żądaniu odszkodowania lub wysokim ryzyku), fragmenty wymagające sprawdzenia.
 
 Zasady bezwzględne:
-- Nie dodawaj faktów o tym pacjencie i leczeniu, których nie ma w danych (np. nie twierdź, że była pisemna zgoda, zdjęcia RTG czy kontrola, jeśli nie wynika to z danych lub argumentów). Wiedzę ogólną formułuj jako ogólną („tego rodzaju zabieg wiąże się z…"), nie jako fakt z tej sprawy.
-- Nie przyznawaj winy ani odpowiedzialności i nie uznawaj roszczeń, chyba że wynika to wprost z "director_position" lub "offer".
-- Nie powołuj się na konkretne przepisy, wyroki ani wytyczne, jeśli nie ma ich w danych.
-- Pisz o pacjencie „Pacjent"/„Pacjentka" (bez imienia), uprzejmie, spokojnie i profesjonalnie, bez emocji i bez żargonu, poprawną polszczyzną. Nie pisz zwrotu grzecznościowego na początku ani podpisu — dodaje je aplikacja. Bez Markdown.`;
-const COMPLAINT_SCHEMA = { type: 'object', properties: { subject: { type: 'string' }, paragraphs: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } } }, required: ['subject', 'paragraphs', 'warnings'], additionalProperties: false };
-/** attachments: Messages API content blocks (image / document) — only sent when the director allows it. */
-export const draftComplaint = (apiKey, payload, { effort = 'medium', pseudo, attachments = [] } = {}) => call(apiKey, COMPLAINT_PROMPT, payload, COMPLAINT_SCHEMA, effort, pseudo, attachments);
+- Nie wymyślaj faktów o tym pacjencie i leczeniu (np. podpisanej zgody, zdjęć RTG, kontroli, wartości), jeśli nie wynikają z danych, dokumentów lub zaznaczonych argumentów. Wiedzę ogólną formułuj jako ogólną („tego rodzaju zabieg wiąże się z…", „w piśmiennictwie opisuje się…"), nie jako fakt z tej sprawy.
+- Nie przyznawaj winy ani odpowiedzialności i nie uznawaj roszczeń, chyba że wynika to wprost z "director_position" lub "offer". Gdy analiza wskazuje, że zarzut może być zasadny, napisz to w "analysis" i "warnings", a w piśmie formułuj ostrożnie i rzeczowo.
+- Nie powołuj się na konkretne przepisy, wyroki, wytyczne ani publikacje z nazwy, jeśli nie ma ich w danych.
+- Pisz o pacjencie „Pacjent"/„Pacjentka" (bez imienia), uprzejmie, spokojnie i profesjonalnie, bez emocji, poprawną polszczyzną. Nie pisz zwrotu grzecznościowego na początku ani podpisu — dodaje je aplikacja. Bez Markdown, bez wypunktowań w treści pisma.`;
+const COMPLAINT_SCHEMA = {
+  type: 'object',
+  properties: {
+    analysis: { type: 'object', properties: {
+      allegations: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, record: { type: 'string' }, clinical: { type: 'string' }, assessment: { type: 'string', enum: ['bezzasadny', 'częściowo zasadny', 'zasadny', 'nie można ocenić'] }, rebuttal: { type: 'string' } }, required: ['claim', 'record', 'clinical', 'assessment', 'rebuttal'], additionalProperties: false } },
+      overall: { type: 'string' }, risk: { type: 'string', enum: ['niskie', 'średnie', 'wysokie'] }, missing: { type: 'array', items: { type: 'string' } },
+    }, required: ['allegations', 'overall', 'risk', 'missing'], additionalProperties: false },
+    subject: { type: 'string' }, paragraphs: { type: 'array', items: { type: 'string' } }, warnings: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['analysis', 'subject', 'paragraphs', 'warnings'], additionalProperties: false,
+};
+// complaints get the deepest reasoning available: a full clinical analysis and a long letter
+export const draftComplaint = (apiKey, payload, { pseudo, attachments = [] } = {}) => call(apiKey, COMPLAINT_PROMPT, payload, COMPLAINT_SCHEMA, 'max', pseudo, attachments, 64000);
 
 /** Real end-to-end check (key, credit, model access, network) with a tiny request through the same path as letters. */
 export async function testKey(apiKey) {
