@@ -226,7 +226,6 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   const c1 = calls.at(-1), txt1 = JSON.stringify(c1.messages);
   ok(c1.system[0].text.includes('dyrektora medycznego') && typeof c1.messages[0].content === 'string', 'AI request: complaint prompt, no scan without consent');
   ok(c1.output_config?.effort === 'max' && c1.max_tokens >= 64000 && c1.system[0].text.includes('ANALIZA'), 'AI request: deepest reasoning (effort max), room for a long letter, analysis step');
-  await p.locator('.cmp-analysis').scrollIntoViewIfNeeded(); await shot(p, '14-complaint-analysis');
   ok((await p.locator('.cmp-analysis .alg').count()) === 1 && (await p.textContent('.cmp-analysis')).includes('bezzasadny') && (await p.textContent('.cmp-analysis')).includes('ryzyko: niskie'), 'AI analysis shown to the director: allegation, record, clinical assessment, rebuttal, risk');
   ok(!/Nowicki|Tomasz|Zając|Marek|Długa/.test(txt1) && txt1.includes('Usunięto zatrzymany ząb'), 'AI request: patient, sender and address pseudonymised; treatment record included');
   ok((await p.textContent('.cmp')).includes('Sprawdź, czy w dokumentacji jest podpisana zgoda') && /Tomasz Nowicki|Nowicki/.test(await p.inputValue('[data-cr=body]')), 'AI draft shown with warnings; tokens restored locally');
@@ -350,14 +349,11 @@ const shot = (p, n, o = {}) => p.screenshot({ path: path.join(OUT, n + '.png'), 
   await p.click('#ws-tab [data-ttab=endo]'); await p.waitForTimeout(300);
   const st2 = await p.$$eval('#ws-tabs .step .l', (els) => els.map((e) => e.firstChild.textContent));
   ok(st2.join('|') === 'Badanie|Zabiegi|Endodoncja|Anatomia|Materiały|Opis własny|Zalecenia' && (await p.textContent('#ws-spec')).includes('zachowawcza'), 'root canal inside the general-dentistry card: Endodoncja joins the stream, the card stays Zachowawcza: ' + st2.join(', '));
-  await shot(p, '15-ws-zach-endo');
   await p.click('[data-act=ws-save]'); await p.waitForTimeout(400);
-  await p.locator('#vfinish').scrollIntoViewIfNeeded(); await shot(p, '16-visit-finish');
   // ---------- finishing: letter (and PDF / print) straight from where the data was entered
   ok((await p.locator('#vfinish [data-act=gen-letter][data-then=pdf]').count()) === 1 && (await p.locator('#vfinish [data-act=gen-letter][data-then=print]').count()) === 1, 'visit screen: "Zakończ wizytę" with Utwórz list / drukuj / PDF');
   const pdfBefore = (await opfsTree(p)).filter((x) => x.startsWith('Listy/') && x.endsWith('.pdf')).length;
   await p.click('#arch g.tooth[data-fdi="24"]'); await p.waitForSelector('#ws'); await p.click('#ws-tabs [data-ttab=rec]'); await p.waitForTimeout(300);
-  await p.locator('#ws-tab [data-act=ws-save-letter]').first().scrollIntoViewIfNeeded(); await shot(p, '17-ws-finish');
   ok((await p.locator('#ws-tab [data-act=ws-save-letter]').count()) === 3, 'last step of the tooth card: Zapisz i utwórz list (+ drukuj, + PDF)');
   await p.click('#ws-tab [data-act=ws-save-letter][data-then=pdf]'); await p.waitForTimeout(800);
   if (await p.locator('.modal footer .btn-primary').count()) await p.click('.modal footer .btn-primary');
