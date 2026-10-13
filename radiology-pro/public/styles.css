@@ -818,3 +818,11 @@ a.pop-item { text-decoration: none; }
 .hosted-banner .grow { flex: 1; }
 .hosted-banner a { color: var(--accent); font-weight: 600; white-space: nowrap; }
 .hosted-banner button { border: none; background: none; color: var(--text-dim); font-size: 18px; line-height: 1; padding: 2px 4px; }
+
+/* in-app confirmation dialog */
+.confirm-modal { z-index: 90; }
+.confirm-card { width: min(440px, calc(100vw - 32px)); padding: 22px 22px 18px; }
+.confirm-msg p { margin: 0 0 6px; color: var(--text-dim); font-size: 14px; line-height: 1.5; }
+.confirm-msg .confirm-lead { color: var(--text-strong); font-size: 15px; font-weight: 600; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.confirm-actions .btn { min-width: 96px; justify-content: center; }

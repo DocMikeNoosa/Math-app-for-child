@@ -1,6 +1,6 @@
 {
   "name": "radiopis",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Radiopis — dyktowanie opisów radiologicznych z AI (wersja z kontami i subskrypcją).",
   "type": "module",

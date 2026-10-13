@@ -133,6 +133,60 @@ function save() {
   }, 250);
 }
 
+// ---------------------------------------------------------------- in-app confirmation dialog
+// (replaces the browser's own "127.0.0.1 says…" pop-up). Resolves true / false. Enter = OK, Esc = cancel.
+function askConfirm(message, { ok = 'Tak', cancel = 'Anuluj', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal confirm-modal';
+    wrap.setAttribute('role', 'alertdialog');
+    wrap.setAttribute('aria-modal', 'true');
+    const card = document.createElement('div');
+    card.className = 'modal-card confirm-card';
+    const msg = document.createElement('div');
+    msg.className = 'confirm-msg';
+    String(message).split('\n').forEach((line, i) => {
+      const p = document.createElement('p');
+      if (i === 0) p.className = 'confirm-lead';
+      p.textContent = line;
+      msg.append(p);
+    });
+    const actions = document.createElement('div');
+    actions.className = 'confirm-actions';
+    const no = document.createElement('button');
+    no.type = 'button';
+    no.className = 'btn';
+    no.textContent = cancel;
+    const yes = document.createElement('button');
+    yes.type = 'button';
+    yes.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+    yes.textContent = ok;
+    actions.append(no, yes);
+    card.append(msg, actions);
+    wrap.append(card);
+    const prevFocus = document.activeElement;
+    const done = (v) => {
+      document.removeEventListener('keydown', onKey, true);
+      wrap.remove();
+      if (prevFocus && prevFocus.focus) prevFocus.focus();
+      resolve(v);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(document.activeElement !== no); }
+      else if (e.key === 'Tab') { e.preventDefault(); (document.activeElement === yes ? no : yes).focus(); }
+      else if (e.key === ' ') { e.preventDefault(); e.stopPropagation(); } // Space is the dictation key: never answers the dialog
+      else e.stopPropagation(); // other app shortcuts stay off while the dialog is open
+    };
+    no.addEventListener('click', () => done(false));
+    yes.addEventListener('click', () => done(true));
+    wrap.addEventListener('mousedown', (e) => { if (e.target === wrap) done(false); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.append(wrap);
+    yes.focus();
+  });
+}
+
 // ---------------------------------------------------------------- helpers
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fold = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l');
@@ -846,7 +900,7 @@ async function newReport() {
   const pending = els.dictation.value.trim();
   if ((!pristine && !copied) || pending) {
     const what = pending && (pristine || copied) ? 'Dyktat nie został opracowany.' : 'Bieżący opis nie został skopiowany.';
-    if (!window.confirm(`${what}\nZakończyć ten opis i zacząć nowy?`)) return;
+    if (!(await askConfirm(`${what}\nZakończyć ten opis i zacząć nowy?`, { ok: 'Nowy opis' }))) return;
   }
   if (state.recording) await stopRecording();
   if (!pristine) { learnFromEdits(); archiveCurrent(); }
@@ -1209,19 +1263,19 @@ function saveEditor() {
   if (editor.isNew) { selectTemplate(raw.id); closePicker(); }
 }
 
-function deleteFromEditor() {
+async function deleteFromEditor() {
   const t = getTemplate(editor.id);
   if (!t) return;
   if (isBuiltin(t.id)) {
     if (userTemplates.edited[t.id]) {
-      if (!window.confirm(`Przywrócić oryginalną treść szablonu „${t.title}”?`)) return;
+      if (!(await askConfirm(`Przywrócić oryginalną treść szablonu „${t.title}”?`, { ok: 'Przywróć' }))) return;
       delete userTemplates.edited[t.id];
     } else {
-      if (!window.confirm(`Ukryć szablon „${t.title}” z menu? (Przywrócisz go importem lub czyszcząc dane przeglądarki)`)) return;
+      if (!(await askConfirm(`Ukryć szablon „${t.title}” z menu?\nPrzywrócisz go importem lub czyszcząc dane przeglądarki.`, { ok: 'Ukryj', danger: true }))) return;
       userTemplates.deleted.push(t.id);
     }
   } else {
-    if (!window.confirm(`Usunąć szablon „${t.title}”?`)) return;
+    if (!(await askConfirm(`Usunąć szablon „${t.title}”?`, { ok: 'Usuń', danger: true }))) return;
     userTemplates.custom = userTemplates.custom.filter((c) => c.id !== t.id);
   }
   closeEditor();
@@ -1759,8 +1813,8 @@ function bind() {
   els.stylePrefs.addEventListener('input', save);
   els.bgProcess.addEventListener('change', () => { save(); renderPrepState(); schedulePrefetch(300); });
   els.learnStyle.addEventListener('change', save);
-  els.clearStyle.addEventListener('click', () => {
-    if (!window.confirm('Zapomnieć wszystko, czego Radiopis nauczył się z Twoich poprawek?')) return;
+  els.clearStyle.addEventListener('click', async () => {
+    if (!(await askConfirm('Zapomnieć wszystko, czego Radiopis nauczył się z Twoich poprawek?', { ok: 'Zapomnij', danger: true }))) return;
     styleExamples = [];
     learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {}, translations: [] };
     saveStyle();
@@ -1843,8 +1897,8 @@ function bind() {
   els.learnRuleAdd.addEventListener('click', addRule);
   els.learnRuleInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addRule(); } });
   els.learnOn.addEventListener('change', () => { els.learnStyle.checked = els.learnOn.checked; save(); toast(els.learnOn.checked ? 'AI używa Twojego stylu' : 'AI nie używa Twojego stylu (nauka wyłączona)', 'info'); });
-  els.learnForget.addEventListener('click', () => {
-    if (!window.confirm('Zapomnieć wszystko: przykłady, reguły, sformułowania, odpowiedzi i zapamiętane poprawki?')) return;
+  els.learnForget.addEventListener('click', async () => {
+    if (!(await askConfirm('Zapomnieć wszystko: przykłady, reguły, sformułowania, odpowiedzi i zapamiętane poprawki?', { ok: 'Zapomnij', danger: true }))) return;
     profile = { rules: [], phrases: [], glossary: [], summary: '', questions: [], answers: [], samples: [], analyzedAt: 0, itemsAtAnalysis: 0 };
     styleExamples = [];
     learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {}, translations: [] };
@@ -1898,8 +1952,8 @@ function bind() {
     const o = e.target.closest('[data-today-open]');
     if (o) openTodayItem(o.dataset.todayOpen);
   });
-  els.todayClear.addEventListener('click', () => {
-    if (!window.confirm('Usunąć listę dzisiejszych opisów z tej przeglądarki?')) return;
+  els.todayClear.addEventListener('click', async () => {
+    if (!(await askConfirm('Usunąć listę dzisiejszych opisów z tej przeglądarki?', { ok: 'Usuń', danger: true }))) return;
     today.items = [];
     saveToday();
     renderToday();
