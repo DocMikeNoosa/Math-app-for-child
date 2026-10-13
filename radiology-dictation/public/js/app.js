@@ -1017,9 +1017,27 @@ const REGION_ICONS = {
   'Chest / Thorax': '<path d="M12 3v18M12 7c-3 0-7 1-7 6v6M12 7c3 0 7 1 7 6v6M5 13h14"/>',
   'Aorta / Vascular': '<path d="M9 21V9a3 3 0 0 1 6 0v1M9 12H6M15 13h3"/>',
   'Abdomen / Pelvis': '<path d="M5 6c0 8 3 14 7 14s7-6 7-14"/><path d="M8 11h8M9 15h6"/>',
+  Neck: '<path d="M9 3v5c0 2-2 3-2 6v7M15 3v5c0 2 2 3 2 6v7"/><path d="M10 12h4"/>',
+  Heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+  'Pelvis / Hips': '<path d="M4 8c2 0 4 1 5 3l3 2 3-2c1-2 3-3 5-3"/><circle cx="7.5" cy="15.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/>',
+  'Upper limb': '<path d="M7 3l2 8-2 5 3 5M12 11l3 1 3 4"/>',
+  'Lower limb': '<path d="M10 3l-1 9 1 6-2 3h4M14 3l1 9-1 6"/>',
+  Paediatric: '<circle cx="12" cy="7" r="3"/><path d="M8 21v-5l-2-3 6-2 6 2-2 3v5"/>',
   Combined: '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
 };
-const picker = { group: 'Non-trauma', active: 0, items: [] };
+const picker = { group: 'Non-trauma', mod: 'all', active: 0, items: [] };
+// Modality filter for the (large) template library: TK / MR / RTG / USG.
+const MODALITIES = [['all', 'Wszystkie'], ['ct', 'TK'], ['mr', 'MR'], ['xr', 'RTG'], ['us', 'USG']];
+function modalityOf(t) {
+  const id = t.id || '';
+  const title = t.title || '';
+  const exam = t.exam || '';
+  if (/^(mr|mra|mrv)_/.test(id) || /^(MR|MRA|MRV)\b/.test(title) || /^(MR|Rezonans|Angio-MR|MRCP)\b/i.test(exam)) return 'mr';
+  if (/^us_/.test(id) || /^USG\b/i.test(title) || /^USG\b/i.test(exam)) return 'us';
+  if (/^(xr|fl|mmg|dxa)_/.test(id) || /^(RTG|MMG|DXA)\b/i.test(title) || /^(RTG|Zdjęcie|Mammografi|Densytometri|Urografia klasyczna|Badanie kontrastowe)/i.test(exam)) return 'xr';
+  return 'ct';
+}
+const modMatch = (t) => picker.mod === 'all' || modalityOf(t) === picker.mod;
 
 function openPicker() {
   picker.group = template()?.group || getTemplate(state.recent[0])?.group || picker.group;
@@ -1043,10 +1061,10 @@ function itemButton(t, { tag = '' } = {}) {
 function renderPicker() {
   const q = fold(els.pickerSearch.value.trim());
   els.pickerTabs.innerHTML = GROUPS.map((g) => {
-    const n = TEMPLATES.filter((t) => t.group === g.id).length;
+    const n = TEMPLATES.filter((t) => t.group === g.id && modMatch(t)).length;
     const trauma = g.id === 'Trauma';
     return `<button class="tab${trauma ? ' trauma' : ''}" role="tab" aria-selected="${!q && picker.group === g.id}" data-group="${g.id}"><span class="dotc"></span>${g.label}<span class="count">${n}</span></button>`;
-  }).join('');
+  }).join('') + `<span class="tab-sep" aria-hidden="true"></span>${MODALITIES.map(([id, label]) => `<button class="tab mod" aria-selected="${picker.mod === id}" data-mod="${id}" title="${id === 'all' ? 'Wszystkie metody' : `Tylko ${label}`}">${label}</button>`).join('')}`;
   const recent = state.recent.map(getTemplate).filter(Boolean);
   els.pickerRecent.innerHTML = recent.length && !q
     ? `<span class="lbl">Ostatnie</span>${recent.map((t) => `<button class="chip-btn" data-id="${t.id}">${esc(t.title)}</button>`).join('')}`
@@ -1054,7 +1072,7 @@ function renderPicker() {
 
   if (q) {
     const tokens = q.split(/\s+/);
-    const scored = TEMPLATES.map((t) => {
+    const scored = TEMPLATES.filter(modMatch).map((t) => {
       const title = fold(`${t.title} ${t.exam}`);
       const meta = fold(`${regionLabel(t.section)} ${t.section} ${GROUPS.find((g) => g.id === t.group)?.label} ${t.group}`);
       const body = fold(t.body);
@@ -1071,7 +1089,7 @@ function renderPicker() {
       ? `<div class="results">${scored.map(({ t }) => itemButton(t, { tag: `${t.group === 'Trauma' ? 'Uraz' : 'Bez urazu'} · ${regionLabel(t.section)}` })).join('')}</div>`
       : '<div class="no-results">Brak szablonów — spróbuj innego słowa.</div>';
   } else {
-    const regions = templatesByRegion(picker.group);
+    const regions = templatesByRegion(picker.group).map((r) => ({ ...r, templates: r.templates.filter(modMatch) })).filter((r) => r.templates.length);
     els.pickerBody.innerHTML = `<div class="regions${picker.group === 'Trauma' ? ' trauma-mode' : ''}">${regions
       .map((r) => `<section class="region">
         <div class="region-head"><span class="region-icon"><svg viewBox="0 0 24 24">${REGION_ICONS[r.id] || ''}</svg></span>${esc(r.label)}<span class="region-count">${r.templates.length}</span></div>
@@ -1946,6 +1964,8 @@ function bind() {
   els.closePicker.addEventListener('click', closePicker);
   els.picker.addEventListener('click', (e) => {
     if (e.target === els.picker) return closePicker();
+    const mod = e.target.closest('[data-mod]');
+    if (mod) { picker.mod = mod.dataset.mod; renderPicker(); els.pickerSearch.focus(); return; }
     const tab = e.target.closest('[data-group]');
     if (tab) { picker.group = tab.dataset.group; els.pickerSearch.value = ''; renderPicker(); els.pickerSearch.focus(); return; }
     const edit = e.target.closest('[data-edit]');

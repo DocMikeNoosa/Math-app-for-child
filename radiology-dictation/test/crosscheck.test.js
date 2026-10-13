@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TEMPLATES, SNIPPETS, getTemplate, reportFromTemplate, reportToText, templatesByRegion, parseTemplate } from '../public/js/templates.js';
-import { localMerge, findConflicts, analyseFinding, pruneSentence, shortenFinding } from '../public/js/crosscheck.js';
+import { localMerge, findConflicts, enforceConsistency, analyseFinding, pruneSentence, shortenFinding } from '../public/js/crosscheck.js';
 
 const merge = (id, dictation) => {
   const t = getTemplate(id);
@@ -11,8 +11,10 @@ const lines = (s) => s.split('\n');
 
 // ---------------------------------------------------------------- templates
 test('all templates parse into header / body / conclusion', () => {
-  assert.equal(TEMPLATES.length, 35);
-  assert.equal(SNIPPETS.length, 12);
+  // the radiologist's own 35 + the extended library
+  assert.ok(TEMPLATES.length >= 390, `templates: ${TEMPLATES.length}`);
+  assert.ok(SNIPPETS.length >= 110, `snippets: ${SNIPPETS.length}`);
+  assert.equal(new Set(TEMPLATES.map((t) => t.id)).size, TEMPLATES.length, 'unique ids');
   for (const t of TEMPLATES) {
     assert.ok(t.header, t.id);
     assert.ok(t.body.length > 20, t.id);
@@ -32,7 +34,8 @@ test('export reproduces the template layout', () => {
 
 test('templates are grouped trauma / non-trauma by region', () => {
   const trauma = templatesByRegion('Trauma').map((r) => r.label);
-  assert.deepEqual(trauma, ['Głowa', 'Twarzoczaszka', 'Kręgosłup', 'Jama brzuszna i miednica', 'Badania łączone']);
+  assert.deepEqual(trauma, ['Głowa', 'Twarzoczaszka', 'Szyja', 'Naczynia głowy i szyi', 'Kręgosłup', 'Klatka piersiowa', 'Aorta i naczynia', 'Jama brzuszna i miednica', 'Miednica kostna i biodra', 'Kończyna górna', 'Kończyna dolna', 'Dzieci', 'Badania łączone']);
+  assert.ok(!templatesByRegion('Non-trauma').some((r) => r.label === 'Inne'), 'every template has a known region');
   assert.ok(templatesByRegion('Non-trauma').some((r) => r.label === 'Klatka piersiowa'));
 });
 
@@ -384,3 +387,23 @@ test('clinical details never dismiss an unexpected finding: trauma referral + ac
   assert.match(fixed[0], /niedokrwien/);
   assert.ok(fixed.some((l) => /zmian pourazowych/.test(l)));
 });
+
+test('advice and caveat lines stay at the end of the conclusion', async () => {
+  const { layoutConclusion } = await import('../public/js/crosscheck.js');
+  const out = layoutConclusion('- Przy utrzymujących się objawach klinicznych do rozważenia MR w kierunku złamania utajonego.\n- Bez cech złamania bliższego odcinka kości udowej.\n- Krwiak podtwardówkowy lewostronny.');
+  const lines = out.split('\n');
+  assert.equal(lines.at(-1), '- Przy utrzymujących się objawach klinicznych do rozważenia MR w kierunku złamania utajonego.');
+  assert.equal(lines[0], '- Krwiak podtwardówkowy lewostronny.');
+});
+
+test('every library template survives the safety net unchanged and never contradicts itself', () => {
+  for (const t of TEMPLATES) {
+    const rep = reportFromTemplate(t);
+    assert.deepEqual(findConflicts(t, rep), [], t.id);
+    const out = enforceConsistency(t, { ...rep }).report;
+    const norm = (s) => s.replace(/\s+/g, ' ').trim();
+    assert.equal(norm(out.body), norm(rep.body), t.id);
+    assert.equal(norm(out.conclusion), norm(rep.conclusion), t.id);
+  }
+});
+

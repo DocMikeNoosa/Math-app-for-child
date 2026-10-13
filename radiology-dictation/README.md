@@ -6,6 +6,12 @@ radiological language, inserts it in the right place, **removes every template s
 dictation contradicts**, and writes a short conclusion from the pathological findings. You check
 the highlighted changes, edit anything inline, and copy the report into your RIS.
 
+
+**v0.14.0 — full template library:** 397 templates + 112 snippets (the radiologist's own 35 + the library
+written for Radiopis: CT, angio-CT, MR incl. heart/breast/joints, X-ray incl. contrast studies, mammography and
+densitometry, ultrasound; trauma / non-trauma; adults / children; combined studies). The template picker has a
+**TK / MR / RTG / USG** filter next to Uraz / Bez urazu. Advice lines ("do rozważenia MR…", "nie wyklucza…")
+always end the conclusion. Validate templates with `npm run check-templates`.
 ## Quick start
 
 ```bash

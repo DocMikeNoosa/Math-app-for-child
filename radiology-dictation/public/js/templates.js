@@ -1,6 +1,17 @@
 // Template catalogue: parsing, grouping (trauma / non-trauma → anatomical region), snippets
 // and plain-text export in the template's own format.
-import { TEMPLATE_DATA } from './template-data.js';
+import { TEMPLATE_DATA as BASE_DATA } from './template-data.js';
+import NEURO from './templates-pro/neuro-headneck.js';
+import CHEST from './templates-pro/chest-vascular.js';
+import ABDOMEN from './templates-pro/abdomen.js';
+import MSK from './templates-pro/msk-spine-xray.js';
+import MRUS from './templates-pro/mr-neuro-us.js';
+import MRBODY2 from './templates-pro/mr-body-msk-2.js';
+import MRNEURO2 from './templates-pro/mr-neuro-spine-2.js';
+import XRAY2 from './templates-pro/xray-2.js';
+
+// The radiologist's own set first, then the extended library.
+const TEMPLATE_DATA = [...BASE_DATA, ...NEURO, ...CHEST, ...ABDOMEN, ...MSK, ...MRUS, ...MRBODY2, ...MRNEURO2, ...XRAY2];
 
 export const GROUPS = [
   { id: 'Trauma', label: 'Uraz' },
@@ -11,11 +22,17 @@ export const GROUPS = [
 export const REGIONS = [
   { id: 'CT Head', label: 'Głowa' },
   { id: 'Facial bones', label: 'Twarzoczaszka' },
+  { id: 'Neck', label: 'Szyja' },
   { id: 'Vascular / Neuro', label: 'Naczynia głowy i szyi' },
   { id: 'Spine', label: 'Kręgosłup' },
   { id: 'Chest / Thorax', label: 'Klatka piersiowa' },
-  { id: 'Aorta / Vascular', label: 'Aorta' },
+  { id: 'Heart', label: 'Serce' },
+  { id: 'Aorta / Vascular', label: 'Aorta i naczynia' },
   { id: 'Abdomen / Pelvis', label: 'Jama brzuszna i miednica' },
+  { id: 'Pelvis / Hips', label: 'Miednica kostna i biodra' },
+  { id: 'Upper limb', label: 'Kończyna górna' },
+  { id: 'Lower limb', label: 'Kończyna dolna' },
+  { id: 'Paediatric', label: 'Dzieci' },
   { id: 'Combined', label: 'Badania łączone' },
   { id: 'Other', label: 'Inne' },
 ];
@@ -23,6 +40,10 @@ export const REGIONS = [
 export const SNIPPET_GROUPS = [
   { id: 'Head snippets', label: 'Głowa' },
   { id: 'Trauma snippets', label: 'Uraz' },
+  { id: 'Chest snippets', label: 'Klatka piersiowa' },
+  { id: 'Abdomen snippets', label: 'Jama brzuszna' },
+  { id: 'Vascular snippets', label: 'Naczynia' },
+  { id: 'MSK snippets', label: 'Układ ruchu' },
   { id: 'General snippets', label: 'Ogólne' },
 ];
 

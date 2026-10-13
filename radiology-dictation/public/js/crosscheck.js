@@ -979,14 +979,19 @@ function enforce(template, report, { ignore, dictatedConclusion }) {
  * the order of their first, most urgent line), then the remaining "normal" lines. No empty
  * lines between them (only the consultation line below is set apart).
  */
+export const ADVICE_RE = /do rozważenia|należy rozważyć|warto rozważyć|zaleca się|zalecan[aey]? (?:kontrol|badani|dalsz|uzupełni|weryfikacj)|nie wyklucza|czułość|w razie (?:wskazań|utrzymywania|nasilenia)|przy utrzymujących się|kontrolne? badanie|consider |recommend|does not exclude|sensitivity/iu;
+
 export function layoutConclusion(conclusion, style = 'dash') {
   const lines = String(conclusion || '').split('\n').filter((l) => l.trim());
   if (!lines.length) return '';
   const groups = [];
   const normal = [];
+  const advice = [];
   let prev = null;
   for (const line of lines) {
     const text = stripBullet(line);
+    // caveats and follow-up advice ("do rozważenia MR…", "nie wyklucza…") close the conclusion
+    if (ADVICE_RE.test(text)) { advice.push(line); continue; }
     const f = analyseFinding(text);
     if (!f.concepts.size) { normal.push(line); continue; }
     const sys = systemOf(f.organs) || prev?.sys || null; // no organ: stays with the line before
@@ -997,6 +1002,7 @@ export function layoutConclusion(conclusion, style = 'dash') {
   }
   const blocks = groups.map((g) => g.lines.join('\n'));
   if (normal.length) blocks.push(normal.join('\n'));
+  if (advice.length) blocks.push(advice.join('\n'));
   return renumber(blocks.join('\n'), style); // grouped, but no empty lines inside the conclusion
 }
 

@@ -2,7 +2,7 @@
 
 Read this first, then `README.md` (features in detail) and the code. Repository:
 https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-radiology-dictation-e0ov8p`, folder
-`radiology-dictation/`. Version 0.13.2 (see `package.json`).
+`radiology-dictation/`. Version 0.14.0 (see `package.json`).
 UI rule from the radiologist: do NOT change the look of buttons (keep the thin blue rim on active
 toggles) or the overall layout when adding features — add functionality in the existing style.
 
@@ -30,7 +30,7 @@ toggles) or the overall layout when adding features — add functionality in the
   and layout; consultation line.
 - `public/js/app.js` + `index.html` + `styles.css` — dark UI (vanilla JS). Speech: Web Speech API
   (Chrome/Edge, pl-PL / en-US) in `speech.js`.
-- Other modules: `templates.js` / `template-data.js` (the radiologist's 35 templates + 10 snippets),
+- Other modules: `templates.js` / `template-data.js` (the radiologist's 35 templates + the shared library in `templates-pro/`: 397 templates + 112 snippets in total, same as Radiopis),
   `polish-text.js` (spoken numbers/units/punctuation), `voice-commands.js`, `style-learning.js`,
   `mic-button.js` (Nuance PowerMic via WebHID + key binding).
 - Windows install: `Zainstaluj RadVox (Windows).bat` → desktop icon (`launcher/RadVox.ps1`, no console).
