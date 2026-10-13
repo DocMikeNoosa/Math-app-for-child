@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Konto — Radiopis</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="account">
+  <nav class="nav">
+    <div class="wrap">
+      <a class="brand" href="/app/"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span data-brand>Radiopis</span></a>
+      <span class="grow"></span>
+      <a class="btn btn-sm" href="/admin" id="adminLink" hidden>Panel administratora</a>
+      <a class="btn btn-sm btn-primary" href="/app/" id="appLink">Otwórz aplikację</a>
+      <a class="btn btn-sm btn-ghost" href="/logout">Wyloguj</a>
+    </div>
+  </nav>
+  <main class="shell">
+    <div class="wrap">
+      <div class="page-head">
+        <div><h1>Twoje konto</h1><div class="dim" id="who"></div></div>
+      </div>
+      <div id="notice" class="msg" hidden></div>
+
+      <div class="cols">
+        <div>
+          <div class="card">
+            <div class="card-head"><h2>Subskrypcja</h2><span id="statusPill"></span></div>
+            <dl class="kv">
+              <dt>Plan</dt><dd id="planName">—</dd>
+              <dt>Dostęp do</dt><dd id="until">—</dd>
+              <dt>Opisy w tym miesiącu</dt><dd><span id="usageText">—</span><div class="meter" id="meter"><i id="meterBar"></i></div></dd>
+            </dl>
+            <div class="actions" style="margin-top:14px">
+              <button class="btn btn-sm" id="portalBtn" hidden>Zarządzaj płatnością kartą</button>
+            </div>
+          </div>
+
+          <div class="card" id="choose">
+            <div class="card-head"><h2 id="chooseTitle">Wybierz plan</h2>
+              <div class="billing-toggle" role="group" aria-label="Okres rozliczenia" style="margin:0">
+                <button type="button" data-interval="month" aria-pressed="true">Miesięcznie</button>
+                <button type="button" data-interval="year" aria-pressed="false">Rocznie</button>
+              </div>
+            </div>
+            <div class="plans" id="plans"></div>
+            <div id="bank" class="msg info" style="margin-top:16px" hidden></div>
+            <p class="dim small" style="margin-top:12px">Ceny netto + 23% VAT. Fakturę wystawiamy na dane podane niżej.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h2>Historia płatności</h2></div>
+            <div class="table-wrap"><table><thead><tr><th>Data</th><th>Plan</th><th>Okres do</th><th>Sposób</th><th class="num">Kwota</th></tr></thead><tbody id="payments"></tbody></table></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <div class="card-head"><h2>Dane do faktury</h2></div>
+            <form id="profileForm">
+              <div class="field"><label for="pName">Imię i nazwisko</label><input id="pName" name="name" required /></div>
+              <div class="row">
+                <div class="field"><label for="pNpwz">Numer PWZ</label><input id="pNpwz" name="npwz" /></div>
+                <div class="field"><label for="pPhone">Telefon</label><input id="pPhone" name="phone" type="tel" /></div>
+              </div>
+              <div class="field"><label for="pCompany">Firma / praktyka lekarska</label><input id="pCompany" name="company" /></div>
+              <div class="field"><label for="pNip">NIP</label><input id="pNip" name="nip" inputmode="numeric" /></div>
+              <button class="btn" type="submit">Zapisz dane</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h2>Hasło</h2></div>
+            <form id="pwdForm">
+              <div class="field"><label for="cur">Obecne hasło</label><input id="cur" name="current" type="password" autocomplete="current-password" required /></div>
+              <div class="field"><label for="nw">Nowe hasło <span class="faint">(min. 10 znaków, litera i cyfra)</span></label><input id="nw" name="next" type="password" autocomplete="new-password" required /></div>
+              <button class="btn" type="submit">Zmień hasło</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h2>Zalogowane urządzenia</h2><button class="btn btn-sm" id="logoutOthers">Wyloguj inne</button></div>
+            <div id="sessions" class="small"></div>
+            <p class="dim small" id="devicesNote" style="margin-top:10px"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script type="module" src="/site/account.js"></script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "name": "radiopis",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Radiopis — dyktowanie opisów radiologicznych z AI (wersja z kontami i subskrypcją).",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "build": "node scripts/build.mjs",
+    "prod": "npm run build && NODE_ENV=production node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --test test/*.test.js",
+    "check-templates": "node tools/check-templates.mjs public/js/templates-pro/*.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^0.34.4",
+    "@anthropic-ai/sdk": "^0.132.0"
+  },
+  "devDependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "esbuild": "^0.28.2",
+    "javascript-obfuscator": "^5.9.0"
+  }
+}

@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Administrator — Radiopis</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="admin">
+  <nav class="nav">
+    <div class="wrap">
+      <a class="brand" href="/admin"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span><span data-brand>Radiopis</span> <span class="dim" style="font-weight:500">· administrator</span></span></a>
+      <span class="grow"></span>
+      <a class="btn btn-sm" href="/app/">Aplikacja</a>
+      <a class="btn btn-sm btn-ghost" href="/logout">Wyloguj</a>
+    </div>
+  </nav>
+  <main class="shell">
+    <div class="wrap">
+      <div class="admin-tabs" role="tablist">
+        <button role="tab" data-tab="dash" aria-selected="true">Pulpit</button>
+        <button role="tab" data-tab="users" aria-selected="false">Użytkownicy</button>
+        <button role="tab" data-tab="usage" aria-selected="false">Zużycie i koszty AI</button>
+        <button role="tab" data-tab="payments" aria-selected="false">Płatności</button>
+        <button role="tab" data-tab="plans" aria-selected="false">Plany i ceny</button>
+        <button role="tab" data-tab="settings" aria-selected="false">Ustawienia</button>
+        <button role="tab" data-tab="log" aria-selected="false">Dziennik i poczta</button>
+      </div>
+
+      <!-- dashboard -->
+      <section data-panel="dash" style="padding:0">
+        <div class="kpis" id="kpis"></div>
+        <div class="cols">
+          <div>
+            <div class="card">
+              <div class="card-head"><h3>Ostatnie 30 dni</h3><span class="dim small" id="chartNote"></span></div>
+              <svg class="chart" id="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Opisy dziennie i koszt AI"></svg>
+              <div class="chart-axis"><span id="axisFrom"></span><span id="axisTo"></span></div>
+              <div class="legend"><span><i style="background:rgba(89,212,255,.55)"></i>opisy dziennie</span><span><i style="background:var(--warn)"></i>koszt AI dziennie</span></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Wygasające w ciągu 7 dni</h3></div>
+              <div class="table-wrap"><table><thead><tr><th>Użytkownik</th><th>Plan</th><th>Status</th><th>Do</th></tr></thead><tbody id="expiring"></tbody></table></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Zaległe płatności</h3></div>
+              <div class="table-wrap"><table><thead><tr><th>Użytkownik</th><th>Plan</th><th>Do</th></tr></thead><tbody id="pastDue"></tbody></table></div>
+            </div>
+          </div>
+          <div>
+            <div class="card">
+              <div class="card-head"><h3>Najwyższy koszt AI (ten miesiąc)</h3></div>
+              <div class="table-wrap"><table><thead><tr><th>Użytkownik</th><th class="num">Opisy</th><th class="num">Koszt</th><th class="num">% ceny</th></tr></thead><tbody id="topCost"></tbody></table></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Języki dyktatu (ten miesiąc)</h3></div>
+              <ul class="config-list" id="byLang"></ul>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Konfiguracja serwera</h3><button class="btn btn-sm" id="runJobs">Uruchom zadania</button></div>
+              <ul class="config-list" id="config"></ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- users -->
+      <section data-panel="users" style="padding:0" hidden>
+        <div class="toolbar">
+          <input id="q" type="search" placeholder="Szukaj: e-mail, nazwisko, NIP, PWZ…" />
+          <select id="filter">
+            <option value="all">Wszyscy</option><option value="active">Aktywni (płatni)</option><option value="trial">Okres próbny</option>
+            <option value="expiring">Wygasają w 7 dni</option><option value="expired">Wygaśli</option><option value="past_due">Zaległa płatność</option>
+            <option value="blocked">Zablokowani</option><option value="admins">Administratorzy</option>
+          </select>
+          <span class="grow"></span>
+          <a class="btn btn-sm" href="/api/admin/export/users.csv">CSV</a>
+          <button class="btn btn-sm btn-primary" id="addUser">+ Dodaj użytkownika</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Użytkownik</th><th>Plan</th><th>Status</th><th>Dostęp do</th><th class="num">Opisy (mies.)</th><th class="num">Koszt AI</th><th class="num">Marża</th><th>Ostatnio</th></tr></thead>
+          <tbody id="users"></tbody>
+        </table></div>
+        <p class="dim small" id="usersNote" style="margin-top:10px"></p>
+      </section>
+
+      <!-- usage -->
+      <section data-panel="usage" style="padding:0" hidden>
+        <div class="toolbar"><label for="month" style="margin:0">Miesiąc</label><input id="month" type="month" /><span class="grow"></span><a class="btn btn-sm" href="/api/admin/export/usage.csv">CSV</a></div>
+        <div class="card">
+          <div class="card-head"><h3>Koszt AI na użytkownika</h3><span class="dim small">ceny API: Opus $4 / $20 za 1 mln tokenów wejścia / wyjścia</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Użytkownik</th><th>Plan</th><th class="num">Opisy</th><th class="num">Zapytania</th><th class="num">Zapyt./opis</th><th class="num">Tokeny we / wy</th><th class="num">Cache odczyt</th><th class="num">Koszt</th><th class="num">Koszt / opis</th><th class="num">% ceny planu</th><th class="num">Błędy</th></tr></thead><tbody id="perUser"></tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Ostatnie 12 miesięcy</h3></div>
+          <div class="table-wrap"><table><thead><tr><th>Miesiąc</th><th class="num">Opisy</th><th class="num">Zapytania</th><th class="num">Koszt USD</th><th class="num">Koszt PLN</th><th class="num">Koszt / opis</th></tr></thead><tbody id="months"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- payments -->
+      <section data-panel="payments" style="padding:0" hidden>
+        <div class="toolbar"><span class="dim small">Płatności online (Stripe) zapisują się automatycznie; przelewy dodajesz przy użytkowniku („Przedłuż”).</span><span class="grow"></span><a class="btn btn-sm" href="/api/admin/export/payments.csv">CSV dla księgowości</a></div>
+        <div class="table-wrap"><table><thead><tr><th>Data</th><th>Użytkownik</th><th>Firma / NIP</th><th>Plan</th><th>Okres do</th><th>Sposób</th><th>Ref.</th><th class="num">Kwota</th></tr></thead><tbody id="paymentsTable"></tbody></table></div>
+      </section>
+
+      <!-- plans -->
+      <section data-panel="plans" style="padding:0" hidden>
+        <div class="card">
+          <div class="card-head"><h3>Plany</h3><div class="actions"><button class="btn btn-sm" id="addPlan">+ Plan</button><button class="btn btn-sm btn-primary" id="savePlans">Zapisz plany</button></div></div>
+          <p class="dim small">Ceny netto (PLN / miesiąc). Limit = opisy miesięcznie (z 10% tolerancją). Urządzenia = jednocześnie zalogowane. „Stripe price” — identyfikator ceny z panelu Stripe (price_…) dla płatności kartą; puste = tylko przelew. Plan „trial” to okres próbny (nie jest pokazywany w cenniku).</p>
+          <div class="table-wrap"><table><thead><tr><th>ID</th><th>Nazwa</th><th class="num">Cena</th><th class="num">Limit</th><th class="num">Urządz.</th><th>W cenniku</th><th>Wyróżniony</th><th>Stripe price (mies.)</th><th>Stripe price (rok)</th><th></th></tr></thead><tbody id="plansTable"></tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Kalkulator marży</h3></div>
+          <p class="dim small">Szacunek na podstawie rzeczywistego średniego kosztu AI na opis z bieżącego miesiąca (lub wartości wpisanej ręcznie).</p>
+          <div class="row" style="max-width:520px"><div class="field"><label for="calcCost">Koszt AI na opis (zł)</label><input id="calcCost" type="number" step="0.01" min="0" /></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Plan</th><th class="num">Cena netto</th><th class="num">Koszt AI przy pełnym limicie</th><th class="num">Marża przy pełnym limicie</th><th class="num">Koszt przy 50% limitu</th><th class="num">Marża przy 50%</th></tr></thead><tbody id="calc"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- settings -->
+      <section data-panel="settings" style="padding:0" hidden>
+        <div class="cols">
+          <div class="card">
+            <div class="card-head"><h3>Ustawienia</h3></div>
+            <form id="settingsForm">
+              <div class="row">
+                <div class="field"><label for="sRate">Kurs USD → PLN (do raportów kosztów)</label><input id="sRate" name="usdPln" type="number" step="0.01" /></div>
+                <div class="field"><label for="sTrial">Okres próbny (dni)</label><input id="sTrial" name="trialDays" type="number" min="0" max="90" /></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="sGrace">Tolerancja ponad limit (0.1 = 10%)</label><input id="sGrace" name="graceRatio" type="number" step="0.05" min="0" max="1" /></div>
+                <div class="field"><label for="sAlert">Alert kosztu AI (część ceny planu)</label><input id="sAlert" name="costAlertRatio" type="number" step="0.05" /></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="sPastDue">Dni dostępu po nieudanej płatności</label><input id="sPastDue" name="graceDaysPastDue" type="number" min="0" max="30" /></div>
+                <div class="field"><label for="sAnnual">Plan roczny = cena × miesięcy</label><input id="sAnnual" name="annualMonths" type="number" min="1" max="12" step="1" /></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="sBg">Limit zapytań w tle na opis (koszt AI)</label><input id="sBg" name="maxBackgroundCalls" type="number" min="0" max="20" /></div>
+                <div class="field"></div>
+              </div>
+              <div class="field"><label for="sBankName">Odbiorca przelewu (nazwa firmy)</label><input id="sBankName" name="bankName" /></div>
+              <div class="field"><label for="sBank">Numer konta do przelewów</label><input id="sBank" name="bankAccount" placeholder="PL00 0000 0000 0000 0000 0000 0000" /></div>
+              <div class="field"><label class="check"><input type="checkbox" name="registrationOpen" /> Rejestracja otwarta (nowi użytkownicy mogą sami założyć konto próbne)</label></div>
+              <button class="btn btn-primary" type="submit">Zapisz ustawienia</button>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Jak to działa</h3></div>
+            <ul class="small dim" style="padding-left:18px;margin:0">
+              <li>Zadania automatyczne (co godzinę): wygaszanie subskrypcji, przypomnienia e-mail 7 i 1 dzień przed końcem, alerty kosztu AI do administratora.</li>
+              <li>Płatność kartą (Stripe) przedłuża dostęp automatycznie co miesiąc / rok.</li>
+              <li>Przelew: po zaksięgowaniu kliknij użytkownika → „Przedłuż” i wpisz kwotę oraz numer faktury.</li>
+              <li>Opis liczy się raz, nawet jeśli AI było wołane kilka razy dla tego samego badania (przetwarzanie w tle, poprawki).</li>
+              <li>Koszty są liczone z rzeczywistego zużycia tokenów zwracanego przez API.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- log -->
+      <section data-panel="log" style="padding:0" hidden>
+        <div class="cols">
+          <div class="card"><div class="card-head"><h3>Dziennik zdarzeń</h3></div><div class="table-wrap" style="max-height:640px"><table><thead><tr><th>Czas</th><th>Kto</th><th>Akcja</th><th>Dotyczy</th><th>Szczegóły</th></tr></thead><tbody id="audit"></tbody></table></div></div>
+          <div class="card"><div class="card-head"><h3>Poczta wychodząca</h3></div><div id="outbox" class="small"></div></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="overlay" id="overlay" hidden></div>
+  <aside class="drawer" id="drawer" hidden aria-label="Szczegóły użytkownika"></aside>
+  <div class="modal" id="modal" hidden role="dialog" aria-modal="true"></div>
+  <script type="module" src="/site/admin.js"></script>
+</body>
+</html>
