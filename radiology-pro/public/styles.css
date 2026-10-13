@@ -385,7 +385,8 @@ mark.add { background: var(--added-bg); color: var(--text-strong); border-radius
 .search { flex: 1; position: relative; }
 .search svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--text-faint); }
 .search input { padding-left: 40px; height: 44px; font-size: 15px; }
-.picker-tabs { display: flex; gap: 6px; padding: 0 16px 10px; }
+.picker-tabs { display: flex; gap: 6px; padding: 0 16px 10px; flex-wrap: wrap; align-items: center; }
+.picker-tabs .tab-sep { width: 1px; height: 22px; background: var(--line-2); margin: 0 4px; }
 .tab {
   display: inline-flex; align-items: center; gap: 8px;
   height: 36px; padding: 0 16px; border-radius: 10px;

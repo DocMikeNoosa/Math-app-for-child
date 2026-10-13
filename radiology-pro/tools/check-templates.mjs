@@ -3,8 +3,17 @@ import { pathToFileURL } from 'node:url';
 import { TEMPLATE_DATA } from '../public/js/template-data.js';
 const SECTIONS = ['CT Head', 'Facial bones', 'Vascular / Neuro', 'Neck', 'Spine', 'Chest / Thorax', 'Heart', 'Aorta / Vascular', 'Abdomen / Pelvis', 'Upper limb', 'Lower limb', 'Pelvis / Hips', 'Paediatric', 'Combined'];
 const SNIP = ['Head snippets', 'Trauma snippets', 'General snippets', 'Chest snippets', 'Abdomen snippets', 'MSK snippets', 'Vascular snippets'];
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
 const files = process.argv.slice(2);
 const seen = new Set(TEMPLATE_DATA.map((t) => t.id));
+// ids from the other library files must not be reused either
+const LIB = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'public', 'js', 'templates-pro');
+for (const f of readdirSync(LIB).filter((x) => x.endsWith('.js'))) {
+  const full = path.join(LIB, f);
+  if (files.some((a) => path.resolve(a) === full)) continue;
+  for (const t of (await import(pathToFileURL(full).href)).default) seen.add(t.id);
+}
 let bad = 0; let n = 0;
 const err = (t, m) => { bad++; console.log(`✗ ${t?.id}: ${m}`); };
 for (const f of files) {
