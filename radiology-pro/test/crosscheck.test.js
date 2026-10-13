@@ -280,7 +280,7 @@ test('user templates: edit a built-in, add a custom one, hide one, invalid input
   const r = localMerge(c, T.reportFromTemplate(c), 'złamanie kości łódeczkowatej');
   assert.ok(r.report.body.includes('Złamanie kości łódeczkowatej.'));
   T.setUserTemplates({}); // restore
-  assert.equal(T.getTemplate('ct_head_normal').title, 'CT Head normal');
+  assert.equal(T.getTemplate('ct_head_normal').title, 'TK głowy');
   assert.equal(T.TEMPLATES.length, before);
 });
 
@@ -405,4 +405,12 @@ test('clinical details never dismiss an unexpected finding: trauma referral + ac
   const fixed = enforceConsistency(tpl, ai, { clinical }).report.conclusion.split('\n');
   assert.match(fixed[0], /niedokrwien/);
   assert.ok(fixed.some((l) => /zmian pourazowych/.test(l)));
+});
+
+test('Radiopis: every template and snippet has a Polish menu name', async () => {
+  const P = (await import('../public/js/titles-pl.js')).default;
+  for (const t of [...TEMPLATES, ...SNIPPETS]) {
+    assert.equal(t.title, P[t.id], t.id);
+    assert.ok(!/\b(normal|trauma|contrast|head|spine|chest|abdomen|knee|shoulder|child)\b/i.test(t.title), `${t.id}: ${t.title}`);
+  }
 });

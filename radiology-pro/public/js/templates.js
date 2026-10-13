@@ -10,8 +10,12 @@ import MRBODY2 from './templates-pro/mr-body-msk-2.js';
 import MRNEURO2 from './templates-pro/mr-neuro-spine-2.js';
 import XRAY2 from './templates-pro/xray-2.js';
 
-// The radiologist's own set first, then the extended library.
-const TEMPLATE_DATA = [...BASE_DATA, ...NEURO, ...CHEST, ...ABDOMEN, ...MSK, ...MRUS, ...MRBODY2, ...MRNEURO2, ...XRAY2];
+import TITLES_PL from './titles-pl.js';
+
+// The radiologist's own set first, then the extended library. Radiopis shows Polish menu names;
+// the former name stays searchable as titleEn.
+const withPolishTitle = (t) => (TITLES_PL[t.id] ? { ...t, titleEn: t.title, title: TITLES_PL[t.id] } : t);
+const TEMPLATE_DATA = [...BASE_DATA, ...NEURO, ...CHEST, ...ABDOMEN, ...MSK, ...MRUS, ...MRBODY2, ...MRNEURO2, ...XRAY2].map(withPolishTitle);
 
 export const GROUPS = [
   { id: 'Trauma', label: 'Uraz' },
