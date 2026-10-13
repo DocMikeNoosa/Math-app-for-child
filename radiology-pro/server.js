@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
 import { analyzeStyle, cleanLearnInput, cleanProfile, cleanTranslations } from './lib/learn.js';
 import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
+import { scrubIdentifiers } from './public/js/polish-text.js';
 import { openDb, one, all, run, audit, monthOf, getSetting, setSetting } from './lib/db.js';
 import {
   COOKIE, parseCookies, sessionCookie, sessionUser, createSession, deleteSession, deleteUserSessions, userSessions,
@@ -41,9 +42,11 @@ const MIME = {
 };
 // Same-origin JSON requests carry this header (a cross-site form or script cannot set it → CSRF protection).
 const CSRF_HEADER = 'x-radiopis';
-// Keys of the app's local storage that follow the user to every device: own templates and the style profile.
-// Never report text: the current report, today's reports and automatically learned examples stay on the device.
-export const SYNC_KEYS = ['radvox.templates.v1', 'radvox.profile.v1'];
+// Keys of the app's local storage that follow the user to every device: own templates, the style profile and
+// everything learned from the radiologist's corrections (style pairs, conclusion changes, example reports, EN→PL
+// pairs) — so the AI keeps learning on every workstation. PESEL numbers are removed before storing.
+// Never synced: the current report and today's list of reports (they stay on the device).
+export const SYNC_KEYS = ['radvox.templates.v1', 'radvox.profile.v1', 'radvox.style.v1', 'radvox.learned.v1'];
 const SYNC_MAX = 1_500_000;
 
 const aiAvailable = () => aiConfigured();
@@ -396,6 +399,7 @@ async function handleSync(req, res, ctx, key) {
     let value;
     try { value = JSON.parse(raw).value; } catch { return sendJson(res, 400, { error: 'Nieprawidłowy JSON.' }); }
     if (typeof value !== 'string' || value.length > SYNC_MAX) return sendJson(res, 413, { error: 'Za dużo danych.' });
+    value = scrubIdentifiers(value);
     run('INSERT INTO user_data(user_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at', ctx.user.id, key, value, Date.now());
     return sendJson(res, 200, { ok: true });
   }

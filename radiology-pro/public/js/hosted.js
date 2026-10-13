@@ -1,8 +1,8 @@
 // Hosted (subscription) version: runs before the app.
 // - adds the app header to API calls (CSRF protection) and handles an expired session / subscription / quota
-// - keeps the user's own templates and style profile in sync between computers
+// - keeps the user's own templates, style profile and everything learned from corrections in sync between computers
 // - a different user on the same browser never sees the previous user's local data
-const SYNC_KEYS = ['radvox.templates.v1', 'radvox.profile.v1'];
+const SYNC_KEYS = ['radvox.templates.v1', 'radvox.profile.v1', 'radvox.style.v1', 'radvox.learned.v1'];
 const LOCAL_KEYS = ['radvox.v2', 'radvox.templates.v1', 'radvox.style.v1', 'radvox.learned.v1', 'radvox.profile.v1', 'radvox.today.v1', 'radvox.mic.v1', 'radvox.cpOpen'];
 const PRIVATE_KEYS = ['radvox.v2', 'radvox.today.v1']; // the current report and today's reports
 const META_KEY = 'radiopis.sync';

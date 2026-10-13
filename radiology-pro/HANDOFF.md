@@ -31,7 +31,8 @@ overall layout — add functionality in the existing style.
   `NODE_ENV=production` serves `dist/`.
 - Report counting: the browser sends `reportId` (one per report); usage rows with the same id count once.
 - `background: true` marks pre-processing calls; capped per report by `maxBackgroundCalls` (settings).
-- Sync keys: `radvox.templates.v1`, `radvox.profile.v1` only. Local keys are cleared when a different user logs in.
+- Sync keys: `radvox.templates.v1`, `radvox.profile.v1`, `radvox.style.v1`, `radvox.learned.v1` (PESEL scrubbed server-side). Never synced: current report, today's list. Local keys are cleared when a different user logs in.
+- Clinical details: correlate, never dismiss — unexpected findings keep their tier (prompt rule + test "trauma referral + acute stroke").
 - CSRF: every non-GET `/api/*` call needs the header `X-Radiopis: 1` (added by `public/js/hosted.js` and
   `public/site/common.js`).
 - Engine change vs RadVox: advice / caveat lines ("do rozważenia MR…", "nie wyklucza…") always end the conclusion.

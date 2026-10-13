@@ -388,3 +388,21 @@ test('every library template survives the safety net unchanged and never contrad
     assert.equal(norm(out.conclusion), norm(rep.conclusion), t.id);
   }
 });
+
+test('clinical details never dismiss an unexpected finding: trauma referral + acute stroke', async () => {
+  const { enforceConsistency } = await import('../public/js/crosscheck.js');
+  const tpl = getTemplate('ct_head_trauma');
+  const stroke = 'Hipodensyjny obszar w lewej półkuli mózgu w zakresie unaczynienia tętnicy środkowej mózgu, odpowiadający świeżemu niedokrwieniu.';
+  const clinical = 'Upadek z wysokości własnej, uraz głowy.';
+  // local engine
+  const local = localMerge(tpl, reportFromTemplate(tpl), stroke, { clinical }).report;
+  const lines = local.conclusion.split('\n');
+  assert.match(lines[0], /niedokrwieniu/, 'the stroke leads the conclusion');
+  assert.ok(lines.some((l) => /Bez wewnątrzczaszkowych zmian pourazowych/.test(l)), 'the trauma question is still answered');
+  // an AI answer that forgot the stroke in the conclusion is repaired by the safety net
+  const r = reportFromTemplate(tpl);
+  const ai = { ...r, body: `Badanie wykonano w trybie ostrodyżurowym.\n\n${stroke}\n\nBez cech krwawienia wewnątrzczaszkowego, obrzęku mózgu ani zmian pourazowych.\nBez cech złamania kości sklepienia i podstawy czaszki.`, conclusion: '- Bez wewnątrzczaszkowych zmian pourazowych.' };
+  const fixed = enforceConsistency(tpl, ai, { clinical }).report.conclusion.split('\n');
+  assert.match(fixed[0], /niedokrwien/);
+  assert.ok(fixed.some((l) => /zmian pourazowych/.test(l)));
+});

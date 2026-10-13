@@ -268,6 +268,11 @@ test('settings sync between devices: only known keys, size-limited, per user', a
   const cookie = await login('a@example.com', 'dobrehaslo123');
   let r = await call('PUT', '/api/sync/radvox.profile.v1', { value: '{"rules":["x"]}' }, cookie);
   assert.equal(r.res.status, 200);
+  r = await call('PUT', '/api/sync/radvox.learned.v1', { value: '{"exampleReports":[{"body":"PESEL 85010112345 krwiak"}]}' }, cookie);
+  assert.equal(r.res.status, 200, 'what the AI learns from corrections is synced too');
+  r = await call('GET', '/api/sync', undefined, cookie);
+  assert.ok(!r.data['radvox.learned.v1'].value.includes('85010112345'), 'PESEL removed before storing');
+  assert.ok(r.data['radvox.learned.v1'].value.includes('[PESEL]'));
   r = await call('PUT', '/api/sync/evil.key', { value: 'x' }, cookie);
   assert.equal(r.res.status, 400);
   r = await call('GET', '/api/sync', undefined, cookie);
