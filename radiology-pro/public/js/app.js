@@ -1129,7 +1129,7 @@ function renderPicker() {
   if (q) {
     const tokens = q.split(/\s+/);
     const scored = TEMPLATES.filter(modMatch).map((t) => {
-      const title = fold(`${t.title} ${t.exam}`);
+      const title = fold(`${t.title} ${t.titleEn || ''} ${t.exam}`); // Polish name, former English name, exam line
       const meta = fold(`${regionLabel(t.section)} ${t.section} ${GROUPS.find((g) => g.id === t.group)?.label} ${t.group}`);
       const body = fold(t.body);
       let score = 0;
