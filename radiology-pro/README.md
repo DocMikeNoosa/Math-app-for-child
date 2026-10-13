@@ -23,6 +23,13 @@ Polish (or English) report built from their templates, with clinically ordered f
 | Privacy | PESEL numbers stripped before the AI; no report archive on the server; self-hosted fonts (no Google requests); optional **EU processing via Claude on Amazon Bedrock** (`AI_PROVIDER=bedrock`, `AWS_REGION=eu-central-1`). |
 | Public site | Landing page with live pricing, FAQ, login/registration pages, draft privacy policy and terms (marked as drafts for a lawyer). |
 
+## Test on a Windows computer (one click)
+
+Extract the ZIP, open `radiology-pro`, double-click **Start Radiopis (Windows).bat** (needs Node.js 22.5+).
+It reuses the API key saved by RadVox, starts Radiopis on http://127.0.0.1:3100 and opens the login page.
+Administrator: `admin@radiopis.local` / `Radiopis2026` (local test only — change it in
+`%USERPROFILE%\.radiopis\.env` before any real use). Data: `%USERPROFILE%\.radiopis\data`.
+
 ## Run locally (development)
 
 ```bash
