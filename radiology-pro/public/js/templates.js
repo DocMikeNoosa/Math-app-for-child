@@ -8,9 +8,10 @@ import MSK from './templates-pro/msk-spine-xray.js';
 import MRUS from './templates-pro/mr-neuro-us.js';
 import MRBODY2 from './templates-pro/mr-body-msk-2.js';
 import MRNEURO2 from './templates-pro/mr-neuro-spine-2.js';
+import XRAY2 from './templates-pro/xray-2.js';
 
 // The radiologist's own set first, then the extended library.
-const TEMPLATE_DATA = [...BASE_DATA, ...NEURO, ...CHEST, ...ABDOMEN, ...MSK, ...MRUS, ...MRBODY2, ...MRNEURO2];
+const TEMPLATE_DATA = [...BASE_DATA, ...NEURO, ...CHEST, ...ABDOMEN, ...MSK, ...MRUS, ...MRBODY2, ...MRNEURO2, ...XRAY2];
 
 export const GROUPS = [
   { id: 'Trauma', label: 'Uraz' },

@@ -12,7 +12,7 @@ Polish (or English) report built from their templates, with clinically ordered f
 | Area | What it does |
 |---|---|
 | Dictation app (`/app/`) | Everything from RadVox 0.13: templates, dictation PL/EN, AI report, safety net, learning module, conclusion points, clinical details, PowerMic, voice commands, narrow-window layout. |
-| Templates | **249 templates + 75 snippets** in Polish: the radiologist's own 35 + 214 new ones (CT, CTA, MR, X-ray, ultrasound; trauma / non-trauma; adults / children; combined studies). Files: `public/js/template-data.js` (own set) and `public/js/templates-pro/*.js` (library). Validate with `npm run check-templates`. |
+| Templates | **397 templates + 112 snippets** in Polish: the radiologist's own 35 + 362 new ones (CT, CTA, MR incl. heart and breast, X-ray incl. contrast studies, mammography and DXA, ultrasound; trauma / non-trauma; adults / children; combined studies). Files: `public/js/template-data.js` (own set) and `public/js/templates-pro/*.js` (library). Validate with `npm run check-templates`. |
 | Languages | PL → PL and EN → PL are the main paths; EN → EN and PL → EN also work. |
 | Accounts | Registration with a free trial, login, password reset by e-mail, invitations from the admin, scrypt password hashes, HttpOnly session cookie, login rate limiting, **device limit per plan** (prevents account sharing). |
 | Subscriptions | Plans with monthly report quotas (10% grace), trial → paid, monthly/annual, card payments via **Stripe** (Checkout + Customer Portal + signed webhooks) or **bank transfer** recorded by the admin. Automatic expiry, reminders 7 and 1 day before the end, past-due grace days. |

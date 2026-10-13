@@ -26,6 +26,7 @@ overall layout — add functionality in the existing style.
   `/privacy` and `/terms` drafts.
 
 ## Technical notes
+- Templates: 397 + 112 snippets (MR and X-ray libraries completed Oct 2026: mr-body-msk-2.js, mr-neuro-spine-2.js, xray-2.js).
 - Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (108 tests), `npm run build` (obfuscated bundle),
   `NODE_ENV=production` serves `dist/`.
 - Report counting: the browser sends `reportId` (one per report); usage rows with the same id count once.
