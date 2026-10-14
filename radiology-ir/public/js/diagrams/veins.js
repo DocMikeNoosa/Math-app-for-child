@@ -29,7 +29,7 @@ export default {
     <text class="lbl" x="346" y="456">Układ wrotny</text>
   `,
   parts: [
-    { id: 'right_atrium', z: 20, anat: 'heart', label: ['Prawy przedsionek', 'Right atrium'], side: '', kind: 'organ', d: 'M222 300 Q222 268 264 266 Q294 268 298 300 Q296 334 266 340 Q222 336 222 300 Z' },
+    { id: 'right_atrium', z: 20, anat: 'chest', label: ['Prawy przedsionek', 'Right atrium'], side: '', kind: 'organ', d: 'M222 300 Q222 268 264 266 Q294 268 298 300 Q296 334 266 340 Q222 336 222 300 Z' },
     { id: 'ijv_r', z: 0, anat: 'neck', label: ['Żyła szyjna wewnętrzna (IJV)', 'Internal jugular vein (IJV)'], side: 'right', kind: 'vessel', w: 6, d: 'M262 30 L262 135' },
     { id: 'ijv_l', z: 0, anat: 'neck', label: ['Żyła szyjna wewnętrzna (IJV)', 'Internal jugular vein (IJV)'], side: 'left', kind: 'vessel', w: 6, d: 'M338 30 L338 135' },
     { id: 'subclavian_vein_r', z: 10, anat: 'chest', label: ['Żyła podobojczykowa', 'Subclavian vein'], side: 'right', kind: 'vessel', w: 6, d: 'M160 142 Q220 126 262 135' },

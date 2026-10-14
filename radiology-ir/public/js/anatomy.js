@@ -24,8 +24,6 @@ export const PROCEDURES = {
   foreign_body: ['Usunięcie ciała obcego', 'Foreign body retrieval'],
   venous_sampling: ['Selektywne pobieranie krwi żylnej', 'Venous sampling'],
   sclerotherapy: ['Skleroterapia', 'Sclerotherapy'],
-  coronary_angio: ['Koronarografia', 'Coronary angiography'],
-  pci: ['PCI – angioplastyka / stent wieńcowy', 'PCI – coronary angioplasty / stent'],
   // non-vascular
   nephrostomy: ['Nefrostomia', 'Nephrostomy'],
   ureteral_stent: ['Stent moczowodowy (antegradowo)', 'Ureteric stent (antegrade)'],
@@ -146,21 +144,6 @@ export const BODY_PARTS = [
     ],
     procedures: ['diag_angio', 'stent_graft', 'endoleak', 'stent', 'pta', 'embolization', 'thrombectomy', 'thrombolysis', 'venous_access', 'foreign_body',
       'biopsy', 'drainage', 'pleural', 'ablation', 'marker'],
-  },
-  {
-    id: 'heart', label: ['Serce / tętnice wieńcowe', 'Heart / coronary arteries'], groups: ['Vascular'],
-    targets: [
-      ['lm', 'Pień lewej tętnicy wieńcowej (LM)', 'Left main (LM)', V],
-      ['lad', 'Gałąź przednia zstępująca (LAD)', 'Left anterior descending (LAD)', V],
-      ['diag', 'Gałąź diagonalna (D)', 'Diagonal branch (D)', V],
-      ['lcx', 'Gałąź okalająca (LCx)', 'Left circumflex (LCx)', V],
-      ['om', 'Gałąź marginalna (OM)', 'Obtuse marginal (OM)', V],
-      ['ramus', 'Gałąź pośrednia (RI)', 'Ramus intermedius (RI)', V],
-      ['rca', 'Prawa tętnica wieńcowa (RCA)', 'Right coronary artery (RCA)', V],
-      ['pda', 'Gałąź zstępująca tylna (PDA)', 'Posterior descending (PDA)', V],
-      ['plb', 'Gałąź tylno-boczna (PLB)', 'Posterolateral branch (PLB)', V],
-    ],
-    procedures: ['coronary_angio', 'pci', 'stent', 'pta'],
   },
   {
     id: 'abdomen', label: ['Jama brzuszna', 'Abdomen'], groups: ['Vascular', 'NonVascular'],

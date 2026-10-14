@@ -4,41 +4,16 @@
 // referring doctor. Pure functions only (used in the browser and in tests).
 import { procLabel } from './anatomy.js';
 import { variantText } from './variants.js';
+import { lesionFacts, lesionDef, clinicalFacts } from './clinical.js';
 
 const L = (pair, lang) => (Array.isArray(pair) ? pair[lang === 'en' ? 1 : 0] : pair);
 // decimal separator of numbers only ("18.5" → "18,5" in Polish), never dots in units such as "j.m."
 const num = (v, lang) => String(v ?? '').trim().replace(lang === 'en' ? /(\d),(\d)/g : /(\d)\.(\d)/g, lang === 'en' ? '$1.$2' : '$1,$2');
+const endDot = (s) => (/[.!?]$/.test(s) ? s : s + '.');
 const has = (v) => v !== undefined && v !== null && String(v).trim() !== '';
 
-// What was found at a clicked vessel / organ, and which numbers make sense for it.
-// fields: pre / post (e.g. stenosis % before / after, eTICI before / after), size, length, extra
-export const FINDINGS = {
-  vessel: [
-    { id: 'stenosis', label: ['Zwężenie', 'Stenosis'], fields: { pre: ['Zwężenie przed (%)', 'Stenosis before (%)'], post: ['Zwężenie resztkowe (%)', 'Residual stenosis (%)'], length: ['Długość (mm)', 'Length (mm)'], size: ['Średnica naczynia (mm)', 'Vessel diameter (mm)'] } },
-    { id: 'occlusion', label: ['Niedrożność', 'Occlusion'], fields: { length: ['Długość (mm)', 'Length (mm)'], post: ['Zwężenie resztkowe (%)', 'Residual stenosis (%)'] } },
-    { id: 'thrombus', label: ['Zakrzep / zator', 'Thrombus / embolus'], fields: { pre: ['Przepływ przed (np. eTICI / TIMI)', 'Flow before (e.g. eTICI / TIMI)'], post: ['Przepływ po (np. eTICI 2c)', 'Flow after (e.g. eTICI 2c)'], extra: ['Liczba przejść', 'Number of passes'] } },
-    { id: 'aneurysm', label: ['Tętniak', 'Aneurysm'], fields: { size: ['Wymiary (mm)', 'Size (mm)'], extra: ['Szyja (mm)', 'Neck (mm)'], pre: ['Pęknięty? (tak / nie)', 'Ruptured? (yes / no)'], post: ['Wynik (np. Raymond-Roy 1)', 'Result (e.g. Raymond-Roy 1)'] } },
-    { id: 'pseudoaneurysm', label: ['Tętniak rzekomy', 'Pseudoaneurysm'], fields: { size: ['Wymiary (mm)', 'Size (mm)'], post: ['Wynik', 'Result'] } },
-    { id: 'bleeding', label: ['Krwawienie / wynaczynienie', 'Bleeding / extravasation'], fields: { post: ['Wynik (np. bez wynaczynienia)', 'Result (e.g. no extravasation)'] } },
-    { id: 'dissection', label: ['Rozwarstwienie', 'Dissection'], fields: { length: ['Długość (mm)', 'Length (mm)'], post: ['Wynik', 'Result'] } },
-    { id: 'avm', label: ['Malformacja / przetoka', 'Malformation / fistula'], fields: { size: ['Wymiary / skala (np. Spetzler-Martin, Cognard)', 'Size / grade (e.g. Spetzler-Martin, Cognard)'], post: ['Wynik (np. % wyłączenia)', 'Result (e.g. % occlusion)'] } },
-    { id: 'spasm', label: ['Skurcz naczyniowy', 'Vasospasm'], fields: { pre: ['Stopień przed', 'Severity before'], post: ['Po leczeniu', 'After treatment'] } },
-    { id: 'tumour', label: ['Unaczynienie guza', 'Tumour blush'], fields: { size: ['Wymiary (mm)', 'Size (mm)'], post: ['Wynik (np. % dewaskularyzacji)', 'Result (e.g. % devascularisation)'] } },
-    { id: 'other', label: ['Inne', 'Other'], fields: { post: ['Wynik', 'Result'] } },
-    { id: 'normal', label: ['Bez zmian (prawidłowe)', 'Normal'], fields: {} },
-  ],
-  organ: [
-    { id: 'collection', label: ['Zbiornik / ropień', 'Collection / abscess'], fields: { size: ['Wymiary (mm)', 'Size (mm)'], extra: ['Odessano (ml) / charakter', 'Aspirated (ml) / character'] } },
-    { id: 'mass', label: ['Zmiana ogniskowa / guz', 'Focal lesion / mass'], fields: { size: ['Wymiary (mm)', 'Size (mm)'], extra: ['Liczba bioptatów / margines ablacji', 'Number of cores / ablation margin'] } },
-    { id: 'obstruction', label: ['Poszerzenie / niedrożność (drogi żółciowe, UKM)', 'Dilatation / obstruction (bile ducts, collecting system)'], fields: { extra: ['Poziom / przyczyna', 'Level / cause'] } },
-    { id: 'fluid', label: ['Płyn (wysięk, wodobrzusze)', 'Fluid (effusion, ascites)'], fields: { extra: ['Ewakuowano (ml) / charakter', 'Drained (ml) / character'] } },
-    { id: 'fracture', label: ['Złamanie / zmiana kostna', 'Fracture / bone lesion'], fields: { pre: ['Utrata wysokości (%)', 'Height loss (%)'], extra: ['Cement (ml)', 'Cement (ml)'] } },
-    { id: 'pain', label: ['Ból / zmiana zwyrodnieniowa', 'Pain / degenerative change'], fields: { extra: ['Lek i dawka', 'Drug and dose'] } },
-    { id: 'other', label: ['Inne', 'Other'], fields: { post: ['Wynik', 'Result'] } },
-    { id: 'normal', label: ['Bez zmian (prawidłowe)', 'Normal'], fields: {} },
-  ],
-};
-export const findingDef = (kind, id) => (FINDINGS[kind === 'organ' ? 'organ' : 'vessel'].find((f) => f.id === id) || null);
+// Lesion types with their fields, scales and calculators live in clinical.js.
+export { LESIONS as FINDINGS, lesionDef as findingDef } from './clinical.js';
 
 export const ACCESS_SITES = {
   Vascular: [
@@ -67,13 +42,13 @@ const pick = (list, id, lang) => { const x = list.find((y) => y[0] === id); retu
 
 export function emptyCard() {
   return {
-    branch: null, diagram: null, urgency: 'planned', indication: '', variants: [],
+    branch: null, diagram: null, urgency: 'planned', indication: '', variants: [], clinical: {},
     access: { site: '', side: '', sheath: '', closure: '' }, guidance: [], anaesthesia: '',
     lesions: [], devices: [], contrast: '', fluoro: '', dose: '', doseUnit: 'Gy·cm²',
     complications: { none: true, text: '' }, outcome: 'success', recommendations: '', followUp: '', notes: '',
   };
 }
-export const newLesion = (diagram, part, kind) => ({ id: `les${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, diagram, part, kind, finding: kind === 'organ' ? 'mass' : 'stenosis', pre: '', post: '', size: '', length: '', extra: '', procs: [], devices: [], notes: '' });
+export const newLesion = (diagram, part, kind, t = 0.5) => ({ id: `les${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, diagram, part, kind, t, side: '', finding: kind === 'organ' ? 'mass' : 'stenosis', pre: '', post: '', size: '', length: '', extra: '', procs: [], devices: [], notes: '' });
 
 /** "Supera (Abbott) 6 × 80 mm ×2" — a device line. */
 export function deviceText(d, lang = 'pl') {
@@ -87,50 +62,28 @@ export function deviceText(d, lang = 'pl') {
 /** Short badge for the diagram: "80%→0%", "eTICI 3", "Ø 7 mm". */
 export function lesionBadge(l) {
   if (!l) return '';
-  if (l.finding === 'stenosis' && has(l.pre)) return `${l.pre}%${has(l.post) ? `→${l.post}%` : ''}`;
+  if ((l.finding === 'stenosis' || l.finding === 'occlusion') && has(l.pre)) return `${String(l.pre).replace(/%$/, '')}%${has(l.post) ? `→${String(l.post).replace(/%$/, '')}%` : ''}`;
   if (l.finding === 'occlusion') return has(l.post) ? `occl→${l.post}%` : 'occl';
+  if (l.finding === 'thrombus') return has(l.post) ? `eTICI ${l.post}` : has(l.pre) ? `eTICI ${l.pre}` : 'clot';
+  if (l.finding === 'aneurysm' && has(l.size)) return `${String(l.size).slice(0, 12)} mm${has(l.post) ? ` · RR ${l.post}` : ''}`;
   if (has(l.post)) return String(l.post).slice(0, 12);
   if (has(l.size)) return `${String(l.size).slice(0, 10)} mm`;
   return '•';
 }
 
 /** One lesion as a sentence block (Polish or English). `part` = the diagram part object. */
-export function lesionText(l, part, lang = 'pl', { label } = {}) {
+export function lesionText(l, part, lang = 'pl', { label, vascular = true } = {}) {
   const en = lang === 'en';
   const where = label || (part ? part.label[en ? 1 : 0] : l.part);
-  const def = findingDef(l.kind, l.finding);
-  const bits = [];
-  if (def && l.finding !== 'other') bits.push(L(def.label, lang).toLowerCase());
-  const f = def?.fields || {};
-  const add = (key, fmt) => { if (has(l[key]) && f[key]) bits.push(fmt(num(l[key], lang), L(f[key], lang))); };
-  if (l.finding === 'stenosis') {
-    if (has(l.pre)) bits[0] = en ? `${num(l.pre, lang)}% stenosis` : `zwężenie ${num(l.pre, lang)}%`;
-    add('length', (v) => (en ? `length ${v} mm` : `długości ${v} mm`));
-    add('size', (v) => (en ? `vessel diameter ${v} mm` : `średnica naczynia ${v} mm`));
-  } else if (l.finding === 'occlusion') {
-    add('length', (v) => (en ? `length ${v} mm` : `długości ${v} mm`));
-  } else if (l.finding === 'aneurysm') {
-    add('size', (v) => (en ? `size ${v} mm` : `wymiary ${v} mm`));
-    add('extra', (v) => (en ? `neck ${v} mm` : `szyja ${v} mm`));
-    if (has(l.pre)) bits.push(/^(tak|yes|t|y)/i.test(l.pre) ? (en ? 'ruptured' : 'pęknięty') : /^(nie|no|n)/i.test(l.pre) ? (en ? 'unruptured' : 'niepęknięty') : l.pre);
-  } else if (l.finding !== 'thrombus' && l.finding !== 'spasm') {
-    for (const key of ['pre', 'size', 'length', 'extra']) add(key, (v, lbl) => `${lbl.replace(/\s*\(.*\)$/, '').toLowerCase()}: ${v}`);
-  }
+  const def = lesionDef(l.kind, l.finding);
+  const facts = lesionFacts(l, lang, { vascular });
+  const head = def && l.finding !== 'other' ? def.label[en ? 1 : 0].toLowerCase() : '';
+  const pos = Number.isFinite(l.t) && part?.pts ? (l.t < 0.34 ? (en ? 'proximal part' : 'odcinek proksymalny') : l.t > 0.66 ? (en ? 'distal part' : 'odcinek dystalny') : (en ? 'mid part' : 'odcinek środkowy')) : '';
+  const bits = [head, pos, ...facts.pre, ...facts.computed].filter(Boolean);
   let s = `${where}${bits.length ? ` — ${bits.join(', ')}` : ''}.`;
   if (l.procs?.length) s += ` ${en ? 'Performed' : 'Wykonano'}: ${l.procs.map((p) => procLabel(p, lang).replace(/\s*\(.*?\)\s*/g, ' ').trim().toLowerCase()).join(', ')}.`;
   if (l.devices?.length) s += ` ${en ? 'Devices' : 'Sprzęt'}: ${l.devices.map((d) => deviceText(d, lang)).join('; ')}.`;
-  if (l.finding === 'stenosis' || l.finding === 'occlusion') {
-    if (has(l.post)) s += en ? ` Residual stenosis ${num(l.post, lang)}%.` : ` Zwężenie resztkowe ${num(l.post, lang)}%.`;
-  } else if (l.finding === 'thrombus') {
-    if (has(l.pre)) s += en ? ` Flow before: ${l.pre}.` : ` Przepływ przed: ${l.pre}.`;
-    if (has(l.extra)) s += en ? ` Passes: ${l.extra}.` : ` Liczba przejść: ${l.extra}.`;
-    if (has(l.post)) s += en ? ` Final flow: ${l.post}.` : ` Przepływ końcowy: ${l.post}.`;
-  } else if (l.finding === 'spasm') {
-    if (has(l.pre)) s += en ? ` Before treatment: ${l.pre}.` : ` Przed leczeniem: ${l.pre}.`;
-    if (has(l.post)) s += en ? ` After treatment: ${l.post}.` : ` Po leczeniu: ${l.post}.`;
-  } else if (has(l.post)) {
-    s += en ? ` Result: ${l.post}.` : ` Wynik: ${l.post}.`;
-  }
+  if (facts.post.length) s += ` ${en ? 'Result' : 'Wynik'}: ${facts.post.join(', ')}.`;
   if (has(l.notes)) s += ` ${String(l.notes).trim().replace(/([^.!?])$/, '$1.')}`;
   return s;
 }
@@ -162,16 +115,17 @@ export function cardToText(card, { lang = 'pl', partOf = () => null, labelOf = n
     const parts = [where, has(a.sheath) ? `${en ? 'sheath' : 'koszulka'} ${num(a.sheath, lang)}` : '', has(a.closure) ? `${en ? 'haemostasis' : 'hemostaza'}: ${a.closure}` : ''].filter(Boolean);
     lines.push(`${en ? 'Access' : 'Dostęp'}: ${parts.join('; ')}.`);
   }
+  for (const line of clinicalFacts(card.clinical || {}, card.branch === 'Neuro' ? 'Neuro' : card.branch === 'Vascular' ? 'Vascular' : null, lang)) lines.push(line);
   const vars = (card.variants || []).map((v) => variantText(v, lang)).filter(Boolean);
   if (vars.length) lines.push(`${en ? 'Anatomical variants' : 'Warianty anatomiczne'}: ${vars.join('; ')}.`);
   (card.lesions || []).forEach((l, i) => {
     const part = partOf(l.diagram, l.part);
-    lines.push(`${en ? 'Lesion' : 'Zmiana'} ${i + 1}: ${lesionText(l, part, lang, { label: labelOf ? labelOf(l) : undefined })}`);
+    lines.push(`${en ? 'Lesion' : 'Zmiana'} ${i + 1}: ${lesionText(l, part, lang, { label: labelOf ? labelOf(l) : undefined, vascular: card.branch !== 'Neuro' })}`);
   });
   const general = (card.devices || []).filter((d) => d.cat !== 'drugs');
   const drugs = (card.devices || []).filter((d) => d.cat === 'drugs');
   if (general.length) lines.push(`${en ? 'Other devices' : 'Pozostały sprzęt'}: ${general.map((d) => deviceText(d, lang)).join('; ')}.`);
-  if (drugs.length) lines.push(`${en ? 'Drugs' : 'Leki'}: ${drugs.map((d) => deviceText(d, lang)).join('; ')}.`);
+  if (drugs.length) lines.push(endDot(`${en ? 'Drugs' : 'Leki'}: ${drugs.map((d) => deviceText(d, lang)).join('; ')}`));
   const dose = [has(card.contrast) ? `${en ? 'contrast' : 'kontrast'} ${num(card.contrast, lang)} ml` : '', has(card.fluoro) ? `${en ? 'fluoroscopy time' : 'czas fluoroskopii'} ${num(card.fluoro, lang)} min` : '', has(card.dose) ? `${en ? 'dose' : 'dawka'} ${num(card.dose, lang)} ${card.doseUnit || 'Gy·cm²'}` : ''].filter(Boolean);
   if (dose.length) lines.push(`${dose.join(', ').replace(/^./, (c) => c.toUpperCase())}.`);
   if (card.outcome) lines.push(`${en ? 'Technical result' : 'Wynik techniczny'}: ${pick(OUTCOME, card.outcome, lang)}.`);
@@ -252,7 +206,7 @@ export function builtinLetter(card, { lang = 'pl', partOf = () => null, labelOf 
   const c = card.complications || {};
   out.push(c.none && !has(c.text) ? (en ? 'There were no complications.' : 'Zabieg przebiegł bez powikłań.') : `${en ? 'Complications' : 'Powikłania'}: ${String(c.text || '…').trim().replace(/([^.!?])$/, '$1.')}`);
   const drugs = (card.devices || []).filter((d) => d.cat === 'drugs');
-  if (drugs.length) out.push(`${en ? 'Drugs given' : 'Podane leki'}: ${drugs.map((d) => deviceText(d, lang)).join('; ')}.`);
+  if (drugs.length) out.push(endDot(`${en ? 'Drugs given' : 'Podane leki'}: ${drugs.map((d) => deviceText(d, lang)).join('; ')}`));
   if (has(card.recommendations) || has(card.followUp)) {
     out.push('');
     out.push(en ? 'Recommendations:' : 'Zalecenia:');

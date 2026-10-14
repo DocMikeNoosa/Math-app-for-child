@@ -234,7 +234,7 @@ export const DEVICE_CATEGORIES = [
       'Balon z elementem prowadnikowym (focused force)',
     ],
     items: [
-      ...P('Boston Scientific', 'Peripheral Cutting Balloon', 'Wolverine (wieńcowy)'),
+      ...P('Boston Scientific', 'Peripheral Cutting Balloon'),
       ...P('Philips', 'AngioSculpt'),
       ...P('BD', 'VascuTrak'),
     ],
@@ -247,17 +247,14 @@ export const DEVICE_CATEGORIES = [
     generic: [
       'Balon pokrywany paklitakselem (obwodowy)',
       'Balon pokrywany sirolimusem (obwodowy)',
-      'Balon pokrywany lekiem – wieńcowy',
       'Balon pokrywany lekiem – przetoka dializacyjna',
     ],
     items: [
-      ...P('Medtronic', 'IN.PACT Admiral', 'IN.PACT AV', 'Prevail (wieńcowy)'),
+      ...P('Medtronic', 'IN.PACT Admiral', 'IN.PACT AV'),
       ...P('BD', 'Lutonix 035'),
       ...P('Biotronik', 'Passeo-18 Lux'),
-      ...P('Boston Scientific', 'Ranger', 'Agent (wieńcowy)'),
+      ...P('Boston Scientific', 'Ranger'),
       ...P('Philips', 'Stellarex'),
-      ...P('B. Braun', 'SeQuent Please (wieńcowy)'),
-      ...P('Concept Medical', 'MagicTouch (wieńcowy, sirolimus)'),
     ],
   },
   {
@@ -351,8 +348,6 @@ export const DEVICE_CATEGORIES = [
       ...P('BD', 'Covera Plus', 'Fluency Plus'),
       ...P('Getinge', 'Advanta V12'),
       ...P('Bentley InnoMed', 'BeGraft Peripheral', 'BeGraft Aortic'),
-      ...P('Abbott', 'Graftmaster (wieńcowy)'),
-      ...P('Biotronik', 'PK Papyrus (wieńcowy)'),
     ],
   },
   {
@@ -829,71 +824,11 @@ export const DEVICE_CATEGORIES = [
     size: ['mm×mm'],
     generic: [
       'Cewnik do litotrypsji wewnątrznaczyniowej – obwodowy',
-      'Cewnik do litotrypsji wewnątrznaczyniowej – wieńcowy',
     ],
     items: [
-      ...P('Shockwave Medical (J&J MedTech)', 'Shockwave M5+', 'Shockwave S4', 'Shockwave E8', 'Shockwave C2+'),
+      ...P('Shockwave Medical (J&J MedTech)', 'Shockwave M5+', 'Shockwave S4', 'Shockwave E8'),
     ],
   },
-  {
-    id: 'coronary_des',
-    label: ['Stenty wieńcowe (DES)', 'Coronary drug-eluting stents'],
-    branches: ['Vascular'],
-    size: ['mm×mm'],
-    generic: [
-      'Stent wieńcowy uwalniający everolimus',
-      'Stent wieńcowy uwalniający zotarolimus',
-      'Stent wieńcowy uwalniający sirolimus',
-      'Stent wieńcowy metalowy (BMS)',
-    ],
-    items: [
-      ...P('Abbott', 'Xience Sierra', 'Xience Skypoint'),
-      ...P('Boston Scientific', 'Synergy XD', 'Synergy Megatron'),
-      ...P('Medtronic', 'Onyx Frontier', 'Resolute Onyx'),
-      ...P('Biotronik', 'Orsiro Mission'),
-      ...P('Terumo', 'Ultimaster Tansei'),
-      ...P('MicroPort', 'Firehawk'),
-    ],
-  },
-  {
-    id: 'coronary_balloon',
-    label: ['Balony wieńcowe', 'Coronary balloons'],
-    branches: ['Vascular'],
-    size: ['mm×mm'],
-    generic: [
-      'Balon wieńcowy półpodatny',
-      'Balon wieńcowy niepodatny (NC)',
-      'Balon wieńcowy tnący / nacinający',
-      'Balon wieńcowy pokrywany lekiem',
-    ],
-    items: [
-      ...P('Abbott', 'Trek', 'NC Trek'),
-      ...P('Boston Scientific', 'Emerge', 'NC Emerge', 'Wolverine'),
-      ...P('Medtronic', 'Euphora', 'NC Euphora'),
-    ],
-  },
-  {
-    id: 'coronary_guide',
-    label: ['Cewniki prowadzące wieńcowe i przedłużenia', 'Coronary guide catheters & extensions'],
-    branches: ['Vascular'],
-    size: ['F', 'shape'],
-    generic: [
-      'Cewnik prowadzący wieńcowy JL',
-      'Cewnik prowadzący wieńcowy JR',
-      'Cewnik prowadzący wieńcowy EBU / XB',
-      'Cewnik prowadzący wieńcowy Amplatz',
-      'Przedłużenie cewnika prowadzącego (guide extension)',
-    ],
-    items: [
-      ...P('Medtronic', 'Launcher', 'Telescope'),
-      ...P('Boston Scientific', 'Mach 1', 'Guidezilla II'),
-      ...P('Cordis', 'Vista Brite Tip'),
-      ...P('Terumo', 'Heartrail III'),
-      ...P('Asahi Intecc', 'Hyperion'),
-      ...P('Teleflex', 'GuideLiner'),
-    ],
-  },
-
   // ───────────────────────────── NEURO ─────────────────────────────
   {
     id: 'neuro_guide',

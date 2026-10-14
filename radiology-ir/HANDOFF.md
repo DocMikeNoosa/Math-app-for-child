@@ -25,6 +25,15 @@ RadVox IR only changes the colours (crimson accent, amber recording) and adds th
   `template-data.js` and the diagnostic tests were removed.
 - Tests: 58 (`npm test`): `ir.test.js`, `server.test.js` (mock API), plus the shared voice / style / text tests.
 
+## Version 1.2 (true 3D models)
+- `public/js/models/neuro3d.js`, `body3d.js`: segments `S(id, pl, en, r, pts)` in mm (x = patient left, y = up,
+  z = anterior). `P(...)` = paired, written for the right side and mirrored to `_l` by `expandModel`.
+- `public/js/model3d.js`: tube renderer. Lesions are drawn on vessels. Picking returns `{id, t}`; the vessel whose wall
+  is under the pointer wins. View buttons; `screenPoint` / `snapshot`.
+- `public/js/clinical.js`: lesion field definitions, calculators and scales; card-level clinical sections.
+- Non-vascular regions are organ lists (`nv_*`, from `anatomy.js`). The coronary and heart modules were removed.
+- Tests: 68 (`npm test`). The connectivity test checks that every segment starts on another vessel.
+
 ## Version 1.1 (card / 3D / letter)
 - `public/js/card.js`: card model and text, built-in letter, placeholders. `cardui.js`: card, letter and device-picker UI.
   `diagram3d.js`: three.js renderer (`public/vendor/three.mjs`, copied from EndoList), with the SVG renderer

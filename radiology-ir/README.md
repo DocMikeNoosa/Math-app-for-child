@@ -4,6 +4,42 @@ RadVox IR is the interventional-radiology sister of **RadVox** (`../radiology-di
 layout and the same dictation / AI / learning features, a **crimson** colour scheme (RadVox is teal) and an amber
 recording button. It runs on its own port (**3300**), so RadVox (3000) and RadVox IR can be open at the same time.
 
+## Version 1.2 — true 3D neurovascular and vascular models, clinical scales
+
+What changed:
+- **Neuro** has one true 3D model in millimetres: from the aortic arch to the cortical branches (121 vessel
+  segments). It covers:
+  - ICA C1–C7 and the carotid bifurcation;
+  - ECA branches (including MMA, IMA and STA);
+  - vertebral V1–V4, PICA, AICA, SCA, the basilar artery and its tip;
+  - PCA P1–P4, PComA, AChA and the ophthalmic artery;
+  - ACA A1–A4, AComA, the callosomarginal and frontopolar arteries;
+  - MCA M1 with the lenticulostriate arteries, the bifurcation, and M2–M4.
+  Views: Willis, AP, lateral, posterior circulation, neck, whole.
+- **Vascular** has one true 3D model of the body (109 segments). It covers:
+  - the thoracic aorta by zones 0–3;
+  - the coeliac, SMA and IMA trees, the renal arteries;
+  - the internal iliac branches (including the prostatic / uterine artery);
+  - the leg arteries down to the pedal arch.
+  Views: aorta, arch (LAO), visceral, renal, pelvis, thigh, knee / calf, whole.
+- Lesions are **drawn on the model** at the place you click (proximal / mid / distal): narrowing, clot, aneurysm sac
+  (with size and dome direction), stent, flow diverter, stent graft, coils, WEB, plug.
+- Each lesion has proper clinical fields. Examples:
+  - stenosis with **NASCET / WASID % calculated from the diameters**, TASC II and PACSS;
+  - thrombus with eTICI before / after, technique, BGC, passes and **first-pass effect**;
+  - aneurysm with size, neck, **dome-to-neck ratio**, Raymond-Roy, OKM and WOS;
+  - AVM with **Spetzler-Martin**;
+  - dAVF with Cognard / Borden.
+- Card sections:
+  - stroke (NIHSS, ASPECTS, times with **puncture-to-reperfusion** calculated);
+  - SAH (Hunt-Hess, WFNS, Fisher);
+  - PAD (Rutherford, ABI, WIfI);
+  - aorta / EVAR neck;
+  - carotid.
+- Removed: the heart / coronary module, the bone-and-joint and liver drawings. Non-vascular procedures now use a
+  clean **organ list** (click an organ, choose the side).
+- 90 anatomical variants (35 neuro, 29 body). Many reshape the 3D model.
+
 ## Version 1.1 — procedure card, 3D anatomy and the letter to the referring doctor
 
 RadVox IR is now a hybrid of a dictation app and a letter writer, like EndoList. The right-hand side has three tabs
