@@ -13,6 +13,7 @@ export const REGIONS = [
   { id: 'Visceral / Renal', group: 'Vascular', label: ['Tętnice trzewne i nerkowe', 'Visceral and renal arteries'] },
   { id: 'Liver oncology', group: 'Vascular', label: ['Onkologia wątroby (TACE / TARE / PVE)', 'Liver oncology (TACE / TARE / PVE)'] },
   { id: 'Haemorrhage', group: 'Vascular', label: ['Krwotoki i urazy', 'Haemorrhage and trauma'] },
+  { id: 'Coronary', group: 'Vascular', label: ['Tętnice wieńcowe', 'Coronary arteries'] },
   { id: 'Chest vessels', group: 'Vascular', label: ['Naczynia klatki piersiowej', 'Chest vessels'] },
   { id: 'Pelvic vessels', group: 'Vascular', label: ['Naczynia miednicy (UAE / PAE)', 'Pelvic vessels (UAE / PAE)'] },
   { id: 'Peripheral arteries', group: 'Vascular', label: ['Tętnice obwodowe', 'Peripheral arteries'] },

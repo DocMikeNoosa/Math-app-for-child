@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
 import { analyzeStyle, cleanLearnInput, cleanProfile, cleanTranslations } from './lib/learn.js';
+import { writeLetter, cleanLetterInput } from './lib/letter.js';
 import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -15,6 +16,8 @@ const MAX_BODY = 200 * 1024;
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.woff2': 'font/woff2',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -151,6 +154,26 @@ async function handleLearn(req, res) {
   }
 }
 
+async function handleLetter(req, res) {
+  if (!aiAvailable()) return sendJson(res, 503, { error: 'Brak klucza API — AI niedostępne.', code: 'no_api_key' });
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (err) {
+    if (err instanceof ClaudeError) return sendJson(res, err.status, { error: err.message });
+    return sendJson(res, 400, { error: 'Nieprawidłowy JSON.' });
+  }
+  const input = cleanLetterInput(body);
+  if (!input.facts.trim() && !input.report.trim()) return sendJson(res, 400, { error: 'Brak danych o zabiegu — uzupełnij kartę zabiegu lub opis.' });
+  try {
+    sendJson(res, 200, await writeLetter(input, ['fast', 'accurate', 'turbo'].includes(body.mode) ? body.mode : 'fast'));
+  } catch (err) {
+    if (err instanceof ClaudeError) return sendJson(res, err.status, { error: err.message });
+    console.error(err);
+    sendJson(res, 500, { error: 'Błąd serwera.' });
+  }
+}
+
 async function serveStatic(req, res) {
   const url = new URL(req.url, 'http://localhost');
   let rel = decodeURIComponent(url.pathname);
@@ -185,6 +208,7 @@ export function createServer() {
       }
       if (req.url === '/api/format' && req.method === 'POST') return await handleFormat(req, res);
       if (req.url === '/api/learn' && req.method === 'POST') return await handleLearn(req, res);
+      if (req.url === '/api/letter' && req.method === 'POST') return await handleLetter(req, res);
       if (req.method === 'GET' || req.method === 'HEAD') return await serveStatic(req, res);
       res.writeHead(405);
       res.end();

@@ -4,7 +4,46 @@ RadVox IR is the interventional-radiology sister of **RadVox** (`../radiology-di
 layout and the same dictation / AI / learning features, a **crimson** colour scheme (RadVox is teal) and an amber
 recording button. It runs on its own port (**3300**), so RadVox (3000) and RadVox IR can be open at the same time.
 
-## What is different from RadVox
+## Version 1.1 — procedure card, 3D anatomy and the letter to the referring doctor
+
+RadVox IR is now a hybrid of a dictation app and a letter writer, like EndoList. The right-hand side has three tabs
+(keys **1 / 2 / 3**):
+
+1. **Karta zabiegu** (procedure card):
+   1. Choose the branch: **Naczyniowe / Neuro / Nienaczyniowe**.
+   2. Choose the region. A **3D model** appears: drag to rotate, use the wheel to zoom, double-click to reset. There are 17
+      regions:
+      - circle of Willis, neck vessels, venous sinuses, spinal vessels;
+      - aorta, visceral arteries, pelvis and legs, upper limb, veins, coronary arteries, chest vessels;
+      - liver and bile ducts (Couinaud segments), urinary tract, abdominal organs and spaces, chest organs, spine and
+        joints, neck organs and node levels.
+   3. Click a vessel or organ to add a lesion:
+      - the finding (stenosis %, occlusion, thrombus with eTICI before / after, aneurysm with size and neck, bleeding,
+        AVM…), and the residual value;
+      - the procedures performed;
+      - the **devices** from the catalogue: 74 categories, 611 commercial products plus generic descriptions — sheaths,
+        catheters, wires, balloons, stents, stent grafts, coils, plugs, embolics, stent retrievers, flow diverters,
+        biopsy needles, drains, ablation systems, drugs… Your own entries are remembered.
+   4. **Warianty anatomiczne** (anatomical variants): 96 variants across the regions. Examples are fetal PCA, A1
+      hypoplasia, azygos ACA, MCA trifurcation, persistent trigeminal artery, bovine arch, arteria lusoria, replaced
+      RHA / LHA, accessory renal artery, peronea magna and duplex kidney. Many of them **change the 3D model** (a thin
+      P1, an extra M2 trunk, a single A2…); all of them go into the report and the letter.
+   5. Fill in access, anaesthesia, drugs, contrast / fluoroscopy / dose, result, complications and recommendations.
+   6. „Utwórz opis z karty” sends the card as dictation. The AI picks a template and writes the procedure report.
+2. **Opis**: the report for the hospital system, as before (dictation PL / EN, report PL / EN).
+3. **List do kierującego** (letter to the referring doctor):
+   - Enter the referring doctor (remembered), the greeting (Pani / Pan / Zespół), the patient and the date.
+   - Options: language PL / EN, length, a specialist or a GP as reader, and warning signs on or off.
+   - „Napisz list”: Claude writes a letter in plain clinical language — what was done, result, complications, drugs,
+     follow-up and implanted devices.
+   - „Popraw z AI” revises it; „Bez AI” builds a letter from a fixed pattern.
+   - Copy or print / PDF.
+   - **Patient names never reach the AI.** The letter is written with placeholders ([[PACJENT]], [[DATA_UR]]…), filled
+     in only on this computer. The patient's name is kept only until the browser is closed.
+
+Vessel abbreviations (MCA, PCA, PComA, SMA, RHA, CFA…) stay in their English form in Polish reports and letters.
+
+
 
 - **190 procedure templates + 43 snippets**, every one in **Polish and English** (name and full text):
   - **Naczyniowe / Vascular (71):**

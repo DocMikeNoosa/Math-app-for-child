@@ -7,6 +7,7 @@ import { Dictation, LevelMeter, speechSupported } from './speech.js';
 import { parseVoiceCommands, dropLastSentence, dropLastWord, COMMAND_LABELS } from './voice-commands.js';
 import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, addUnique, similarity } from './style-learning.js';
 import { MicButton } from './mic-button.js';
+import { initCard, setView, resetCard, onLanguageChanged, currentView } from './cardui.js';
 
 const $ = (id) => document.getElementById(id);
 const els = Object.fromEntries(
@@ -813,7 +814,13 @@ function onDictationChanged() {
   schedulePrefetch();
 }
 
-async function process() {
+// The card text is written in the report language; it is sent as dictation in that language.
+async function process(opts = {}) {
+  const keep = state.inputLang;
+  if (opts.inputLang && opts.inputLang !== state.inputLang) state.inputLang = opts.inputLang;
+  try { return await processDictation(); } finally { state.inputLang = keep; renderLangToggles(); }
+}
+async function processDictation() {
   if (state.busy) return;
   if (state.recording) await stopRecording();
   if (document.activeElement?.isContentEditable) document.activeElement.blur();
@@ -923,7 +930,8 @@ async function newReport() {
   cpOffList = [];
   state.enDictations = [];
   renderPrepState();
-  if (!t && !pending) { openPicker(); return; } // already blank
+  resetCard();
+  if (!t && !pending) { if (currentView() === 'report') openPicker(); return; } // already blank
   commit(blankReport(state.outputLang), { source: 'Brak szablonu' });
   els.reportScroll.scrollTo({ top: 0 });
   toast('Nowy opis — wybierz szablon (T). „Cofnij” przywróci poprzedni opis.', 'ok', 3200);
@@ -980,6 +988,7 @@ async function setOutputLang(lang) {
   renderEmpty();
   if (!els.picker.hidden) renderPicker();
   if (!els.anatomy.hidden) renderAnatomy();
+  onLanguageChanged();
   save();
   await translateReport(lang);
 }
@@ -2272,6 +2281,7 @@ function bind() {
     if (e.key === ' ' && document.activeElement !== els.recBtn && !document.activeElement?.closest('button')) { e.preventDefault(); toggleRecording(); return; }
     if (e.key === 't' || e.key === 'T') { e.preventDefault(); openPicker(); return; }
     if (e.key === 'a' || e.key === 'A') { e.preventDefault(); openAnatomy(); return; }
+    if (e.key === '1' || e.key === '2' || e.key === '3') { e.preventDefault(); setView(['card', 'report', 'letter'][Number(e.key) - 1]); return; }
     if (e.key === 'w' || e.key === 'W') { e.preventDefault(); toggleSnippets(); return; }
     if (e.key === 'o' || e.key === 'O') { e.preventDefault(); openOriginal(els.origModal.hidden); return; }
     if (e.key === 'd' || e.key === 'D') { e.preventDefault(); openToday(els.todayModal.hidden); return; }
@@ -2313,6 +2323,21 @@ function init() {
   // keep-alive for the desktop launcher (the background server stops when the window is closed)
   setInterval(() => { fetch('/api/status', { cache: 'no-store' }).catch(() => {}); }, 60_000);
   requestAnimationFrame(drawViz);
+  initCard({
+    state: () => state,
+    templates: () => TEMPLATES,
+    isBlank,
+    selectTemplate,
+    setDictation: (text) => { setDictation(text); },
+    process,
+    toast,
+    askConfirm,
+    scrub: scrubIdentifiers,
+    clinical: () => els.clinical.value,
+    styleRules: () => (els.learnStyle.checked ? profile.rules : []),
+    reportText: () => reportToText(state.report, template()),
+    prepareAfterPick: () => { state.prepareAfterPick = true; openPicker(); },
+  }).catch((err) => console.error('card', err));
 }
 
 init();

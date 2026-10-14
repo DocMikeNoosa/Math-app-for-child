@@ -11,6 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="diagram.css" />
 </head>
 <body>
   <div class="bg-glow" aria-hidden="true"></div>
@@ -140,6 +141,90 @@
 
     <!-- ============ report ============ -->
     <section class="panel report" aria-label="Raport">
+      <div class="view-tabs" role="tablist" id="viewTabs" aria-label="Widok">
+        <button type="button" role="tab" data-view="card" aria-selected="false" title="Karta zabiegu: schemat, zmiany, sprzęt (1)"><span class="vt-num">1</span><svg viewBox="0 0 24 24"><path d="M12 3v5M12 8c-4 0-6 3-6 6v7M12 8c4 0 6 3 6 6v7"/><circle cx="12" cy="8" r="1.6"/></svg><span class="vt-lbl">Karta zabiegu</span><span class="vt-count" id="cardCount" hidden></span></button>
+        <button type="button" role="tab" data-view="report" aria-selected="true" title="Opis zabiegu do systemu (2)"><span class="vt-num">2</span><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg><span class="vt-lbl">Opis</span></button>
+        <button type="button" role="tab" data-view="letter" aria-selected="false" title="List do lekarza kierującego (3)"><span class="vt-num">3</span><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span class="vt-lbl">List do kierującego</span><span class="vt-dot" id="letterDot" hidden></span></button>
+      </div>
+
+      <div class="view view-card" id="viewCard" hidden>
+        <div class="card-top">
+          <div class="seg" id="cardBranch" role="group" aria-label="Rodzaj zabiegu"></div>
+          <div class="card-regions" id="cardRegions"></div>
+          <select id="cardUrgency" aria-label="Tryb" title="Tryb zabiegu"></select>
+        </div>
+        <div class="card-main">
+          <div class="card-diagram">
+            <div class="dgm-host" id="dgmHost"></div>
+            <div class="dgm-hint" id="dgmHint">Kliknij naczynie lub narząd na schemacie, aby dodać zmianę.</div>
+          </div>
+          <div class="card-side" id="cardSide"></div>
+        </div>
+        <div class="card-foot">
+          <div class="card-gaps" id="cardGaps"></div>
+          <button class="btn" id="cardClear" title="Wyczyść kartę">Wyczyść</button>
+          <button class="btn" id="cardToLetter" title="Przejdź do listu do lekarza kierującego">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span>List</span>
+          </button>
+          <button class="btn btn-primary" id="cardToReport" title="AI napisze opis zabiegu z danych karty (wybierze szablon, jeśli nie jest wybrany)">
+            <svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg><span>Utwórz opis z karty</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="view view-letter" id="viewLetter" hidden>
+        <div class="letter-scroll">
+          <div class="letter-form">
+            <div class="lf-row">
+              <div class="field grow"><label for="lfReferrer">Lekarz kierujący</label><input id="lfReferrer" type="text" list="lfReferrers" autocomplete="off" placeholder="np. dr n. med. Jan Kowalski" /><datalist id="lfReferrers"></datalist></div>
+              <div class="field"><label>Zwrot</label><div class="seg" id="lfTitle" role="group"><button type="button" data-title="female">Pani</button><button type="button" data-title="male">Pan</button><button type="button" data-title="team" aria-pressed="true">Zespół</button></div></div>
+              <div class="field grow"><label for="lfUnit">Jednostka</label><input id="lfUnit" type="text" autocomplete="off" placeholder="np. Oddział Chirurgii Naczyniowej, Szpital …" /></div>
+            </div>
+            <div class="lf-row">
+              <div class="field grow"><label for="lfPatient">Pacjent <small class="lf-private">tylko na tym komputerze — nie trafia do AI</small></label><input id="lfPatient" type="text" autocomplete="off" placeholder="Imię i nazwisko" /></div>
+              <div class="field"><label for="lfDob">Data urodzenia</label><input id="lfDob" type="text" autocomplete="off" placeholder="dd.mm.rrrr" /></div>
+              <div class="field"><label>Płeć</label><div class="seg" id="lfSex" role="group"><button type="button" data-sex="F">K</button><button type="button" data-sex="M">M</button><button type="button" data-sex="" aria-pressed="true">–</button></div></div>
+              <div class="field"><label for="lfDate">Data zabiegu</label><input id="lfDate" type="date" /></div>
+            </div>
+            <div class="lf-row lf-opts">
+              <div class="seg" id="lfLang" role="group" aria-label="Język listu"><span class="seg-lbl">List</span><button type="button" data-lang="pl" aria-pressed="true">PL</button><button type="button" data-lang="en">EN</button></div>
+              <div class="seg" id="lfLength" role="group" aria-label="Długość"><button type="button" data-len="short">Krótki</button><button type="button" data-len="standard" aria-pressed="true">Standard</button><button type="button" data-len="detailed">Szczegółowy</button></div>
+              <div class="seg" id="lfRecipient" role="group" aria-label="Odbiorca"><button type="button" data-rec="referring_doctor" aria-pressed="true">Specjalista</button><button type="button" data-rec="gp">Lekarz POZ</button></div>
+              <label class="lf-check"><input type="checkbox" id="lfWarn" checked /> objawy alarmowe</label>
+              <span class="grow"></span>
+              <button class="btn" id="lfBuiltin" title="List z gotowego wzoru, bez AI">Bez AI</button>
+              <button class="btn btn-primary" id="lfWrite"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/></svg><span>Napisz list</span></button>
+            </div>
+            <details class="lf-sender" id="lfSenderBox">
+              <summary>Nadawca i podpis</summary>
+              <div class="lf-row">
+                <div class="field grow"><label for="lfSenderName">Imię, nazwisko, tytuł</label><input id="lfSenderName" type="text" autocomplete="off" placeholder="lek. … specjalista radiologii i diagnostyki obrazowej" /></div>
+                <div class="field grow"><label for="lfSenderUnit">Pracownia / szpital</label><input id="lfSenderUnit" type="text" autocomplete="off" placeholder="Pracownia Radiologii Zabiegowej, …" /></div>
+                <div class="field grow"><label for="lfSenderContact">Kontakt</label><input id="lfSenderContact" type="text" autocomplete="off" placeholder="tel. …, e-mail …" /></div>
+              </div>
+            </details>
+          </div>
+
+          <div class="letter-warnings warnings" id="lfWarnings" hidden><div class="warnings-head"><svg viewBox="0 0 24 24"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4.5M12 17.5h.01"/></svg>Do sprawdzenia</div><ul id="lfWarningsList"></ul></div>
+
+          <article class="letter-paper" id="letterPaper">
+            <div class="lp-head" id="lpHead"></div>
+            <div class="lp-subject" id="lpSubject" contenteditable="true" spellcheck="true"></div>
+            <div class="lp-body" id="lpBody" contenteditable="true" spellcheck="true"></div>
+            <div class="lp-empty" id="lpEmpty">Uzupełnij kartę zabiegu (lub opis) i kliknij „Napisz list”. AI napisze list do lekarza kierującego — imię i nazwisko pacjenta zostaną wstawione dopiero tutaj, na tym komputerze.</div>
+            <div class="processing" id="lfProcessing" hidden><div class="scan"></div><div class="processing-label"><span class="spinner"></span><span>Claude pisze list…</span></div></div>
+          </article>
+        </div>
+        <div class="letter-foot">
+          <input id="lfInstruction" type="text" autocomplete="off" placeholder="Co poprawić w liście? np. krócej, dodaj informację o kontroli USG za 3 miesiące" />
+          <button class="btn" id="lfRevise">Popraw z AI</button>
+          <span class="grow"></span>
+          <button class="btn" id="lfPrint" title="Drukuj lub zapisz jako PDF"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg><span>Drukuj / PDF</span></button>
+          <button class="btn btn-copy" id="lfCopy"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span>Kopiuj list</span></button>
+        </div>
+      </div>
+
+      <div class="view view-report" id="viewReport">
       <div class="report-toolbar">
         <div class="tb-group">
           <button class="tb-btn" id="undoBtn" title="Cofnij (Ctrl+Z poza polem tekstu)" disabled>
@@ -251,6 +336,7 @@
         <span class="grow"></span>
         <span id="footSaved">Zapisano lokalnie</span>
       </footer>
+      </div>
     </section>
   </main>
 
@@ -306,6 +392,29 @@
         <div class="anat-summary" id="anatSummary"></div>
         <button class="btn" id="anatCancel">Anuluj</button>
         <button class="btn btn-primary" id="anatApply">Wstaw</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Device picker (equipment catalogue) -->
+  <div class="modal picker-modal" id="devPicker" hidden role="dialog" aria-label="Sprzęt">
+    <div class="picker dev">
+      <div class="picker-head">
+        <div class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="devSearch" type="text" placeholder="Szukaj sprzętu… np. Supera, spirala, mikrocewnik, 0.014" autocomplete="off" />
+        </div>
+        <button class="icon-btn" id="closeDev" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="dev-cols">
+        <div class="dev-cats" id="devCats"></div>
+        <div class="dev-items" id="devItems"></div>
+      </div>
+      <div class="dev-foot">
+        <div class="dev-chosen" id="devChosen">Wybierz urządzenie z listy</div>
+        <div class="field"><label for="devSize" id="devSizeLabel">Rozmiar</label><input id="devSize" type="text" autocomplete="off" placeholder="np. 6 × 80 mm" /></div>
+        <div class="field"><label for="devQty">Ilość</label><input id="devQty" type="number" min="1" max="99" value="1" /></div>
+        <button class="btn btn-primary" id="devAdd" disabled>Dodaj</button>
       </div>
     </div>
   </div>

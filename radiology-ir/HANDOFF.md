@@ -25,6 +25,15 @@ RadVox IR only changes the colours (crimson accent, amber recording) and adds th
   `template-data.js` and the diagnostic tests were removed.
 - Tests: 58 (`npm test`): `ir.test.js`, `server.test.js` (mock API), plus the shared voice / style / text tests.
 
+## Version 1.1 (card / 3D / letter)
+- `public/js/card.js`: card model and text, built-in letter, placeholders. `cardui.js`: card, letter and device-picker UI.
+  `diagram3d.js`: three.js renderer (`public/vendor/three.mjs`, copied from EndoList), with the SVG renderer
+  (`diagram.js`) as fallback. `diagrams/*.js`: 17 regions, with an optional `z` per part (number, or one value per path vertex).
+- `variants.js`: anatomical variants. `effect(side)` → hide / scale / add parts. `devices.js`: equipment catalogue.
+- `lib/letter.js` + `POST /api/letter`. The letter is stored with placeholders only. The patient's name lives in sessionStorage.
+- Tools: `tools/check-diagrams.mjs`, `tools/preview-diagram.mjs` (2D PNG), `tools/preview-3d.mjs` (3D PNG).
+- Tests: `test/card.test.js`, plus the earlier tests (67 in total).
+
 ## Open items
 - Clinical review of the templates by an IR / neuro-IR specialist (see README „Not checked yet").
 - Not yet tested against the real AI from here (no API key in the build environment).

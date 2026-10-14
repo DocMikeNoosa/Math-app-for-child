@@ -5,7 +5,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ClaudeError, MODEL } from './claude.js';
 
-export const LEARN_PROMPT = `You study how one radiologist writes radiology reports so that a reporting assistant can write exactly like them. The radiologist is a Polish EMERGENCY radiologist; reports are in Polish (sometimes English).
+export const LEARN_PROMPT = `You study how one radiologist writes radiology reports so that a reporting assistant can write exactly like them. The radiologist is a Polish INTERVENTIONAL / NEUROINTERVENTIONAL radiologist; the texts are procedure reports and letters to referring doctors, in Polish (sometimes English).
 
 You receive JSON with:
 - "samples": reports, report fragments or phrases the radiologist wrote (each with a language tag). These are the strongest evidence of their style.
