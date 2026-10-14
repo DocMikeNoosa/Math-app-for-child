@@ -1,0 +1,19 @@
+{
+  "name": "radvox-ir",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RadVox IR — dyktowanie opisów zabiegów radiologii interwencyjnej i neurointerwencji (PL/EN) z szablonami i AI (Claude).",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js",
+    "check-templates": "node tools/check-templates.mjs public/js/templates-ir/vascular-1.js public/js/templates-ir/vascular-2.js public/js/templates-ir/nonvascular-1.js public/js/templates-ir/nonvascular-2.js public/js/templates-ir/neuro-1.js public/js/templates-ir/neuro-2.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.0"
+  }
+}
