@@ -271,6 +271,10 @@ test('two-factor login: password alone is not enough; wrong codes limited; robot
   const s2 = await call('POST', '/api/auth/login', { email: 'owner@example.com', password: 'ownerhaslo123' });
   for (let i = 0; i < 5; i++) await call('POST', '/api/auth/login-2fa', { ticket: s2.data.ticket, code: '000000' });
   assert.equal((await call('POST', '/api/auth/login-2fa', { ticket: s2.data.ticket, code: totpCode(setup.data.secret) })).data.code, 'expired', 'after 5 wrong codes');
+  assert.equal((await fetch(`${url}/site/admin.js`)).status, 404, 'owner panel code not public');
+  assert.equal((await fetch(`${url}/site/admin.js`, { headers: { Cookie: rads[0].cookie } })).status, 404);
+  assert.equal((await fetch(`${url}/site/it.js`, { headers: { Cookie: itCookie } })).status, 200);
+  assert.equal((await fetch(`${url}/site/admin.js`, { headers: { Cookie: ok.cookie } })).status, 200);
   const robots = await (await fetch(`${url}/robots.txt`)).text();
   assert.match(robots, /Disallow: \/app\//);
   const head = await fetch(`${url}/app/`, { redirect: 'manual' });

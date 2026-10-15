@@ -59,6 +59,18 @@ const CSRF_HEADER = 'x-radiopis';
 export const SYNC_KEYS = ['radvox.templates.v1', 'radvox.profile.v1', 'radvox.style.v1', 'radvox.learned.v1'];
 const SYNC_MAX = 1_500_000;
 const LEARNING_KEYS = new Set(['radvox.style.v1', 'radvox.learned.v1', 'radvox.profile.v1']);
+// Archiving runs after the answer, one sync at a time with other requests served in between
+// (200 people opening the app at once must not freeze the server).
+const captureQueue = [];
+function queueCapture(fn) {
+  captureQueue.push(fn);
+  if (captureQueue.length === 1) setImmediate(drainCaptures);
+}
+function drainCaptures() {
+  const fn = captureQueue.shift();
+  try { fn(); } catch (err) { console.error('learning capture', err); }
+  if (captureQueue.length) setImmediate(drainCaptures);
+}
 
 const aiAvailable = () => aiConfigured();
 
@@ -567,8 +579,9 @@ async function handleSync(req, res, ctx, key) {
     value = scrubIdentifiers(value);
     run('INSERT INTO user_data(user_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at', ctx.user.id, key, value, Date.now());
     // every lesson is also kept permanently (de-identified) in the learning archive — the app's memory drops old ones
-    if (LEARNING_KEYS.has(key)) captureLearning(ctx.user.id, ctx.user.org_id, key, value);
-    return sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true });
+    if (LEARNING_KEYS.has(key)) queueCapture(() => captureLearning(ctx.user.id, ctx.user.org_id, key, value)); // after the answer
+    return;
   }
   if (req.method === 'DELETE') {
     run('DELETE FROM user_data WHERE user_id = ? AND key = ?', ctx.user.id, key);
@@ -1071,6 +1084,8 @@ async function handleIt(req, res, ctx, parts) {
       deleteUserSessions(u.id);
       clearFailures(u.email);
       audit(me, 'it.user.temp_password', u.id);
+      // the person is told (an IT administrator could otherwise use the temporary password to sign in as them)
+      if (u.id !== me) await sendMail(u.email, `${BRAND.name}: Twoje hasło zostało zresetowane`, `Dzień dobry,\n\nadministrator IT (${ctx.user.email}) ustawił Ci nowe hasło tymczasowe w ${BRAND.name}. Jeśli o to nie prosiłeś/aś, skontaktuj się z nami: ${BRAND.supportEmail || adminEmail() || 'administrator usługi'}.`);
       return sendJson(res, 200, { tempPassword: pass, email: u.email });
     }
     if (action === 'logout' && method === 'POST') {
@@ -1292,6 +1307,13 @@ export function createServer() {
           if (c) return redirect(res, homeFor(c.user));
         }
         return sitePage(res, p.slice(1), req);
+      }
+      if (p === '/site/admin.js' || p === '/site/it.js') {
+        // the panels' code only for those who may use them
+        const c = currentUser(req);
+        const allowed = c && (c.user.role === 'admin' || (p === '/site/it.js' && c.user.role === 'orgadmin'));
+        if (!allowed) { res.writeHead(404, headers()); return res.end(); }
+        return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'private, no-cache', req });
       }
       if (p.startsWith('/site/')) return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'public, max-age=3600', req });
       if (p.startsWith('/fonts/') || p.startsWith('/icons/')) return serveFile(res, PUBLIC, p.slice(1), { cache: 'public, max-age=604800', req });

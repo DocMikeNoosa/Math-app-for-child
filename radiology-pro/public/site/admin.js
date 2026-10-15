@@ -49,7 +49,7 @@ async function loadDash() {
     ['Działa od', `${Math.floor(sv.uptimeS / 3600)} h ${Math.floor((sv.uptimeS % 3600) / 60)} min`],
     ['Ostatnia kopia bazy', bk?.error ? `<span class="pill err">błąd</span>` : bk?.at ? `${fmtDateTime(bk.at)} <span class="dim small">${(bk.size / 1048576).toFixed(1)} MB</span>${bkAge > 26 ? ' <span class="pill err">stara!</span>' : ''}` : '<span class="pill warn">brak</span>'],
   ].map(([k, v]) => `<li><span>${k}</span><span>${v}</span></li>`).join('');
-  if (!o.me2fa) $('#kpis').insertAdjacentHTML('beforebegin', '<div class="msg err" id="tfaWarn">Twoje konto właściciela chroni całą usługę i archiwum nauki AI. <a href="/account">Włącz logowanie dwuetapowe →</a></div>');
+  if (!o.me2fa && !$('#tfaWarn')) $('#kpis').insertAdjacentHTML('beforebegin', '<div class="msg err" id="tfaWarn">Twoje konto właściciela chroni całą usługę i archiwum nauki AI. <a href="/account">Włącz logowanie dwuetapowe →</a></div>');
   else $('#tfaWarn')?.remove();
   loadTickets().catch(() => {});
   for (const org of o.orgs.expiring) toast(`Licencja ${org.name} kończy się ${fmtDate(org.subUntil)}`, 'warn', 6000);
@@ -622,6 +622,7 @@ async function loadLog() {
   $('#outbox').innerHTML = o.outbox.map((m) => `<details><summary><span>${esc(m.subject)}<span class="sub dim">${esc(m.to_addr)} · ${fmtDateTime(m.ts)}</span></span><span class="pill ${m.status === 'sent' ? 'ok' : m.status === 'logged' ? '' : 'err'}">${esc(m.status === 'logged' ? 'nie wysłano (brak poczty)' : m.status)}</span></summary><p style="white-space:pre-wrap">${esc(m.body)}</p></details>`).join('') || '<p class="dim">Brak wiadomości</p>';
 }
 
+window.addEventListener('hashchange', () => { const t = location.hash.slice(1); if (t in loaders) openTab(t); });
 brand();
 const start = location.hash.slice(1);
 openTab(start in loaders ? start : 'dash');

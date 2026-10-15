@@ -21,6 +21,8 @@ Polish (or English) report built from their templates, with clinically ordered f
 | Device sync | Own templates, the style profile and what the AI learned from the radiologist's corrections (style pairs, example reports, conclusion changes) follow the user to every computer — stored on the server with PESEL numbers removed. The current report and today's list never leave the browser; they are cleared when another user logs in on the same browser and on logout. |
 | Organisations (1.1) | For teleradiology companies: **one licence, N seats**, per-user monthly report limit, devices per user, price per seat. The owner creates them in **Admin → Organizacje** (with the first IT administrator) and extends the licence there. |
 | IT console (`/it`, 1.1) | For the company's IT administrator: seats used / free, add a person, **bulk import** (paste from Excel / CSV) with **temporary passwords** (copy or download CSV, optional e-mail), block (frees the seat at once), new temporary password, log out everywhere, delete (personal data removed, anonymous usage kept), change log, CSV export. Temporary passwords must be replaced at the first login. IT sees only its own organisation. |
+| Central AI learning (1.2) | Every lesson from every radiologist (wording corrections, deleted / added conclusion lines, restored statements, example reports, EN→PL pairs, style rules, glossary) is archived **permanently** and **de-identified** in its own database (`learning.db`), so nothing is lost when the app's rolling memory drops old examples. The owner turns lessons shared by ≥ K radiologists into a versioned **global knowledge** (counts or AI distillation), reviews / edits / publishes / rolls back; it is added server-side to every AI request (personal style overrides it), and every usage row records the version (traceability). Owner-only (`Admin → Nauka globalna AI`), JSONL export; never visible to IT, customers or users, never sent to a browser. |
+| RODO & security (1.2) | Terms / privacy acceptance with version and time (re-acceptance when the version changes), data export (art. 15/20), erasure (self for individuals, by IT for organisations; also removes the learning pseudonym and the e-mail from old log entries), automatic retention (log, e-mail copies, idle sessions), no passwords in stored e-mails, **encrypted backups** (`BACKUP_KEY`), **two-factor login** (TOTP), user notified when IT resets their password, robots / noindex. Document pack (Polish drafts for a lawyer): `docs/rodo/` — checklist, DPA template, records of processing, TOMs, DPIA outline, breach procedure, sub-processors, MDR / AI Act notes, IP protection. |
 | Operations (1.1) | **AI traffic control** (concurrency cap + fair queue, background calls shed first, per-user cap, clear "busy" answers, automatic retry in the app), daily **online database backups** with retention + manual backup button, `/healthz`, graceful shutdown during updates, JSON request log without patient data, server health on the dashboard (queue, rejections, memory, event-loop freezes, last backup), announcement banner for all users, ETag revalidation of the app files. Deployment kit in `deploy/` (Docker Compose + Caddy HTTPS, server setup, off-site backup, restore) — see **DEPLOY.md**. Load test with 200 simultaneous users: `scripts/loadtest.mjs`, results in `docs/LOAD-TEST.md`. |
 | Code protection | The app's code is served only to logged-in users with an active subscription. `npm run build` bundles, minifies and **obfuscates** the browser code (templates become encoded strings). AI instructions, billing and the database are server-only. Security headers (CSP, frame-deny, HSTS in production), CSRF header check on all API writes. |
 | Privacy | PESEL numbers stripped before the AI; no report archive on the server; self-hosted fonts (no Google requests); optional **EU processing via Claude on Amazon Bedrock** (`AI_PROVIDER=bedrock`, `AWS_REGION=eu-central-1`). |
@@ -74,8 +76,9 @@ Without Stripe, users see bank-transfer details (Admin → Settings) and the adm
 
 ## Tests
 
-`npm test` — 122 tests (incl. organisations, IT console, seats, temporary passwords, licence access, AI queue,
-health check): report engine and templates (every library template passes the safety net without
+`npm test` — 134 tests (incl. organisations, IT console, seats, temporary passwords, licence access, AI queue,
+health check, learning archive and de-identification, global knowledge and its access walls, RODO export / erasure /
+retention, terms acceptance, two-factor login): report engine and templates (every library template passes the safety net without
 changes or self-contradictions), server + Claude request shape (mock API), accounts, quotas, device limit,
 expiry, admin API, exports, Stripe webhook signatures/idempotency, sync isolation, security headers,
 background cost guard. `npm run loadtest` — 200 simultaneous users against a fake AI (see `docs/LOAD-TEST.md`).
@@ -92,7 +95,9 @@ lib/jobs.js          hourly expiry / reminders / alerts  lib/mail.js     e-mail 
 lib/ai-client.js     Anthropic API or Bedrock (EU)       lib/claude.js   report prompt + request
 lib/learn.js         style analysis                      lib/brand.js    product name
 lib/orgs.js          organisations, seats, temp passwords lib/limiter.js AI concurrency queue
-lib/backup.js        daily online backups               deploy/         compose, Caddy, setup, backup, restore
+lib/backup.js        daily (encrypted) backups          deploy/         compose, Caddy, setup, backup, restore
+lib/learning.js      permanent learning archive         lib/global-learning.js  central knowledge versions
+lib/totp.js          two-factor login                   docs/rodo/      RODO / legal / IP document pack
 public/              the dictation app (+ public/js/hosted.js: session, sync, account menu)
 public/site/         landing, login, account, admin, legal pages
 scripts/build.mjs    protected production build          tools/check-templates.mjs  template validator

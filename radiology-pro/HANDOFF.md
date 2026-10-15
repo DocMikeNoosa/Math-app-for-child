@@ -4,7 +4,7 @@ Repository: https://github.com/DocMikeNoosa/Math-app-for-child — branch `claud
 Two apps live side by side:
 - `radiology-dictation/` — **RadVox**, the original single-user desktop app (see its own HANDOFF.md).
 - `radiology-pro/` — **Radiopis** (working name), the commercial hosted version with accounts, subscriptions and
-  an admin panel. Version 1.1.0 (rollout-ready for a teleradiology company of ~200 radiologists). Read `README.md`
+  an admin panel. Version 1.2.0 (rollout-ready for a teleradiology company of ~200 radiologists). Read `README.md`
   here first, then `DEPLOY.md` (server) and `docs/LOAD-TEST.md` (200-user test).
 
 ## The person
@@ -44,9 +44,26 @@ overall layout — add functionality in the existing style.
 - Deployment kit: `deploy/` (compose + Caddy + setup/offsite/restore scripts). Not run on a real cloud server from
   the development environment (no Docker daemon there) — first deployment must follow DEPLOY.md and be checked.
 
+## Central learning, RODO, IP (1.2, October 2026)
+- Owner's request: individual learning per radiologist **plus** the app learning from all users; all learning saved
+  permanently and reusable; never accessible to IT admins or the subscribing company; code never available to them.
+- `lib/learning.js`: separate `learning.db`, `items` (de-identified, no user id, unique by hash, `seen` count) +
+  `contributors` (HMAC pseudonym of user and org; deleted on erasure) + `versions` (global knowledge history).
+  Captured on every `PUT /api/sync` of `radvox.style.v1` / `radvox.learned.v1` / `radvox.profile.v1`.
+- `lib/global-learning.js`: lessons with ≥ K contributors (default 3) → draft (counts or AI) → owner publishes →
+  `guidanceFor(templateId)` → `global_guidance` in the cached user block; `usage.global_version` records it.
+- RODO: `termsVersion` setting (env `TERMS_VERSION`, default '1.0'; tests set it to '' except orgs/rodo tests),
+  access code `terms` → `/accept`; `/api/me/export`, `/api/me/delete`, `eraseUser()`; retention in jobs; 2FA
+  (`lib/totp.js`, `/api/auth/login-2fa`); encrypted backups (`BACKUP_KEY`, `scripts/decrypt-backup.mjs`).
+- IT console: `/api/it/problems`, tickets → owner (`Admin → Zgłoszenia`); report counts hidden unless `itShowUsage`.
+- Known residual risks (told to the owner): Chrome / Edge speech recognition sends audio to Google / Microsoft;
+  Anthropic API = transfer to the USA unless Bedrock EU is used; browser code can be obfuscated but never fully
+  hidden; an IT admin can still reset a password and sign in as a radiologist (the radiologist is e-mailed and it
+  is logged).
+
 ## Technical notes
 - Templates: 397 + 112 snippets (MR and X-ray libraries completed Oct 2026: mr-body-msk-2.js, mr-neuro-spine-2.js, xray-2.js).
-- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (122 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
+- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (134 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
   `NODE_ENV=production` serves `dist/`.
 - Report counting: the browser sends `reportId` (one per report); usage rows with the same id count once.
 - `background: true` marks pre-processing calls; capped per report by `maxBackgroundCalls` (settings).

@@ -36,8 +36,16 @@ about 1–2 hours the first time, most of it waiting for DNS.
      "data in Poland" is a selling point.
 4. **The program**: this repository (download the ZIP or `git clone`).
 
-> Legal before real patients: data-processing agreements (DPA) with the company and with the AI provider, a DPIA,
-> the MDR question — see `HANDOFF.md`. Until then use only made-up / anonymised cases.
+> Legal before real patients: see **`docs/rodo/README.md`**. It covers:
+> - the RODO checklist;
+> - the data-processing agreement (DPA) template;
+> - the records of processing and the DPIA outline;
+> - the breach procedure;
+> - MDR / AI Act notes;
+> - IP protection.
+>
+> Until those are done, use only made-up / anonymised cases. **Keep the server under your own account** — never give
+> a customer SSH access, the repository, `.env` or backups. That is what keeps your code and the learning yours.
 
 ---
 
@@ -92,7 +100,9 @@ Fill in at least:
 - `DOMAIN` and `PUBLIC_URL` (your domain);
 - `ACME_EMAIL`;
 - `ADMIN_EMAIL` and `ADMIN_PASSWORD` (your own strong password; the example one is refused);
-- `ANTHROPIC_API_KEY` (or the Bedrock lines).
+- `ANTHROPIC_API_KEY` (or the Bedrock lines);
+- `BACKUP_KEY`: create it with `openssl rand -base64 32`. **Save a copy in your password manager** — encrypted
+  backups cannot be read without it.
 
 Save with Ctrl+O, Enter, Ctrl+X.
 
@@ -115,8 +125,11 @@ The HTTPS certificate is obtained automatically within about a minute (padlock i
 
 ## 6. First login and the first company
 
-1. Open `https://YOUR-DOMAIN/login` and log in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`. Then change the
-   password on the account page.
+1. Open `https://YOUR-DOMAIN/login` and log in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+   On the account page:
+   - change the password;
+   - **switch on two-factor login** (a code from your phone). Your account protects the whole service and the AI
+     learning archive. The dashboard shows a red reminder until 2FA is on.
 2. **Pulpit → Konfiguracja serwera**: AI must say *działa* and mode must say *produkcja*.
 3. **Organizacje → + Nowa organizacja**:
    - company name, NIP;
@@ -137,7 +150,10 @@ Seats can be changed at any time.
 
 ## 7. Backups — automatic, plus one copy elsewhere
 
-- The app makes a **backup every day** into `deploy/data/backups` and keeps 14 days.
+- The app makes a **backup every day** of both databases into `deploy/data/backups` and keeps 14 days:
+  - `radiopis-…` — accounts;
+  - `learning-…` — the AI learning archive. It only ever grows, so every copy holds all learning so far.
+- With `BACKUP_KEY` set, the copies are encrypted (`.enc`).
 - You can also click **Pulpit → Zrób kopię bazy**.
 - The dashboard shows the time of the last backup. Red "stara!" means more than 26 hours old.
 - **A copy must also live outside the server** (fire, deleted account, ransomware):
@@ -150,10 +166,32 @@ Seats can be changed at any time.
      ```
      30 3 * * * /opt/radiopis/radiology-pro/deploy/offsite-backup.sh >> /var/log/radiopis-offsite.log 2>&1
      ```
-- **Restore** (only when something went wrong): `sudo bash restore.sh data/backups/radiopis-YYYYMMDD-HHMM.db`.
-  The previous database is kept next to it.
+- **Restore** (only when something went wrong):
+  - `sudo bash restore.sh data/backups/radiopis-YYYYMMDD-HHMM.db.enc` — accounts;
+  - `sudo bash restore.sh data/backups/learning-YYYYMMDD-HHMM.db.enc` — learning archive.
 
-## 8. Monitoring (know before your customers call)
+  The previous file is kept next to it.
+- **Your own copy of the learning**: **Admin → Nauka globalna AI → Eksport całego archiwum** downloads one JSONL
+  file with every lesson and every version. Keep it e.g. once a month — it is yours to reuse for anything.
+
+## 8. Central AI learning (once a month, 5 minutes)
+
+1. **Admin → Nauka globalna AI**: see how many lessons and radiologists the archive has.
+2. **Utwórz szkic** with method *Analiza AI* and "min. 3 radiologists".
+   - Only corrections that at least 3 different radiologists made independently are used.
+   - One person's habit never becomes a rule for everybody.
+3. **Open the draft**: untick anything you do not want, then **Opublikuj**. From then on every report of every user
+   gets it. A radiologist's own style still wins.
+4. **If something gets worse:**
+   - open an older version → *Przywróć*; or
+   - *Wyłącz wiedzę globalną*.
+
+   Every version is kept forever, and each AI call records which version it used.
+
+Nobody except you can see the archive or the versions: not the companies' IT, not the companies, not the
+radiologists.
+
+## 9. Monitoring (know before your customers call)
 
 - Create a free monitor for `https://YOUR-DOMAIN/healthz` with a 1-minute interval and an e-mail / SMS alert.
   For example UptimeRobot or Better Stack; check where they store data if that matters to you.
@@ -166,7 +204,7 @@ Seats can be changed at any time.
   - the last backup.
 - Logs: `sudo docker compose logs --since 1h app`. One line per request, with no report text and no patient data.
 
-## 9. Updating to a new version
+## 10. Updating to a new version
 
 ```bash
 cd /opt/radiopis && git pull && cd radiology-pro/deploy && sudo docker compose up -d --build
@@ -176,7 +214,7 @@ The app finishes AI answers already in progress, and Caddy holds new requests fo
 restart. Radiologists see at most a short pause; the app retries a report automatically. If you prefer, do it
 in a quiet hour. To warn everyone first, use **Ustawienia → Komunikat dla wszystkich użytkowników**.
 
-## 10. Capacity — 200 radiologists
+## 11. Capacity — 200 radiologists
 
 The test (`node scripts/loadtest.mjs`) simulates 200 people with a fake AI that answers in 2–6 s. See
 `docs/LOAD-TEST.md` for the full results. What matters for you:
@@ -190,6 +228,8 @@ The test (`node scripts/loadtest.mjs`) simulates 200 people with a fake AI that 
   - Anthropic's documentation says cached prompt reads mostly do not count towards the input limit. Check the
     current numbers on the *Limits* page of the Console, and ask Anthropic for a higher limit before a
     200-user rollout.
+- **Test result** (10× the real load, fake AI): 1,129 reports in 3 minutes, **0 failed**. All 200 radiologists
+  clicking at the same second were answered within 21 s. Memory under 0.4 GB.
 - `AI_MAX_CONCURRENT` (default 60) is how many AI calls run at once.
   - If you see **"Odrzucone (przeciążenie)" > 0** or long queue waits on the dashboard, raise it — but only up to
     what your Anthropic limit allows.
@@ -197,7 +237,7 @@ The test (`node scripts/loadtest.mjs`) simulates 200 people with a fake AI that 
 - When it is busy, background pre-processing pauses first. The radiologists' own **"Przygotuj opis"** always
   has priority and is retried automatically.
 
-## 11. If something goes wrong
+## 12. If something goes wrong
 
 | Symptom | What to do |
 |---|---|

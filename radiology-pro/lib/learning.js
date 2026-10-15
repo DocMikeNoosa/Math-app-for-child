@@ -56,7 +56,7 @@ export function openLearningDb(file = process.env.LEARNING_DB_FILE || (process.e
   if (ldb) return ldb;
   if (file !== ':memory:') mkdirSync(path.dirname(file), { recursive: true });
   ldb = new DatabaseSync(file);
-  ldb.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 3000;');
+  ldb.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 3000; PRAGMA synchronous = NORMAL;');
   ldb.exec(SCHEMA);
   return ldb;
 }

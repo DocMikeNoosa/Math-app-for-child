@@ -68,13 +68,14 @@ function render() {
   $('#adminLink').hidden = u.role !== 'admin';
   $('#itLink').hidden = u.role !== 'orgadmin';
   const org = me.org;
-  $('#choose').hidden = Boolean(org);
-  $('#paymentsCard').hidden = Boolean(org);
+  const owner = u.role === 'admin';
+  $('#choose').hidden = Boolean(org) || owner;
+  $('#paymentsCard').hidden = Boolean(org) || owner;
   if (org) u.subUntil = org.subUntil;
-  $('#statusPill').innerHTML = statusPill({ ...u, blocked: false, ...(me.org ? { subStatus: 'org', subUntil: me.org.subUntil } : {}) });
-  $('#planName').textContent = me.plan.name;
+  $('#statusPill').innerHTML = owner ? '<span class="pill ok">właściciel</span>' : statusPill({ ...u, blocked: false, ...(me.org ? { subStatus: 'org', subUntil: me.org.subUntil } : {}) });
+  $('#planName').textContent = owner ? 'Właściciel usługi' : me.plan.name;
   const left = daysLeft(u.subUntil);
-  $('#until').textContent = u.subUntil ? `${fmtDate(u.subUntil)}${left > 0 ? ` (${left} dni)` : ''}` : '—';
+  $('#until').textContent = owner ? 'bez limitu' : u.subUntil ? `${fmtDate(u.subUntil)}${left > 0 ? ` (${left} dni)` : ''}` : '—';
   const pct = me.plan.quota ? Math.min(100, (me.usage.reports / me.plan.quota) * 100) : 0;
   $('#usageText').textContent = `${me.usage.reports} z ${me.plan.quota}`;
   $('#meterBar').style.width = `${pct}%`;
@@ -85,6 +86,7 @@ function render() {
   const p = new URLSearchParams(location.search);
   if (p.get('paid')) showMsg($('#notice'), 'Dziękujemy! Płatność przyjęta — dostęp zaktualizuje się w ciągu kilku sekund (odśwież stronę).', 'ok');
   else if (p.get('canceled')) showMsg($('#notice'), 'Płatność anulowana — nic nie zostało pobrane.', 'info');
+  else if (owner) showMsg($('#notice'), 'Konto właściciela usługi — pełny dostęp bez subskrypcji. Włącz logowanie dwuetapowe poniżej.', 'info');
   else if (!me.access.ok) showMsg($('#notice'), me.access.reason, 'err');
   else if (org) showMsg($('#notice'), `Licencję zapewnia ${org.name}${org.status === 'trial' ? ' (okres próbny)' : ''}. Sprawy konta i hasła: dział IT${org.contact ? ` — ${org.contact}` : ''}.`, 'info');
   else if (u.subStatus === 'trial') showMsg($('#notice'), `Okres próbny: zostało ${left} dni. Wybierz plan, aby pracować dalej bez przerwy.`, 'info');

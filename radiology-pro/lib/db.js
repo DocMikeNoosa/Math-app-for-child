@@ -138,7 +138,7 @@ export function openDb(file = process.env.DB_FILE || path.join(process.env.DATA_
   if (db) return db;
   if (file !== ':memory:') mkdirSync(path.dirname(file), { recursive: true });
   db = new DatabaseSync(file);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 3000;');
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 3000; PRAGMA synchronous = NORMAL;');
   db.exec(SCHEMA);
   migrate(db);
   return db;
