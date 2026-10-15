@@ -54,7 +54,7 @@ function form(obj, prefix = '', out = new URLSearchParams()) {
 }
 
 async function stripe(method, pathName, params = null) {
-  const res = await fetch(`https://api.stripe.com/v1${pathName}`, {
+  const res = await fetch(`${process.env.STRIPE_API_BASE || 'https://api.stripe.com'}/v1${pathName}`, {
     method,
     headers: {
       Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
@@ -92,6 +92,53 @@ export async function createCheckout(user, planId, interval, baseUrl) {
     cancel_url: `${baseUrl}/account?canceled=1`,
   });
   return session.url;
+}
+
+/** Gross amount (PLN) of a plan period: net price (+ yearly discount) + VAT. */
+export function periodPrice(p, interval) {
+  const net = interval === 'year' ? p.pricePln * settings().annualMonths : p.pricePln;
+  const vat = settings().vatRate ?? 0.23;
+  return { net, gross: Math.round(net * (1 + vat) * 100) / 100 };
+}
+
+/**
+ * One-off payment for 1 month or 12 months in advance — BLIK, Przelewy24 or card (whatever is enabled in the
+ * Stripe dashboard). Nothing renews automatically; the account is extended when Stripe confirms the payment.
+ * No Stripe product/price setup needed (the amount comes from the plan in the admin panel).
+ */
+export async function createPrepaidCheckout(user, planId, interval, baseUrl) {
+  const p = plans().find((x) => x.id === planId && x.public);
+  if (!p) throw new Error('Nieznany plan.');
+  if (!p.pricePln) throw new Error('Ten plan nie ma ceny.');
+  if (user.stripe_sub && user.sub_status === 'active') throw new Error('Masz aktywną subskrypcję kartą — zmienisz ją przyciskiem „Zarządzaj płatnością kartą”.');
+  const { net, gross } = periodPrice(p, interval);
+  const meta = { user_id: String(user.id), plan: p.id, interval, kind: 'prepaid', net: String(net) };
+  const session = await stripe('POST', '/checkout/sessions', {
+    mode: 'payment',
+    line_items: { 0: { quantity: 1, price_data: { currency: 'pln', unit_amount: Math.round(gross * 100), product_data: { name: `${BRAND.name} ${p.name} — ${interval === 'year' ? '12 miesięcy' : '1 miesiąc'} (z góry)`, description: `${p.quota} opisów / mies., ${p.devices} urządz. Kwota zawiera 23% VAT.` } } } },
+    ...(user.stripe_customer ? { customer: user.stripe_customer } : { customer_email: user.email, customer_creation: 'always' }),
+    client_reference_id: String(user.id),
+    metadata: meta,
+    payment_intent_data: { metadata: meta },
+    invoice_creation: { enabled: 'true', invoice_data: { metadata: meta } },
+    allow_promotion_codes: 'true',
+    billing_address_collection: 'required',
+    tax_id_collection: { enabled: 'true' },
+    locale: 'pl',
+    success_url: `${baseUrl}/account?paid=1`,
+    cancel_url: `${baseUrl}/account?canceled=1`,
+  });
+  return session.url;
+}
+
+/** A confirmed one-off payment → extend the account (idempotent by the Checkout session id). */
+function applyPrepaid(o) {
+  const u = userForStripe(o);
+  if (!u || o.metadata?.kind !== 'prepaid' || o.payment_status !== 'paid') return false;
+  if (one('SELECT id FROM payments WHERE ref = ?', o.id)) return false;
+  if (o.customer) run('UPDATE users SET stripe_customer = ? WHERE id = ?', o.customer, u.id);
+  extendSubscription(u.id, { plan: o.metadata.plan, interval: o.metadata.interval === 'year' ? 'year' : 'month', count: 1, amountPln: Number(o.metadata.net) || (o.amount_total || 0) / 123, provider: 'stripe', ref: o.id, note: `jednorazowo, brutto ${((o.amount_total || 0) / 100).toFixed(2)} PLN` });
+  return true;
 }
 
 export async function createPortal(user, baseUrl) {
@@ -148,7 +195,11 @@ export async function handleStripeEvent(event) {
   run('INSERT INTO webhook_events(id, ts) VALUES (?, ?)', event.id, Date.now());
   const o = event.data?.object || {};
   switch (event.type) {
+    case 'checkout.session.async_payment_succeeded':
+      applyPrepaid(o);
+      break;
     case 'checkout.session.completed': {
+      if (o.mode === 'payment') { applyPrepaid(o); break; } // BLIK / Przelewy24 / card, paid in advance
       const u = userForStripe(o);
       if (!u) break;
       run('UPDATE users SET stripe_customer = ?, stripe_sub = ? WHERE id = ?', o.customer || u.stripe_customer, o.subscription || u.stripe_sub, u.id);

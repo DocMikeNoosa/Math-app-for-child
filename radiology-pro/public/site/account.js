@@ -23,17 +23,22 @@ function renderPlans() {
       <div class="price">${fmtPln(price)}<small> / ${interval === 'year' ? 'rok' : 'mies.'}</small></div>
       <div class="price-note">netto${interval === 'year' ? ` · ${12 - months} mies. gratis` : ''}</div>
       <ul><li>${CHECK}<span>${p.quota.toLocaleString('pl-PL')} opisów / mies.</span></li><li>${CHECK}<span>${p.devices} ${p.devices === 1 ? 'urządzenie' : 'urządzenia'}</span></li></ul>
-      ${online ? `<button class="btn ${p.featured ? 'btn-primary' : ''}" data-plan="${esc(p.id)}">${current ? 'Przedłuż' : 'Wybierz'} — zapłać kartą</button>` : `<button class="btn" data-transfer="${esc(p.id)}">Wybierz — przelew</button>`}
+      <div class="plan-pay">
+        ${me.prepaid ? `<button class="btn ${p.featured ? 'btn-primary' : ''}" data-prepaid="${esc(p.id)}">${current ? 'Przedłuż' : 'Kup'} ${interval === 'year' ? '12 mies.' : '1 mies.'} — BLIK, Przelewy24, karta</button>` : ''}
+        ${online ? `<button class="btn${me.prepaid ? ' btn-ghost' : p.featured ? ' btn-primary' : ''}" data-plan="${esc(p.id)}">Subskrypcja kartą (odnawiana)</button>` : ''}
+        ${!me.prepaid && !online ? `<button class="btn" data-transfer="${esc(p.id)}">Wybierz — przelew</button>` : `<button class="btn btn-ghost btn-sm" data-transfer="${esc(p.id)}">Przelew tradycyjny / faktura proforma</button>`}
+      </div>
     </div>`;
   }).join('');
   for (const b of $$('[data-plan]')) b.addEventListener('click', () => checkout(b.dataset.plan, b));
+  for (const b of $$('[data-prepaid]')) b.addEventListener('click', () => checkout(b.dataset.prepaid, b, 'prepaid'));
   for (const b of $$('[data-transfer]')) b.addEventListener('click', () => transfer(b.dataset.transfer));
 }
 
-async function checkout(plan, btn) {
+async function checkout(plan, btn, mode = 'subscription') {
   btn.disabled = true;
   try {
-    const d = await api('/api/me/checkout', { method: 'POST', body: { plan, interval } });
+    const d = await api('/api/me/checkout', { method: 'POST', body: { plan, interval, mode } });
     location.href = d.url;
   } catch (err) {
     toast(err.message, 'err', 5000);

@@ -30,7 +30,7 @@ import { aiLimiter, BusyError } from './lib/limiter.js';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { lastBackup, backupNow } from './lib/backup.js';
 import { plans, planById, settings, access, quotaCheck, quotaOf, monthUsage, costUsd, DEFAULT_PLANS, DEFAULT_SETTINGS } from './lib/plans.js';
-import { extendSubscription, stripeEnabled, createCheckout, createPortal, verifyStripeSignature, handleStripeEvent } from './lib/billing.js';
+import { extendSubscription, stripeEnabled, createCheckout, createPrepaidCheckout, createPortal, verifyStripeSignature, handleStripeEvent } from './lib/billing.js';
 import { sendMail, adminEmail, mailConfigured } from './lib/mail.js';
 import { runJobs, startJobs } from './lib/jobs.js';
 import { BRAND } from './lib/brand.js';
@@ -372,6 +372,7 @@ function mePayload(ctx) {
     payments: all('SELECT ts, amount_pln, provider, plan, period_until FROM payments WHERE user_id = ? ORDER BY ts DESC LIMIT 24', u.id),
     plans: plans().filter((x) => x.public).map(({ stripePrice, stripePriceYear, ...x }) => ({ ...x, online: Boolean(stripeEnabled() && stripePrice), onlineYear: Boolean(stripeEnabled() && stripePriceYear) })),
     annualMonths: settings().annualMonths,
+    prepaid: stripeEnabled(),
     bank: bankDetails(),
     brand: BRAND,
   };
@@ -553,7 +554,9 @@ async function handleMe(req, res, ctx, route) {
   if ((route === 'checkout' || route === 'portal') && u.org_id) return sendJson(res, 400, { error: 'Licencję opłaca Twoja organizacja — skontaktuj się z działem IT.' });
   if (route === 'checkout') {
     try {
-      return sendJson(res, 200, { url: await createCheckout(u, str(body.plan, 40), body.interval === 'year' ? 'year' : 'month', baseUrl(req)) });
+      const interval = body.interval === 'year' ? 'year' : 'month';
+      const url = body.mode === 'prepaid' ? await createPrepaidCheckout(u, str(body.plan, 40), interval, baseUrl(req)) : await createCheckout(u, str(body.plan, 40), interval, baseUrl(req));
+      return sendJson(res, 200, { url });
     } catch (err) {
       return sendJson(res, 400, { error: err.message });
     }
