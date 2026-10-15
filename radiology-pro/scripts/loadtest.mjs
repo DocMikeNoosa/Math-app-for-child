@@ -137,7 +137,7 @@ await phase('setup: owner creates the organisation and its IT administrator', as
   owner = (await req('login (owner)', 'POST', '/api/auth/login', { body: ADMIN })).cookie;
   const org = await req('admin: create org', 'POST', '/api/admin/orgs', { cookie: owner, body: { name: 'Teleradiologia Testowa', seats: N + 5, days: 14, pricePerSeat: 249, itEmail: 'it@lt.invalid', itName: 'IT' } });
   const l = await req('login (temp password)', 'POST', '/api/auth/login', { body: { email: 'it@lt.invalid', password: org.data.it.tempPassword } });
-  await req('first password', 'POST', '/api/me/first-password', { cookie: l.cookie, body: { next: 'informatyk-2026' } });
+  await req('first password', 'POST', '/api/me/first-password', { cookie: l.cookie, body: { next: 'informatyk-2026', accept: true } });
   itCookie = l.cookie;
 });
 
@@ -153,7 +153,7 @@ await phase(`8:00 — all ${N} log in at the same moment and set their own passw
   await Promise.all(people.map(async (p) => {
     const l = await req('login (temp password)', 'POST', '/api/auth/login', { body: { email: p.email, password: p.temp } });
     if (l.status !== 200) return;
-    const f = await req('first password', 'POST', '/api/me/first-password', { cookie: l.cookie, body: { next: p.password } });
+    const f = await req('first password', 'POST', '/api/me/first-password', { cookie: l.cookie, body: { next: p.password, accept: true } });
     if (f.status === 200) p.cookie = l.cookie;
   }));
   return { ready: people.filter((p) => p.cookie).length };

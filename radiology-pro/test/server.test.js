@@ -35,6 +35,7 @@ before(async () => {
   delete process.env.AI_PROVIDER;
   process.env.DB_FILE = ':memory:';
   process.env.BACKUP_DISABLED = '1';
+  process.env.TERMS_VERSION = '';
   const { createServer } = await import('../server.js');
   const { openDb } = await import('../lib/db.js');
   openDb(':memory:');

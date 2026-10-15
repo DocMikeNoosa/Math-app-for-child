@@ -25,7 +25,11 @@ export async function sendMail(to, subject, text) {
       status = `error ${err.code || err.message}`.slice(0, 60);
     }
   }
-  run('INSERT INTO outbox(ts, to_addr, subject, body, status) VALUES (?, ?, ?, ?, ?)', Date.now(), to, subject, text, status);
+  // the stored copy never contains a password; a reset link is kept only if the e-mail could not be sent
+  // (then the administrator can pass it on — it expires in 2 hours)
+  let stored = String(text).replace(/(Hasło tymczasowe: )\S+/g, '$1••••••••');
+  if (status === 'sent') stored = stored.replace(/([?&]token=)[\w-]+/g, '$1••••');
+  run('INSERT INTO outbox(ts, to_addr, subject, body, status) VALUES (?, ?, ?, ?, ?)', Date.now(), to, subject, stored, status);
   return status;
 }
 

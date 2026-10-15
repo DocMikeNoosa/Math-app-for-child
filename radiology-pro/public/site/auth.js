@@ -22,7 +22,29 @@ if (page === 'login') {
     showMsg(msg, '');
     try {
       const d = await api('/api/auth/login', { method: 'POST', body: { email: form.email.value, password: form.password.value } });
-      location.href = next() || d.next || '/app/';
+      if (d.need2fa) {
+        // second step: code from the authenticator app
+        form.hidden = true;
+        const f2 = $('#form2fa');
+        f2.hidden = false;
+        f2.code.focus();
+        f2.addEventListener('submit', async (ev) => {
+          ev.preventDefault();
+          busy(f2, true);
+          showMsg(msg, '');
+          try {
+            const r = await api('/api/auth/login-2fa', { method: 'POST', body: { ticket: d.ticket, code: f2.code.value } });
+            location.href = next() && r.next === '/app/' ? next() : r.next || '/app/';
+          } catch (err) {
+            showMsg(msg, err.message);
+            if (err.code === 'expired') location.reload();
+            busy(f2, false);
+            f2.code.select();
+          }
+        });
+        return;
+      }
+      location.href = next() && d.next === '/app/' ? next() : d.next || '/app/';
     } catch (err) {
       showMsg(msg, err.message);
       busy(form, false);
@@ -102,7 +124,26 @@ if (page === 'change-password') {
     if (form.password.value !== form.password2.value) return showMsg(msg, 'Hasła nie są takie same.');
     busy(form, true);
     try {
-      const d = await api('/api/me/first-password', { method: 'POST', body: { next: form.password.value } });
+      if (!form.accept.checked) { busy(form, false); return showMsg(msg, 'Zaznacz akceptację regulaminu i informacji o przetwarzaniu danych.'); }
+      const d = await api('/api/me/first-password', { method: 'POST', body: { next: form.password.value, accept: true } });
+      location.href = d.next || '/app/';
+    } catch (err) {
+      showMsg(msg, err.message);
+      busy(form, false);
+    }
+  });
+}
+
+if (page === 'accept') {
+  const form = $('#form');
+  api('/api/me').then((d) => { $('#who').textContent = d.user.email; }).catch(() => { location.href = '/login'; });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showMsg(msg, '');
+    if (!form.accept.checked) return showMsg(msg, 'Zaznacz akceptację, aby przejść dalej.');
+    busy(form, true);
+    try {
+      const d = await api('/api/me/accept', { method: 'POST', body: { accept: true } });
       location.href = d.next || '/app/';
     } catch (err) {
       showMsg(msg, err.message);

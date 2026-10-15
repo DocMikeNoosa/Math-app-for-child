@@ -9,7 +9,7 @@ const LANG = { 'pl>pl': 'PL → PL', 'en>pl': 'EN → PL', 'en>en': 'EN → EN',
 const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '—');
 
 // ---------------------------------------------------------------- tabs
-const loaders = { dash: loadDash, users: loadUsers, orgs: loadOrgs, usage: loadUsage, payments: loadPayments, plans: loadPlans, settings: loadSettings, log: loadLog };
+const loaders = { dash: loadDash, users: loadUsers, orgs: loadOrgs, learning: loadLearning, tickets: loadTickets, usage: loadUsage, payments: loadPayments, plans: loadPlans, settings: loadSettings, log: loadLog };
 function openTab(name) {
   for (const b of $$('.admin-tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const p of $$('[data-panel]')) p.hidden = p.dataset.panel !== name;
@@ -49,6 +49,9 @@ async function loadDash() {
     ['Działa od', `${Math.floor(sv.uptimeS / 3600)} h ${Math.floor((sv.uptimeS % 3600) / 60)} min`],
     ['Ostatnia kopia bazy', bk?.error ? `<span class="pill err">błąd</span>` : bk?.at ? `${fmtDateTime(bk.at)} <span class="dim small">${(bk.size / 1048576).toFixed(1)} MB</span>${bkAge > 26 ? ' <span class="pill err">stara!</span>' : ''}` : '<span class="pill warn">brak</span>'],
   ].map(([k, v]) => `<li><span>${k}</span><span>${v}</span></li>`).join('');
+  if (!o.me2fa) $('#kpis').insertAdjacentHTML('beforebegin', '<div class="msg err" id="tfaWarn">Twoje konto właściciela chroni całą usługę i archiwum nauki AI. <a href="/account">Włącz logowanie dwuetapowe →</a></div>');
+  else $('#tfaWarn')?.remove();
+  loadTickets().catch(() => {});
   for (const org of o.orgs.expiring) toast(`Licencja ${org.name} kończy się ${fmtDate(org.subUntil)}`, 'warn', 6000);
   drawChart(o.daily);
   const userCell = (u) => `<td><b>${esc(u.name || u.email)}</b><span class="sub">${esc(u.email)}</span></td>`;
@@ -368,14 +371,16 @@ $('#savePlans').addEventListener('click', async () => {
 async function loadSettings() {
   const { settings: s } = await api('/api/admin/settings');
   const f = $('#settingsForm');
-  for (const k of ['usdPln', 'trialDays', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount', 'announcement']) f[k].value = s[k] ?? '';
+  for (const k of ['usdPln', 'trialDays', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount', 'announcement', 'termsVersion', 'sessionIdleDays', 'auditRetentionDays', 'outboxRetentionDays']) f[k].value = s[k] ?? '';
   f.registrationOpen.checked = s.registrationOpen;
+  f.globalLearning.checked = s.globalLearning;
+  f.itShowUsage.checked = s.itShowUsage;
 }
 $('#settingsForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, announcement: f.announcement.value } });
+    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, announcement: f.announcement.value, termsVersion: f.termsVersion.value, sessionIdleDays: Number(f.sessionIdleDays.value), auditRetentionDays: Number(f.auditRetentionDays.value), outboxRetentionDays: Number(f.outboxRetentionDays.value), globalLearning: f.globalLearning.checked, itShowUsage: f.itShowUsage.checked } });
     toast('Ustawienia zapisane', 'ok');
   } catch (err) { toast(err.message, 'err'); }
 });
@@ -505,6 +510,110 @@ document.addEventListener('click', (e) => {
     } catch (err) { toast(err.message, 'err', 6000); }
   });
 });
+
+// ---------------------------------------------------------------- central learning
+const KIND = {
+  style_pair: 'Poprawki sformułowań', concl_removed: 'Usunięte z wniosków', concl_added: 'Dodane do wniosków', restored: 'Przywrócone zdania szablonu',
+  example_report: 'Wzorcowe opisy', en_pl: 'Pary EN → PL', rule: 'Reguły stylu (osobiste)', phrase: 'Ulubione sformułowania', glossary: 'Słownik EN → PL',
+  sample: 'Wklejone własne opisy', answer: 'Odpowiedzi na pytania AI',
+};
+const VSTATUS = { draft: '<span class="pill warn">szkic</span>', published: '<span class="pill ok">opublikowana — działa</span>', archived: '<span class="pill">archiwalna</span>' };
+async function loadLearning() {
+  const d = await api('/api/admin/learning');
+  const st = d.stats;
+  $('#lkpis').innerHTML = [
+    kpi('Lekcje w archiwum', fmtNum(st.items), `${fmtNum(st.lastWeek)} nowych w 7 dni · od ${fmtDate(st.firstAt)}`),
+    kpi('Radiolodzy uczący AI', fmtNum(st.contributors), `${fmtNum(st.organisations)} organizacji · ${fmtNum(st.templates)} szablonów`),
+    kpi('Wiedza globalna', d.publishedId ? `wersja ${d.publishedId}` : '—', d.enabled ? (d.publishedId ? 'używana w każdym opisie' : 'brak opublikowanej wersji') : 'wyłączona w ustawieniach', d.publishedId && d.enabled ? 'good' : ''),
+    kpi('Opisy z wiedzą globalną', fmtNum(d.aiCallsWithGlobal), 'zapytania AI (ślad: która wersja)'),
+  ].join('');
+  $('#lkinds').innerHTML = st.byKind.length ? st.byKind.map((k) => `<tr><td>${esc(KIND[k.kind] || k.kind)}</td><td class="num">${fmtNum(k.items)}</td><td class="num">${fmtNum(k.shared)}</td><td class="num">${fmtNum(k.seen)}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">Archiwum jest puste — lekcje pojawią się, gdy radiolodzy zaczną poprawiać opisy.</td></tr>';
+  $('#lversions').innerHTML = d.versions.length ? d.versions.map((v) => `<tr><td>${v.id}</td><td>${fmtDateTime(v.created_at)}${v.note ? `<span class="sub">${esc(v.note)}</span>` : ''}</td><td>${v.method === 'ai' ? 'AI' : 'liczby'}<span class="sub">≥${v.stats.minContributors} radiologów</span></td><td>${VSTATUS[v.status] || v.status}</td><td class="num"><button class="btn btn-sm" data-version="${v.id}">Otwórz</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">Brak wersji</td></tr>';
+}
+$('#lnew').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const b = f.querySelector('button');
+  b.disabled = true;
+  b.textContent = f.method.value === 'ai' ? 'AI analizuje lekcje… (do 2 min)' : 'Liczenie…';
+  try {
+    const d = await api('/api/admin/learning/versions', { method: 'POST', body: { method: f.method.value, minContributors: Number(f.minContributors.value), minOrgs: Number(f.minOrgs.value), note: f.note.value } });
+    toast(`Utworzono szkic wersji ${d.version.id}`, 'ok');
+    await loadLearning();
+    openVersion(d.version.id);
+  } catch (err) { toast(err.message, 'err', 7000); } finally { b.disabled = false; b.textContent = 'Utwórz szkic'; }
+});
+$('#lunpub').addEventListener('click', async () => {
+  if (!window.confirm('Wyłączyć wiedzę globalną? AI będzie używać tylko osobistego stylu radiologów (wersje zostają w archiwum).')) return;
+  await api('/api/admin/learning/unpublish', { method: 'POST', body: {} });
+  toast('Wiedza globalna wyłączona', 'ok');
+  loadLearning();
+});
+const SECTIONS = [
+  ['general_rules', 'Reguły ogólne', (x) => esc(x)],
+  ['phrasing', 'Sformułowania (zamiast → pisz)', (x) => `<del>${esc(x.from)}</del> → <b>${esc(x.to)}</b>`],
+  ['avoid_in_conclusion', 'Nie wpisuj do wniosków', (x) => esc(x)],
+  ['keep_statements', 'Nie usuwaj zdań szablonu', (x) => esc(x)],
+  ['glossary', 'Słownik EN → PL', (x) => `${esc(x.en)} → <b>${esc(x.pl)}</b>`],
+];
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-version]'); if (b) openVersion(Number(b.dataset.version)); });
+async function openVersion(id) {
+  const { version: v } = await api(`/api/admin/learning/versions/${id}`);
+  const c = v.content;
+  const draft = v.status === 'draft';
+  const item = (key, i, html) => `<li>${draft ? `<label class="check"><input type="checkbox" data-keep="${key}:${i}" checked /> <span>${html}</span></label>` : html}</li>`;
+  const tpl = Object.entries(c.template_rules || {});
+  const dr = $('#drawer');
+  dr.innerHTML = `<div class="drawer-head"><div><h2>Wiedza globalna — wersja ${v.id}</h2><div class="dim small">${fmtDateTime(v.created_at)} · ${v.method === 'ai' ? 'analiza AI' : 'same liczby'} · lekcje od ≥${v.stats.minContributors} radiologów · ${VSTATUS[v.status]}</div></div><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
+    ${c.summary ? `<div class="msg info">${esc(c.summary)}</div>` : ''}
+    ${draft ? '<p class="dim small">Odznacz wszystko, czego nie chcesz w wiedzy globalnej, potem „Zapisz” i „Opublikuj”. Opublikowane wersje są niezmienne (ślad zmian).</p>' : ''}
+    ${SECTIONS.map(([key, title, fmt]) => (c[key]?.length ? `<h3>${title} (${c[key].length})</h3><ul class="vlist">${c[key].map((x, i) => item(key, i, fmt(x))).join('')}</ul>` : '')).join('')}
+    ${tpl.length ? `<h3>Reguły dla szablonów (${tpl.length})</h3>${tpl.map(([tid, rules]) => `<div class="small"><b class="mono">${esc(tid)}</b><ul class="vlist">${rules.map((r, i) => item(`tpl:${tid}`, i, esc(r))).join('')}</ul></div>`).join('')}` : ''}
+    <div class="actions" style="margin-top:16px">${draft ? '<button class="btn" id="vsave">Zapisz zmiany szkicu</button><button class="btn btn-primary" id="vpub">Opublikuj (działa od razu dla wszystkich)</button>' : v.status === 'archived' ? '<button class="btn btn-primary" id="vpub">Przywróć tę wersję (opublikuj ponownie)</button>' : ''}</div>
+    <h3>Statystyki źródłowe</h3><pre class="cred mono small">${esc(JSON.stringify(v.stats.shared || {}, null, 1))}</pre>`;
+  $('#overlay').hidden = false;
+  dr.hidden = false;
+  dr.scrollTop = 0;
+  dr.querySelector('[data-close]').addEventListener('click', closeLayers);
+  const collect = () => {
+    const keep = new Set([...dr.querySelectorAll('[data-keep]')].filter((x) => x.checked).map((x) => x.dataset.keep));
+    const out = { ...c, template_rules: [] };
+    for (const [key] of SECTIONS) out[key] = (c[key] || []).filter((_, i) => keep.has(`${key}:${i}`));
+    out.template_rules = tpl.map(([tid, rules]) => ({ template_id: tid, rules: rules.filter((_, i) => keep.has(`tpl:${tid}:${i}`)) }));
+    return out;
+  };
+  $('#vsave')?.addEventListener('click', async () => {
+    try { await api(`/api/admin/learning/versions/${id}`, { method: 'PATCH', body: { content: collect() } }); toast('Zapisano szkic', 'ok'); openVersion(id); } catch (err) { toast(err.message, 'err'); }
+  });
+  $('#vpub')?.addEventListener('click', async () => {
+    if (!window.confirm('Opublikować tę wersję? Od teraz będzie używana w każdym opisie wszystkich użytkowników (poprzednia trafi do archiwum).')) return;
+    try {
+      if (draft) await api(`/api/admin/learning/versions/${id}`, { method: 'PATCH', body: { content: collect() } });
+      await api(`/api/admin/learning/versions/${id}`, { method: 'POST', body: {} });
+      toast('Opublikowano', 'ok');
+      closeLayers();
+      loadLearning();
+    } catch (err) { toast(err.message, 'err'); }
+  });
+}
+
+// ---------------------------------------------------------------- tickets
+async function loadTickets() {
+  const d = await api('/api/admin/tickets');
+  const open = d.tickets.filter((t) => t.status !== 'closed').length;
+  $('#ticketCount').hidden = !open;
+  $('#ticketCount').textContent = open;
+  $('#ticketList').innerHTML = d.tickets.length ? d.tickets.map((t) => `<details class="log-row"${t.status !== 'closed' ? ' open' : ''}><summary><b>${esc(t.subject)}</b> <span class="pill ${t.status === 'closed' ? 'ok' : 'warn'}">${t.status === 'closed' ? 'zamknięte' : 'otwarte'}</span> <span class="dim">${esc(t.org || '')} · ${esc(t.author || '')} · ${fmtDateTime(t.ts)}</span></summary>
+      <p style="white-space:pre-wrap">${esc(t.body)}</p>
+      <form data-ticket="${t.id}"><div class="field"><label>Odpowiedź (widzi ją dział IT)</label><textarea name="answer" rows="3">${esc(t.answer)}</textarea></div>
+      <div class="actions"><button class="btn btn-sm" name="status" value="open">Zapisz</button><button class="btn btn-sm btn-primary" name="status" value="closed">Zapisz i zamknij</button></div></form></details>`).join('') : '<p class="dim">Brak zgłoszeń.</p>';
+  for (const f of $$('[data-ticket]')) {
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try { await api(`/api/admin/tickets/${f.dataset.ticket}`, { method: 'PATCH', body: { answer: f.answer.value, status: e.submitter?.value || 'open' } }); toast('Zapisano', 'ok'); loadTickets(); } catch (err) { toast(err.message, 'err'); }
+    });
+  }
+}
 
 // ---------------------------------------------------------------- log
 async function loadLog() {

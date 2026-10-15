@@ -2,7 +2,9 @@
 import '../lib/env.js';
 import { openDb } from '../lib/db.js';
 import { backupNow } from '../lib/backup.js';
+import { openLearningDb } from '../lib/learning.js';
 
 openDb();
+openLearningDb();
 const info = await backupNow();
-console.log(`Kopia zapisana: ${info.file} (${(info.size / 1048576).toFixed(1)} MB, ${info.ms} ms)`);
+console.log(`Kopie zapisane: ${info.file}, ${info.learningFile}${info.encrypted ? " (zaszyfrowane)" : ""} — ${info.ms} ms`);

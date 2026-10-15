@@ -20,7 +20,11 @@ import {
   COOKIE, parseCookies, sessionCookie, sessionUser, createSession, deleteSession, deleteUserSessions, userSessions,
   createUser, getUser, getUserByEmail, verifyPassword, passwordProblem, setPassword, publicUser, EMAIL_RE,
   loginBlocked, noteFailure, clearFailures, createOneTimeToken, useOneTimeToken, peekOneTimeToken, setTempPassword,
+  isLockedOut, create2faTicket, use2faTicket,
 } from './lib/auth.js';
+import { newSecret, verifyTotp, otpauthUri } from './lib/totp.js';
+import { openLearningDb, closeLearningDb, captureLearning, forgetContributor, archiveStats, versions as learningVersions, getVersion, updateVersionContent, publishVersion, unpublishAll, exportArchive } from './lib/learning.js';
+import { createGlobalVersion, guidanceFor, invalidateGlobal, publishedId, cleanGlobal, GLOBAL_DEFAULTS } from './lib/global-learning.js';
 import { getOrg, listOrgs, seatsUsed, orgUsers, createOrg, updateOrg, tempPassword, parseUserList, ORG_STATUS, TEMP_PASSWORD_RE } from './lib/orgs.js';
 import { aiLimiter, BusyError } from './lib/limiter.js';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
@@ -54,6 +58,7 @@ const CSRF_HEADER = 'x-radiopis';
 // Never synced: the current report and today's list of reports (they stay on the device).
 export const SYNC_KEYS = ['radvox.templates.v1', 'radvox.profile.v1', 'radvox.style.v1', 'radvox.learned.v1'];
 const SYNC_MAX = 1_500_000;
+const LEARNING_KEYS = new Set(['radvox.style.v1', 'radvox.learned.v1', 'radvox.profile.v1']);
 
 const aiAvailable = () => aiConfigured();
 
@@ -170,12 +175,12 @@ async function serveFile(res, root, rel, { cache = 'no-cache', status = 200, req
 const sitePage = (res, name, req = null) => serveFile(res, SITE_ROOT(), `${name}.html`, { req });
 
 // ---------------------------------------------------------------- AI usage metering
-function recordUsage(user, { kind, reportId = '', model = '', usage = null, ms = 0, ok = true, lang = '' }) {
+function recordUsage(user, { kind, reportId = '', model = '', usage = null, ms = 0, ok = true, lang = '', globalVersion = null }) {
   const u = usage || {};
-  run(`INSERT INTO usage(user_id, ts, month, kind, report_id, model, input_tokens, output_tokens, cache_write, cache_read, cost_usd, ms, ok, lang)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  run(`INSERT INTO usage(user_id, ts, month, kind, report_id, model, input_tokens, output_tokens, cache_write, cache_read, cost_usd, ms, ok, lang, global_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   user.id, Date.now(), monthOf(), kind, String(reportId).slice(0, 64), model || '', u.input_tokens || 0, u.output_tokens || 0,
-  u.cache_creation_input_tokens || 0, u.cache_read_input_tokens || 0, usage ? costUsd(model, u) : 0, ms, ok ? 1 : 0, lang);
+  u.cache_creation_input_tokens || 0, u.cache_read_input_tokens || 0, usage ? costUsd(model, u) : 0, ms, ok ? 1 : 0, lang, globalVersion);
 }
 
 function validReport(report) {
@@ -247,6 +252,9 @@ async function handleFormat(req, res, ctx) {
   const lang = (v) => (v === 'en' ? 'en' : 'pl');
   const started = Date.now();
   const langTag = `${lang(body.inputLang)}>${lang(body.outputLang)}`;
+  // central learning: the published global knowledge (server-side only — never sent to the browser)
+  const global = settings().globalLearning ? guidanceFor(template.id || str(body.templateId, 80), { inputLang: lang(body.inputLang), outputLang: lang(body.outputLang) }) : null;
+  const globalVersion = global ? publishedId() : null;
   try {
     const result = await aiLimiter.run(ctx.user.id, () => formatWithClaude({
       template, report: body.report, dictation, instruction,
@@ -258,11 +266,11 @@ async function handleFormat(req, res, ctx) {
       profile: cleanProfile(body.profile),
       samples: strList(body.samples, 6, 3000),
       translations: cleanTranslations(body.translations, 6),
-      inputLang: lang(body.inputLang), outputLang: lang(body.outputLang), translate,
+      inputLang: lang(body.inputLang), outputLang: lang(body.outputLang), translate, global,
       mode: ['fast', 'accurate', 'turbo'].includes(body.mode) ? body.mode : 'fast',
     }), { background: body.background === true });
     const { usage, ...out } = result;
-    recordUsage(ctx.user, { kind: 'format', reportId, model: result.model, usage, ms: Date.now() - started, lang: langTag });
+    recordUsage(ctx.user, { kind: 'format', reportId, model: result.model, usage, ms: Date.now() - started, lang: langTag, globalVersion });
     sendJson(res, 200, { ...out, quota: { used: q.used ?? null, limit: q.quota ?? null, warn: Boolean(q.warn) } });
   } catch (err) {
     if (err instanceof BusyError) return sendAiError(res, err); // refused before calling the AI: nothing to meter
@@ -302,9 +310,35 @@ function bankDetails() {
   return b.bankAccount ? { account: b.bankAccount, name: b.bankName || BRAND.company || BRAND.name, title: `${BRAND.name} — {email}` } : null;
 }
 
+function acceptTerms(userId, ip = '') {
+  const v = settings().termsVersion || '1.0';
+  run('UPDATE users SET terms_version = ?, terms_at = ? WHERE id = ?', v, Date.now(), userId);
+  audit(userId, 'terms.accept', userId, `wersja ${v}${ip ? `, ${ip}` : ''}`);
+}
+
+/**
+ * RODO erasure: personal data removed (name, e-mail, PWZ, phone, notes, password, sessions, synced data,
+ * tokens, the pseudonymous link in the learning archive). Kept: anonymous usage rows (billing / statistics)
+ * and the anonymous lessons in the learning archive.
+ */
+function eraseUser(u, actorId) {
+  tx(() => {
+    run(`UPDATE users SET email = ?, name = 'Usunięty użytkownik', npwz = '', phone = '', company = '', nip = '', note = '', pwd = '!',
+         blocked = 1, must_change_pwd = 0, totp_secret = '', totp_on = 0, stripe_customer = NULL WHERE id = ?`, `u${u.id}${DELETED_DOMAIN}`, u.id);
+    run('DELETE FROM sessions WHERE user_id = ?', u.id);
+    run('DELETE FROM user_data WHERE user_id = ?', u.id);
+    run('DELETE FROM tokens WHERE user_id = ?', u.id);
+    // the e-mail address also disappears from older log entries
+    run("UPDATE audit SET detail = replace(detail, ?, '[usunięty użytkownik]') WHERE instr(detail, ?) > 0", u.email, u.email);
+  });
+  forgetContributor(u.id);
+  audit(actorId, 'rodo.erase', u.id);
+}
+
 /** Where to go after logging in. */
 function homeFor(user) {
   if (user.must_change_pwd) return '/change-password';
+  if (user.role !== 'admin' && access(user).code === 'terms') return '/accept';
   if (user.role === 'admin') return '/admin';
   if (user.role === 'orgadmin') return '/it';
   return access(user).ok ? '/app/' : '/account';
@@ -318,6 +352,7 @@ function mePayload(ctx) {
   return {
     user: publicUser(u),
     org: org ? { name: org.name, status: org.status, subUntil: org.sub_until, contact: org.contact, devices: org.devices } : null,
+    twoFactor: Boolean(u.totp_on), termsVersion: u.terms_version, termsAcceptedAt: u.terms_at,
     plan: org ? { id: 'org', name: `Licencja: ${org.name}`, pricePln: 0, quota: quotaOf(u), devices: org.devices } : { id: p.id, name: p.name, pricePln: p.pricePln, quota: quotaOf(u), devices: p.devices },
     usage: { month: monthOf(), reports: used.reports },
     access: access(u),
@@ -346,8 +381,20 @@ async function handleAuth(req, res, route) {
     }
     if (user.blocked) return sendJson(res, 403, { error: 'Konto zablokowane — skontaktuj się z administratorem.' });
     clearFailures(email);
+    if (user.totp_on) return sendJson(res, 200, { need2fa: true, ticket: create2faTicket(user.id) });
     const token = createSession(user, { ip, ua });
     audit(user.id, 'login', user.id, ip);
+    return sendJson(res, 200, { ok: true, next: homeFor(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+  }
+
+  if (route === 'login-2fa') {
+    const r = use2faTicket(body.ticket, (id) => verifyTotp(getUser(id)?.totp_secret, body.code));
+    if (r.error === 'expired') return sendJson(res, 401, { error: 'Logowanie wygasło — wpisz e-mail i hasło ponownie.', code: 'expired' });
+    if (r.error) { noteFailure(`2fa:${body.ticket}`, ip); return sendJson(res, 401, { error: `Nieprawidłowy kod (pozostało prób: ${r.left}).` }); }
+    const user = getUser(r.userId);
+    if (!user || user.blocked) return sendJson(res, 403, { error: 'Konto zablokowane — skontaktuj się z administratorem.' });
+    const token = createSession(user, { ip, ua });
+    audit(user.id, 'login', user.id, `${ip} (2FA)`);
     return sendJson(res, 200, { ok: true, next: homeFor(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
   }
 
@@ -362,6 +409,7 @@ async function handleAuth(req, res, route) {
     if (loginBlocked(email, ip)) return sendJson(res, 429, { error: 'Zbyt wiele prób. Spróbuj później.' });
     if (getUserByEmail(email)) { noteFailure(email, ip); return sendJson(res, 409, { error: 'Konto z tym adresem już istnieje — zaloguj się.' }); }
     const user = await createUser({ email, password: body.password, name: body.name, npwz: str(body.npwz, 20), phone: str(body.phone, 30) });
+    acceptTerms(user.id, ip);
     const token = createSession(user, { ip, ua });
     await sendMail(user.email, `Witamy w ${BRAND.name}`, `Dzień dobry,\n\ndziękujemy za rejestrację. Okres próbny trwa ${settings().trialDays} dni.\nAplikacja: ${baseUrl(req)}/app/\nKonto i subskrypcja: ${baseUrl(req)}/account`);
     if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: nowy użytkownik — ${user.email}`, `${user.name} <${user.email}>, NPWZ: ${user.npwz || '—'}, tel.: ${user.phone || '—'}`);
@@ -430,10 +478,61 @@ async function handleMe(req, res, ctx, route) {
     if (problem) return sendJson(res, 400, { error: problem });
     // (pattern check instead of another slow password hash: temporary passwords always look like "abcd-ef23-gh45")
     if (TEMP_PASSWORD_RE.test(String(body.next).trim())) return sendJson(res, 400, { error: 'Wybierz własne hasło — inne niż tymczasowe.' });
+    if (settings().termsVersion && body.accept !== true) return sendJson(res, 400, { error: 'Zaakceptuj regulamin i informację o przetwarzaniu danych.' });
     await setPassword(u.id, body.next);
+    if (body.accept === true) acceptTerms(u.id, clientIp(req));
     deleteUserSessions(u.id, ctx.sessionId);
     audit(u.id, 'password.first', u.id);
     return sendJson(res, 200, { ok: true, next: homeFor(getUser(u.id)) });
+  }
+  if (route === 'accept') {
+    if (body.accept !== true) return sendJson(res, 400, { error: 'Zaznacz akceptację.' });
+    acceptTerms(u.id, clientIp(req));
+    return sendJson(res, 200, { ok: true, next: homeFor(getUser(u.id)) });
+  }
+  if (route === 'export') {
+    // RODO art. 15 and 20: a copy of all personal data in a machine-readable form
+    audit(u.id, 'rodo.export', u.id);
+    const data = {
+      exportedAt: new Date().toISOString(), service: BRAND.name,
+      account: { ...publicUser(u), termsVersion: u.terms_version, termsAcceptedAt: u.terms_at, twoFactor: Boolean(u.totp_on), lastLogin: u.last_login },
+      organisation: getOrg(u.org_id) ? { name: getOrg(u.org_id).name } : null,
+      devices: userSessions(u.id).map(({ id, ...x }) => x),
+      usageByMonth: all("SELECT month, COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN report_id END) AS reports, COUNT(*) AS aiCalls FROM usage WHERE user_id = ? GROUP BY month ORDER BY month", u.id),
+      payments: all('SELECT ts, amount_pln, provider, plan, period_until FROM payments WHERE user_id = ?', u.id),
+      syncedAppData: Object.fromEntries(all('SELECT key, value, updated_at FROM user_data WHERE user_id = ?', u.id).map((r) => [r.key, { updatedAt: r.updated_at, value: r.value }])),
+      securityLog: all('SELECT ts, action, detail FROM audit WHERE target_id = ? OR actor_id = ? ORDER BY ts DESC LIMIT 500', u.id, u.id),
+    };
+    res.writeHead(200, headers({ 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="moje-dane-${monthOf()}.json"`, 'Cache-Control': 'no-store' }));
+    return res.end(JSON.stringify(data, null, 2));
+  }
+  if (route === 'delete') {
+    // RODO art. 17 for individual accounts; members of an organisation are removed by their IT (the controller)
+    if (u.org_id) return sendJson(res, 400, { error: 'Konto należy do organizacji — o usunięcie poproś dział IT.' });
+    if (u.role === 'admin') return sendJson(res, 400, { error: 'Konta administratora nie można usunąć w ten sposób.' });
+    if (!(await verifyPassword(String(body.password || ''), u.pwd))) return sendJson(res, 400, { error: 'Nieprawidłowe hasło.' });
+    eraseUser(u, u.id);
+    return sendJson(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie('', { secure: isSecure(req), clear: true }) });
+  }
+  if (route === '2fa/setup') {
+    if (u.totp_on) return sendJson(res, 400, { error: 'Logowanie dwuetapowe jest już włączone.' });
+    const secret = newSecret();
+    run('UPDATE users SET totp_secret = ? WHERE id = ?', secret, u.id);
+    return sendJson(res, 200, { secret, uri: otpauthUri(secret, u.email, BRAND.name) });
+  }
+  if (route === '2fa/enable') {
+    if (!u.totp_secret || !verifyTotp(u.totp_secret, body.code)) return sendJson(res, 400, { error: 'Nieprawidłowy kod — sprawdź godzinę w telefonie i spróbuj ponownie.' });
+    run('UPDATE users SET totp_on = 1 WHERE id = ?', u.id);
+    deleteUserSessions(u.id, ctx.sessionId);
+    audit(u.id, '2fa.enable', u.id);
+    return sendJson(res, 200, { ok: true });
+  }
+  if (route === '2fa/disable') {
+    if (!u.totp_on) return sendJson(res, 400, { error: 'Logowanie dwuetapowe nie jest włączone.' });
+    if (!(await verifyPassword(String(body.password || ''), u.pwd)) || !verifyTotp(u.totp_secret, body.code)) return sendJson(res, 400, { error: 'Nieprawidłowe hasło lub kod.' });
+    run("UPDATE users SET totp_on = 0, totp_secret = '' WHERE id = ?", u.id);
+    audit(u.id, '2fa.disable', u.id);
+    return sendJson(res, 200, { ok: true });
   }
   if (route === 'logout-others') {
     deleteUserSessions(u.id, ctx.sessionId);
@@ -467,6 +566,8 @@ async function handleSync(req, res, ctx, key) {
     if (typeof value !== 'string' || value.length > SYNC_MAX) return sendJson(res, 413, { error: 'Za dużo danych.' });
     value = scrubIdentifiers(value);
     run('INSERT INTO user_data(user_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at', ctx.user.id, key, value, Date.now());
+    // every lesson is also kept permanently (de-identified) in the learning archive — the app's memory drops old ones
+    if (LEARNING_KEYS.has(key)) captureLearning(ctx.user.id, ctx.user.org_id, key, value);
     return sendJson(res, 200, { ok: true });
   }
   if (req.method === 'DELETE') {
@@ -566,8 +667,19 @@ async function handleAdmin(req, res, ctx, parts) {
   const url = new URL(req.url, 'http://x');
   const method = req.method;
 
-  if (section === 'overview' && method === 'GET') return sendJson(res, 200, overview());
+  if (section === 'overview' && method === 'GET') return sendJson(res, 200, { ...overview(), me2fa: Boolean(ctx.user.totp_on) });
   if (section === 'orgs') return handleAdminOrgs(req, res, me, idStr, action);
+  if (section === 'learning') return handleAdminLearning(req, res, me, idStr, action);
+  if (section === 'tickets') {
+    if (method === 'GET') return sendJson(res, 200, { tickets: all('SELECT t.*, o.name AS org, u.email AS author FROM tickets t LEFT JOIN orgs o ON o.id = t.org_id LEFT JOIN users u ON u.id = t.user_id ORDER BY t.status = \'closed\', t.ts DESC LIMIT 300') });
+    if (method === 'PATCH' && idStr) {
+      const b = await readJson(req, 20_000);
+      const t = one('SELECT * FROM tickets WHERE id = ?', Number(idStr));
+      if (!t) return sendJson(res, 404, { error: 'Nie znaleziono.' });
+      run('UPDATE tickets SET status = ?, answer = ?, answered_at = ? WHERE id = ?', b.status === 'closed' ? 'closed' : 'open', str(b.answer, 4000), Date.now(), t.id);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
   if (section === 'backup' && method === 'POST') {
     try { return sendJson(res, 200, await backupNow()); } catch (err) { return sendJson(res, 500, { error: `Kopia nie powiodła się: ${err.message}` }); }
   }
@@ -684,7 +796,8 @@ async function handleAdmin(req, res, ctx, parts) {
     if (!action && method === 'DELETE') {
       if (u.id === me) return sendJson(res, 400, { error: 'Nie możesz usunąć własnego konta.' });
       run('DELETE FROM users WHERE id = ?', u.id);
-      audit(me, 'user.delete', u.id, u.email);
+      forgetContributor(u.id);
+      audit(me, 'user.delete', u.id);
       return sendJson(res, 200, { ok: true });
     }
   }
@@ -723,6 +836,12 @@ async function handleAdmin(req, res, ctx, parts) {
         bankAccount: typeof b.bankAccount === 'string' ? str(b.bankAccount, 60) : cur.bankAccount || '',
         bankName: typeof b.bankName === 'string' ? str(b.bankName, 120) : cur.bankName || '',
         announcement: typeof b.announcement === 'string' ? str(b.announcement, 300) : cur.announcement || '',
+        termsVersion: typeof b.termsVersion === 'string' ? str(b.termsVersion, 20) : cur.termsVersion,
+        sessionIdleDays: Math.round(num(b.sessionIdleDays, cur.sessionIdleDays, 1, 30)),
+        auditRetentionDays: Math.round(num(b.auditRetentionDays, cur.auditRetentionDays, 180, 3650)),
+        outboxRetentionDays: Math.round(num(b.outboxRetentionDays, cur.outboxRetentionDays, 7, 365)),
+        itShowUsage: typeof b.itShowUsage === 'boolean' ? b.itShowUsage : cur.itShowUsage,
+        globalLearning: typeof b.globalLearning === 'boolean' ? b.globalLearning : cur.globalLearning,
       };
       setSetting('appSettings', next);
       audit(me, 'settings.update', null, JSON.stringify(next));
@@ -836,7 +955,43 @@ async function handleIt(req, res, ctx, parts) {
   const [section, idStr, action] = parts;
 
   if (section === 'overview' && method === 'GET') {
-    return sendJson(res, 200, { org: orgPublic(org), users: orgUserRows(org.id), month: monthOf(), me, owner: ctx.user.role === 'admin', mail: mailConfigured() });
+    const showUsage = ctx.user.role === 'admin' || settings().itShowUsage;
+    const users = orgUserRows(org.id).map((u) => (showUsage ? u : { ...u, reports: null }));
+    return sendJson(res, 200, { org: orgPublic(org), users, month: monthOf(), me, owner: ctx.user.role === 'admin', mail: mailConfigured(), showUsage });
+  }
+
+  if (section === 'problems' && method === 'GET') {
+    // what IT needs to fix things — and nothing else (no report content, no learning, no usage details)
+    const since = Date.now() - 24 * 3600_000;
+    const errs = new Map(all(`SELECT g.user_id, COUNT(*) AS n FROM usage g JOIN users u ON u.id = g.user_id
+        WHERE u.org_id = ? AND g.ts > ? AND g.ok = 0 GROUP BY g.user_id`, org.id, since).map((r) => [r.user_id, r.n]));
+    const tot = one('SELECT COUNT(*) AS n, SUM(CASE WHEN g.ok = 0 THEN 1 ELSE 0 END) AS bad FROM usage g JOIN users u ON u.id = g.user_id WHERE u.org_id = ? AND g.ts > ?', org.id, since);
+    const people = orgUserRows(org.id);
+    const issues = [];
+    for (const u of people) {
+      if (u.blocked) continue;
+      if (isLockedOut(u.email)) issues.push({ id: u.id, email: u.email, name: u.name, kind: 'locked', text: 'Za dużo błędnych haseł — logowanie wstrzymane na 15 min (nowe hasło tymczasowe odblokowuje od razu).' });
+      if (u.mustChangePwd && Date.now() - u.createdAt > 3 * 86400000) issues.push({ id: u.id, email: u.email, name: u.name, kind: 'pending', text: 'Ma konto od ponad 3 dni, ale jeszcze się nie zalogował(a) — hasło tymczasowe mogło nie dotrzeć.' });
+      if (errs.get(u.id) >= 3) issues.push({ id: u.id, email: u.email, name: u.name, kind: 'errors', text: `Błędy AI w ostatnich 24 h: ${errs.get(u.id)} — jeśli się powtarzają, zgłoś problem.` });
+    }
+    const st = orgPublic(org);
+    const service = {
+      ai: aiAvailable(), licence: st.access, licenceUntil: st.subUntil, seatsFree: st.seatsFree,
+      errorRate24h: tot.n ? (tot.bad || 0) / tot.n : 0, busy: aiLimiter.snapshot().queued > 0, announcement: settings().announcement || '',
+    };
+    const tickets = all('SELECT t.id, t.ts, t.subject, t.body, t.status, t.answer, t.answered_at, u.email AS author FROM tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.org_id = ? ORDER BY t.ts DESC LIMIT 50', org.id);
+    return sendJson(res, 200, { service, issues, tickets });
+  }
+
+  if (section === 'tickets' && method === 'POST') {
+    const b = await readJson(req, 20_000);
+    const subject = str(b.subject, 160);
+    const text = str(b.body, 4000);
+    if (!subject || !text) return sendJson(res, 400, { error: 'Wpisz temat i opis problemu.' });
+    const info = run('INSERT INTO tickets(org_id, user_id, ts, subject, body) VALUES (?, ?, ?, ?, ?)', org.id, me, Date.now(), subject, text);
+    audit(me, 'ticket.create', null, `${org.id}: ${subject}`);
+    if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: zgłoszenie — ${org.name}: ${subject}`, `${ctx.user.email} (${org.name}) zgłasza:\n\n${text}\n\nPanel: ${baseUrl(req)}/admin#tickets`);
+    return sendJson(res, 200, { id: Number(info.lastInsertRowid) });
   }
 
   if (section === 'users' && !idStr && method === 'POST') {
@@ -926,13 +1081,8 @@ async function handleIt(req, res, ctx, parts) {
     if (!action && method === 'DELETE') {
       if (self) return sendJson(res, 400, { error: 'Nie możesz usunąć własnego konta.' });
       // personal data removed; the anonymous usage history stays for the organisation's statistics and billing
-      tx(() => {
-        run(`UPDATE users SET email = ?, name = 'Usunięty użytkownik', npwz = '', phone = '', note = '', pwd = '!', blocked = 1, must_change_pwd = 0 WHERE id = ?`, `u${u.id}${DELETED_DOMAIN}`, u.id);
-        run('DELETE FROM sessions WHERE user_id = ?', u.id);
-        run('DELETE FROM user_data WHERE user_id = ?', u.id);
-        run('DELETE FROM tokens WHERE user_id = ?', u.id);
-      });
-      audit(me, 'it.user.delete', u.id, u.email);
+      eraseUser(u, me);
+      audit(me, 'it.user.delete', u.id, '');
       return sendJson(res, 200, { ok: true });
     }
   }
@@ -1014,6 +1164,55 @@ async function handleAdminOrgs(req, res, me, idStr, action) {
   return sendJson(res, 404, { error: 'Nie znaleziono.' });
 }
 
+// ---------------------------------------------------------------- central learning (owner only)
+async function handleAdminLearning(req, res, me, idStr, action) {
+  const method = req.method;
+  if (!idStr && method === 'GET') {
+    return sendJson(res, 200, { stats: archiveStats(), versions: learningVersions(), publishedId: publishedId(), defaults: GLOBAL_DEFAULTS, enabled: settings().globalLearning, aiCallsWithGlobal: one('SELECT COUNT(*) AS n FROM usage WHERE global_version IS NOT NULL').n });
+  }
+  if (idStr === 'export' && method === 'GET') {
+    audit(me, 'learning.export');
+    res.writeHead(200, headers({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Content-Disposition': `attachment; filename="radiopis-learning-${new Date().toISOString().slice(0, 10)}.jsonl"`, 'Cache-Control': 'no-store' }));
+    for (const line of exportArchive()) res.write(`${line}\n`);
+    return res.end();
+  }
+  if (idStr === 'unpublish' && method === 'POST') {
+    unpublishAll();
+    invalidateGlobal();
+    audit(me, 'learning.unpublish');
+    return sendJson(res, 200, { ok: true });
+  }
+  if (idStr === 'versions' && !action && method === 'POST') {
+    const b = await readJson(req, 20_000);
+    try {
+      const v = await aiLimiter.run(me, () => createGlobalVersion({ method: b.method === 'ai' ? 'ai' : 'counts', minContributors: b.minContributors, minOrgs: b.minOrgs, note: str(b.note, 500) }));
+      audit(me, 'learning.version', null, `${v.id} (${v.method})`);
+      return sendJson(res, 200, { version: v });
+    } catch (err) {
+      if (err instanceof ClaudeError || err instanceof BusyError) return sendAiError(res, err);
+      throw err;
+    }
+  }
+  if (idStr === 'versions' && action) {
+    const v = getVersion(Number(action));
+    if (!v) return sendJson(res, 404, { error: 'Nie znaleziono wersji.' });
+    if (method === 'GET') return sendJson(res, 200, { version: v });
+    if (method === 'PATCH') {
+      if (v.status !== 'draft') return sendJson(res, 400, { error: 'Można zmieniać tylko szkic (opublikowane wersje są niezmienne).' });
+      const b = await readJson(req, 300_000);
+      audit(me, 'learning.edit', null, String(v.id));
+      return sendJson(res, 200, { version: updateVersionContent(v.id, cleanGlobal(b.content)) });
+    }
+    if (method === 'POST') {
+      const pv = publishVersion(v.id);
+      invalidateGlobal();
+      audit(me, 'learning.publish', null, String(v.id));
+      return sendJson(res, 200, { version: pv });
+    }
+  }
+  return sendJson(res, 404, { error: 'Nie znaleziono.' });
+}
+
 // ---------------------------------------------------------------- router
 // One JSON line per API call (no request bodies, no report text — never patient data). LOG_REQUESTS=0 turns it off.
 const LOG_REQUESTS = process.env.LOG_REQUESTS ? process.env.LOG_REQUESTS === '1' : PROD;
@@ -1033,6 +1232,12 @@ export function createServer() {
       const url = new URL(req.url, 'http://localhost');
       p = url.pathname;
       const method = req.method;
+
+      if (p === '/robots.txt') {
+        res.writeHead(200, headers({ 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' }));
+        return res.end('User-agent: *\nDisallow: /app/\nDisallow: /admin\nDisallow: /it\nDisallow: /api/\nDisallow: /account\n');
+      }
+      if (/^\/(app|admin|it|account|api)(\/|$)/.test(p)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
 
       // health check for the proxy / uptime monitor: database answers and the server is not shutting down
       if (p === '/healthz') {
@@ -1099,7 +1304,12 @@ export function createServer() {
         if (!ctx.user.must_change_pwd) return redirect(res, homeFor(ctx.user));
         return sitePage(res, 'change-password', req);
       }
+      if (p === '/accept') {
+        if (!ctx) return redirect(res, '/login');
+        return sitePage(res, 'accept', req);
+      }
       if (ctx?.user.must_change_pwd && ['/account', '/admin', '/it'].includes(p)) return redirect(res, '/change-password');
+      if (ctx && ctx.user.role !== 'admin' && p === '/it' && access(ctx.user).code === 'terms') return redirect(res, '/accept');
       if (p === '/account') return ctx ? sitePage(res, 'account', req) : redirect(res, '/login?next=/account');
       if (p === '/admin') {
         if (!ctx) return redirect(res, '/login?next=/admin');
@@ -1121,7 +1331,7 @@ export function createServer() {
       if (p.startsWith('/app/')) {
         if (!ctx) return redirect(res, `/login?next=${encodeURIComponent(p)}`);
         const a = access(ctx.user);
-        if (!a.ok) return redirect(res, a.code === 'pwd' ? '/change-password' : '/account?need=1');
+        if (!a.ok) return redirect(res, a.code === 'pwd' ? '/change-password' : a.code === 'terms' ? '/accept' : '/account?need=1');
         let rel = p.slice('/app/'.length) || 'index.html';
         if (rel === 'index.html' || rel === '') rel = 'index.html';
         if (rel.startsWith('site/') || rel.startsWith('js/templates-pro/BRIEF') || rel.includes('check.mjs')) { res.writeHead(404, headers()); return res.end(); }
@@ -1152,6 +1362,7 @@ export async function ensureAdmin() {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   openDb();
+  openLearningDb();
   const admin = await ensureAdmin();
   if (admin) console.log(`Utworzono administratora: ${admin.email}`);
   const PORT = Number(process.env.PORT) || 3000;
@@ -1175,6 +1386,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     server.closeIdleConnections?.();
     const clean = await aiLimiter.idle(30_000);
     closeDb();
+    closeLearningDb();
     console.log(clean ? 'Zatrzymano.' : 'Zatrzymano (niektóre zapytania AI przerwane po 30 s).');
     process.exit(0);
   };

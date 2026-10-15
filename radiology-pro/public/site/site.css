@@ -263,3 +263,6 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .help-card ol, .help-card ul { margin: 6px 0 16px; padding-left: 20px; line-height: 1.6; color: var(--text); }
 .help-card li { margin-bottom: 6px; }
 .modal { width: min(620px, calc(100% - 24px)); }
+.vlist { list-style: none; margin: 4px 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.vlist li { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.vlist del { color: var(--text-faint); }

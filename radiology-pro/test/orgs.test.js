@@ -79,13 +79,13 @@ test('first login with a temporary password: must set an own password before any
   const itApi = await call('GET', '/api/it/overview', undefined, l.cookie);
   assert.equal(itApi.res.status, 403);
   // the new password must differ from the temporary one and follow the rules
-  assert.equal((await call('POST', '/api/me/first-password', { next: it.temp }, l.cookie)).res.status, 400);
-  assert.equal((await call('POST', '/api/me/first-password', { next: 'short1' }, l.cookie)).res.status, 400);
-  const ok = await call('POST', '/api/me/first-password', { next: 'informatyk2026' }, l.cookie);
+  assert.equal((await call('POST', '/api/me/first-password', { next: it.temp, accept: true }, l.cookie)).res.status, 400);
+  assert.equal((await call('POST', '/api/me/first-password', { next: 'short1', accept: true }, l.cookie)).res.status, 400);
+  const ok = await call('POST', '/api/me/first-password', { next: 'informatyk2026', accept: true }, l.cookie);
   assert.equal(ok.res.status, 200, JSON.stringify(ok.data));
   assert.equal(ok.data.next, '/it');
   // second time: not allowed (normal password change requires the current password)
-  assert.equal((await call('POST', '/api/me/first-password', { next: 'informatyk2027' }, l.cookie)).res.status, 400);
+  assert.equal((await call('POST', '/api/me/first-password', { next: 'informatyk2027', accept: true }, l.cookie)).res.status, 400);
   it.cookie = l.cookie;
   assert.equal((await login(it.email, 'informatyk2026')).next, '/it');
 });
@@ -117,7 +117,7 @@ test('organisation member: works after setting a password; licence (not personal
   const anna = imported[0];
   const l = await login(anna.email, anna.tempPassword);
   assert.equal(l.next, '/change-password');
-  const p = await call('POST', '/api/me/first-password', { next: 'radiolog2026' }, l.cookie);
+  const p = await call('POST', '/api/me/first-password', { next: 'radiolog2026', accept: true }, l.cookie);
   assert.equal(p.data.next, '/app/');
   const me = await call('GET', '/api/me', undefined, l.cookie);
   assert.equal(me.data.org.name, 'Teleradiologia Test Sp. z o.o.');
@@ -140,9 +140,12 @@ test('organisation member: works after setting a password; licence (not personal
   assert.equal(ext.data.org.status, 'active');
   assert.ok(ext.data.org.subUntil > Date.now() + 27 * 86400000);
   assert.equal((await format(l.cookie, 'r-anna-4')).res.status, 200);
-  // the IT administrator sees this month's reports
+  // the IT administrator does NOT see report counts (default); the owner does
   const ov = await call('GET', '/api/it/overview', undefined, it.cookie);
-  assert.equal(ov.data.users.find((u) => u.email === anna.email).reports, 2);
+  assert.equal(ov.data.users.find((u) => u.email === anna.email).reports, null);
+  assert.equal(ov.data.showUsage, false);
+  const own = await call('GET', `/api/it/overview?org=${org.id}`, undefined, owner);
+  assert.equal(own.data.users.find((u) => u.email === anna.email).reports, 2);
 });
 
 test('IT: block frees a seat, new temporary password, log out everywhere, delete keeps anonymous usage', async () => {
@@ -203,7 +206,7 @@ test('isolation: IT of one organisation cannot touch another; radiologists canno
   const adamRow = adam.data.users.find((u) => u.email === 'adam@tele.test');
   const adamTemp = await call('POST', `/api/it/users/${adamRow.id}/temp-password`, {}, it.cookie);
   const al = await login('adam@tele.test', adamTemp.data.tempPassword);
-  await call('POST', '/api/me/first-password', { next: 'adamhaslo2026' }, al.cookie);
+  await call('POST', '/api/me/first-password', { next: 'adamhaslo2026', accept: true }, al.cookie);
   assert.equal((await call('GET', '/api/it/overview', undefined, al.cookie)).res.status, 403);
   const page = await call('GET', '/it', undefined, al.cookie);
   assert.equal(page.res.status, 302);

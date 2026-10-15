@@ -73,6 +73,11 @@ export async function runJobs(now = Date.now(), baseUrl = process.env.PUBLIC_URL
   run('DELETE FROM sessions WHERE expires_at < ?', now);
   run('DELETE FROM tokens WHERE expires_at < ?', now);
   run('DELETE FROM webhook_events WHERE ts < ?', now - 90 * DAY);
+  // RODO retention: security / change log and copies of e-mails are not kept forever
+  done.auditDeleted = Number(run('DELETE FROM audit WHERE ts < ?', now - s.auditRetentionDays * DAY).changes);
+  done.outboxDeleted = Number(run('DELETE FROM outbox WHERE ts < ?', now - s.outboxRetentionDays * DAY).changes);
+  // devices idle longer than the limit are logged out
+  run('DELETE FROM sessions WHERE last_seen < ?', now - s.sessionIdleDays * DAY);
   return done;
 }
 

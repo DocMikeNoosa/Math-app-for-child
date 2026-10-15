@@ -113,6 +113,17 @@ CREATE TABLE IF NOT EXISTS orgs (                           -- organisations (e.
   reminded INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tickets (                        -- problems reported by organisations' IT to the service owner
+  id INTEGER PRIMARY KEY,
+  org_id INTEGER REFERENCES orgs(id) ON DELETE SET NULL,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  ts INTEGER NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',                      -- open | closed
+  answer TEXT NOT NULL DEFAULT '',
+  answered_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS outbox (                         -- e-mails (sent or, without a mail provider, only logged)
   id INTEGER PRIMARY KEY,
   ts INTEGER NOT NULL,
@@ -139,6 +150,13 @@ function migrate(d) {
   const add = (col, def) => { if (!cols.has(col)) d.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`); };
   add('org_id', 'INTEGER REFERENCES orgs(id) ON DELETE SET NULL');   // member of an organisation (licence from the organisation)
   add('must_change_pwd', 'INTEGER NOT NULL DEFAULT 0');               // temporary password: set an own one before working
+  add('terms_version', "TEXT NOT NULL DEFAULT ''");                   // version of the terms / privacy notice accepted (RODO: proof)
+  add('terms_at', 'INTEGER');
+  add('totp_secret', "TEXT NOT NULL DEFAULT ''");                     // two-factor login (authenticator app)
+  add('totp_on', 'INTEGER NOT NULL DEFAULT 0');
+  const ucols = new Set(d.prepare('PRAGMA table_info(usage)').all().map((c) => c.name));
+  // which published version of the global (central) knowledge was used for this AI call — traceability
+  if (!ucols.has('global_version')) d.exec('ALTER TABLE usage ADD COLUMN global_version INTEGER');
   d.exec('CREATE INDEX IF NOT EXISTS users_org ON users(org_id)');
   d.exec('CREATE INDEX IF NOT EXISTS audit_target ON audit(target_id)');
   d.exec('CREATE INDEX IF NOT EXISTS usage_user_report ON usage(user_id, report_id)');

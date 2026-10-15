@@ -113,7 +113,7 @@ export function sessionUser(token) {
   const s = one('SELECT * FROM sessions WHERE id = ?', sha256(token));
   if (!s) return null;
   const now = Date.now();
-  if (now > s.expires_at) {
+  if (now > s.expires_at || now - s.last_seen > settings().sessionIdleDays * 86400000) {
     run('DELETE FROM sessions WHERE id = ?', s.id);
     return null;
   }
@@ -171,4 +171,25 @@ export function sessionCookie(token, { secure = false, clear = false } = {}) {
   const attrs = [`${COOKIE}=${clear ? '' : encodeURIComponent(token)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${clear ? 0 : SESSION_DAYS * 86400}`];
   if (secure) attrs.push('Secure');
   return attrs.join('; ');
+}
+
+/** Locked out right now by the per-e-mail limit (for the IT "problems" view). */
+export const isLockedOut = (email) => failCount(`e:${String(email).toLowerCase()}`) >= 8;
+
+// ---- second step of a login with two-factor authentication: a short-lived ticket after a correct password
+const pending2fa = new Map(); // ticket → { userId, exp, tries }
+export function create2faTicket(userId) {
+  const ticket = randomToken();
+  pending2fa.set(ticket, { userId, exp: Date.now() + 5 * 60_000, tries: 0 });
+  for (const [k, v] of pending2fa) if (v.exp < Date.now()) pending2fa.delete(k);
+  return ticket;
+}
+/** Returns the user id when the ticket is valid; at most 5 code attempts per ticket. */
+export function use2faTicket(ticket, ok) {
+  const t = pending2fa.get(String(ticket || ''));
+  if (!t || t.exp < Date.now() || t.tries >= 5) { pending2fa.delete(ticket); return { error: 'expired' }; }
+  t.tries++;
+  if (!ok(t.userId)) return { error: 'code', left: 5 - t.tries };
+  pending2fa.delete(ticket);
+  return { userId: t.userId };
 }

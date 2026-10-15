@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Regulamin i prywatność — Radiopis</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="accept">
+  <main class="auth">
+    <div class="auth-card">
+      <a class="brand" href="/"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span data-brand>Radiopis</span></a>
+      <div class="card">
+        <h1>Regulamin i ochrona danych</h1>
+        <p class="sub">Konto: <b id="who">…</b>. Zanim zaczniesz pracę, zapoznaj się z regulaminem usługi i informacją o przetwarzaniu danych osobowych (RODO). Jeśli dokumenty się zmienią, poprosimy o to ponownie.</p>
+        <ul class="small dim" style="margin:0 0 14px;padding-left:18px;line-height:1.6">
+          <li>Nie wpisuj danych identyfikujących pacjenta (imię, nazwisko, PESEL) — numery PESEL są usuwane automatycznie.</li>
+          <li>Opis zawsze sprawdza i podpisuje lekarz — AI jest tylko narzędziem pomocniczym.</li>
+          <li>Twoje poprawki uczą AI Twojego stylu; po usunięciu danych identyfikujących służą też do ulepszania usługi dla wszystkich użytkowników.</li>
+        </ul>
+        <div id="msg" class="msg" hidden></div>
+        <form id="form" novalidate>
+          <div class="field"><label class="check"><input type="checkbox" name="accept" required /> <span>Akceptuję <a href="/terms" target="_blank">regulamin</a> i zapoznałem/am się z <a href="/privacy" target="_blank">informacją o przetwarzaniu danych osobowych</a>.</span></label></div>
+          <button class="btn btn-primary btn-lg" type="submit">Akceptuję i przechodzę dalej</button>
+        </form>
+      </div>
+      <p class="auth-foot"><a href="/logout">Wyloguj</a></p>
+    </div>
+  </main>
+  <script type="module" src="/site/auth.js"></script>
+</body>
+</html>

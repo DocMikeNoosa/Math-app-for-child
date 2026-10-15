@@ -22,6 +22,11 @@
           <button class="btn btn-primary btn-lg" type="submit">Zaloguj</button>
           <p class="auth-foot"><a href="/forgot">Nie pamiętasz hasła?</a></p>
         </form>
+        <form id="form2fa" novalidate hidden>
+          <p class="sub">Logowanie dwuetapowe: wpisz 6-cyfrowy kod z aplikacji uwierzytelniającej w telefonie.</p>
+          <div class="field"><label for="code">Kod</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" pattern="[0-9 ]*" required /></div>
+          <button class="btn btn-primary btn-lg" type="submit">Potwierdź</button>
+        </form>
       </div>
       <p class="auth-foot">Nie masz konta? <a href="/register">Załóż bezpłatne konto próbne</a></p>
     </div>

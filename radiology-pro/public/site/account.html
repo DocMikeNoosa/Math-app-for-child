@@ -87,6 +87,23 @@
             <div id="sessions" class="small"></div>
             <p class="dim small" id="devicesNote" style="margin-top:10px"></p>
           </div>
+
+          <div class="card">
+            <div class="card-head"><h2>Logowanie dwuetapowe</h2><span id="tfaPill"></span></div>
+            <p class="dim small">Po haśle aplikacja poprosi o 6-cyfrowy kod z telefonu (Google Authenticator, Microsoft Authenticator, 1Password…). Nawet ktoś, kto zna Twoje hasło, nie zaloguje się bez telefonu.</p>
+            <div id="tfaBox"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h2>Twoje dane (RODO)</h2></div>
+            <p class="dim small" id="termsInfo"></p>
+            <div class="actions">
+              <a class="btn btn-sm" href="/api/me/export" id="exportBtn">Pobierz kopię moich danych</a>
+              <a class="btn btn-sm btn-ghost" href="/privacy" target="_blank">Informacja o przetwarzaniu danych</a>
+              <button class="btn btn-sm btn-danger" id="deleteBtn" hidden>Usuń konto</button>
+            </div>
+            <p class="dim small" id="deleteNote" style="margin-top:10px"></p>
+          </div>
         </div>
       </div>
     </div>

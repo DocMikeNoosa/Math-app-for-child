@@ -96,8 +96,50 @@ function render() {
   const f = $('#profileForm');
   f.name.value = u.name; f.npwz.value = u.npwz; f.phone.value = u.phone; f.company.value = u.company; f.nip.value = u.nip;
   $('#sessions').innerHTML = me.sessions.map((s) => `<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>${esc(deviceName(s.ua))}</b>${s.current ? ' <span class="pill ok">to urządzenie</span>' : ''}<span class="sub dim">ostatnio ${fmtDateTime(s.last_seen)}</span></div>`).join('');
+  renderPrivacy();
   $('#devicesNote').textContent = `Plan pozwala na ${me.plan.devices} ${me.plan.devices === 1 ? 'zalogowane urządzenie' : 'zalogowane urządzenia'} jednocześnie — przy logowaniu na kolejnym najstarsze jest wylogowywane.`;
 }
+
+function renderPrivacy() {
+  const u = me.user;
+  $('#termsInfo').textContent = me.termsAcceptedAt ? `Zaakceptowany regulamin i informacja o danych: wersja ${me.termsVersion}, ${fmtDateTime(me.termsAcceptedAt)}.` : '';
+  $('#deleteBtn').hidden = Boolean(u.orgId) || u.role === 'admin';
+  $('#deleteNote').textContent = u.orgId ? 'Konto należy do organizacji — o jego usunięcie poproś dział IT. Kopię danych możesz pobrać sam(a).' : '';
+  $('#tfaPill').innerHTML = me.twoFactor ? '<span class="pill ok">włączone</span>' : '<span class="pill warn">wyłączone</span>';
+  const box = $('#tfaBox');
+  if (me.twoFactor) {
+    box.innerHTML = `<form id="tfaOff" class="row"><div class="field"><label>Hasło</label><input name="password" type="password" autocomplete="current-password" required /></div><div class="field" style="flex:0 1 140px"><label>Kod z aplikacji</label><input name="code" inputmode="numeric" maxlength="7" required /></div><div class="field" style="flex:0 0 auto;align-self:flex-end"><button class="btn btn-sm" type="submit">Wyłącz</button></div></form>`;
+    $('#tfaOff').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try { await api('/api/me/2fa/disable', { method: 'POST', body: { password: e.target.password.value, code: e.target.code.value } }); toast('Logowanie dwuetapowe wyłączone', 'ok'); load(); } catch (err) { toast(err.message, 'err'); }
+    });
+  } else {
+    box.innerHTML = '<button class="btn btn-sm btn-primary" id="tfaStart">Włącz logowanie dwuetapowe</button>';
+    $('#tfaStart').addEventListener('click', async () => {
+      try {
+        const d = await api('/api/me/2fa/setup', { method: 'POST', body: {} });
+        box.innerHTML = `<ol class="small" style="padding-left:18px;line-height:1.6">
+            <li>Otwórz aplikację uwierzytelniającą w telefonie i dodaj konto („+” → „wpisz klucz”).</li>
+            <li>Wpisz klucz: <b class="mono" style="user-select:all;letter-spacing:1px">${esc(d.secret.replace(/(.{4})/g, '$1 ').trim())}</b> <span class="dim">(typ: oparty na czasie)</span><br><span class="dim">Na telefonie możesz też otworzyć: </span><a href="${esc(d.uri)}">dodaj w aplikacji</a></li>
+            <li>Wpisz 6-cyfrowy kod, który pokaże aplikacja:</li></ol>
+          <form id="tfaOn" class="row"><div class="field" style="flex:0 1 160px"><input name="code" inputmode="numeric" maxlength="7" autocomplete="one-time-code" required /></div><div class="field" style="flex:0 0 auto"><button class="btn btn-sm btn-primary" type="submit">Potwierdź i włącz</button></div></form>`;
+        $('#tfaOn').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          try { await api('/api/me/2fa/enable', { method: 'POST', body: { code: e.target.code.value } }); toast('Logowanie dwuetapowe włączone. Inne urządzenia zostały wylogowane.', 'ok', 5000); load(); } catch (err) { toast(err.message, 'err', 5000); }
+        });
+      } catch (err) { toast(err.message, 'err'); }
+    });
+  }
+}
+
+$('#deleteBtn').addEventListener('click', async () => {
+  const pass = prompt('Usunięcie konta jest nieodwracalne: dane osobowe, szablony i nauczony styl zostaną usunięte. Wpisz hasło, aby potwierdzić.');
+  if (!pass) return;
+  try {
+    await api('/api/me/delete', { method: 'POST', body: { password: pass } });
+    location.href = '/?deleted=1';
+  } catch (err) { toast(err.message, 'err', 5000); }
+});
 
 async function load() {
   try {

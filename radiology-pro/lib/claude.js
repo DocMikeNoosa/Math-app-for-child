@@ -29,6 +29,7 @@ You receive JSON with:
 - "keep_statements": template sentences the radiologist restored after they had been removed. Never remove or change them.
 - "learned": what the radiologist taught the app by editing earlier reports: "conclusion_removed" (lines they deleted from your conclusions — never write such lines again), "conclusion_added" (lines they added — the kind of statement they want), "restored" (template statements they put back after removal — be more careful before removing such statements), "example_reports" (their own finished reports for this template — follow their arrangement, wording and conclusion style; never copy findings from them).
 - "style_examples": optional pairs {"ai": your earlier wording, "final": the radiologist's corrected version of it}, learned from reports they edited before copying. Learn their preferences (word choice, abbreviations, phrasing, punctuation, sentence length) and write new text in that style. They are style examples only: never copy findings, numbers or sides from them into this report.
+- "global_guidance": optional conventions learned from MANY radiologists using this service (the same lessons made independently by several of them): "rules", "phrasing" (from → to wording), "avoid_in_conclusion" (kinds of conclusion lines they delete), "keep_statements" (template statements they keep), "glossary" (EN → PL). Apply them by default. The radiologist's OWN preferences (style_preferences, style_profile, learned, style_examples, keep_statements, glossary in style_profile) always override global_guidance when they differ. global_guidance never adds, removes or changes a finding, number, side or level.
 - "input_language": the language of the dictation ("pl" or "en").
 - "output_language": the language the report must be written in ("pl" or "en").
 - "task": "merge" (merge the dictation into the report) or "translate" (translate current_report only).
@@ -183,9 +184,10 @@ export function outputModeFor({ report, outputLang = 'pl', translate = false }) 
  * The user turn as two content blocks: the template (stable per template → cached together with
  * the system prompt) and the per-request part. Both are JSON objects.
  */
-export function buildUserContent({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], clinical = '', profile = null, samples = [], translations = [], inputLang = 'pl', outputLang = 'pl', translate = false }) {
+export function buildUserContent({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], clinical = '', profile = null, samples = [], translations = [], inputLang = 'pl', outputLang = 'pl', translate = false, global = null }) {
   // the learned preferences change rarely → part of the cached block
   const fixed = { template: { header: template.header, body: template.body, conclusion: template.conclusion } };
+  if (global && !translate) fixed.global_guidance = global;
   if (styleExamples.length && !translate) fixed.style_examples = styleExamples;
   if (learned && !translate) fixed.learned = learned;
   if (profile && !translate) fixed.style_profile = { rules: profile.rules, phrases: profile.phrases };
@@ -269,7 +271,7 @@ export class ClaudeError extends Error {
 
 
 /** Build the request for a speed mode. */
-export function buildRequest({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate, mode = 'fast' }) {
+export function buildRequest({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate, global = null, mode = 'fast' }) {
   const m = MODES[mode] || MODES.fast;
   const params = {
     model: MODEL,
@@ -280,7 +282,7 @@ export function buildRequest({ template, report, dictation, instruction, style, 
       effort: process.env.CLAUDE_EFFORT || m.effort,
       format: { type: 'json_schema', schema: outputModeFor({ report, outputLang, translate }) === 'edits' ? EDITS_SCHEMA : OUTPUT_SCHEMA },
     },
-    messages: [{ role: 'user', content: buildUserContent({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate }) }],
+    messages: [{ role: 'user', content: buildUserContent({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate, global }) }],
   };
   const betas = [];
   if (USE_FALLBACKS) {
@@ -300,8 +302,8 @@ async function send(req) {
   return req.beta ? getClient().beta.messages.create(req.params, req.options) : getClient().messages.create(req.params, req.options);
 }
 
-export async function formatWithClaude({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], clinical = '', profile = null, samples = [], translations = [], inputLang = 'pl', outputLang = 'pl', translate = false, mode = 'fast' }) {
-  const args = { template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate };
+export async function formatWithClaude({ template, report, dictation, instruction, style, styleExamples = [], learned = null, keep = [], clinical = '', profile = null, samples = [], translations = [], inputLang = 'pl', outputLang = 'pl', translate = false, global = null, mode = 'fast' }) {
+  const args = { template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate, global };
   let response;
   try {
     try {

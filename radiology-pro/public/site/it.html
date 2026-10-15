@@ -32,6 +32,7 @@
 
       <div class="admin-tabs" role="tablist">
         <button role="tab" data-tab="people" aria-selected="true">Użytkownicy</button>
+        <button role="tab" data-tab="problems" aria-selected="false">Problemy i zgłoszenia <span class="pill err" id="probCount" hidden></span></button>
         <button role="tab" data-tab="log" aria-selected="false">Dziennik zmian</button>
         <button role="tab" data-tab="help" aria-selected="false">Pomoc</button>
       </div>
@@ -54,10 +55,30 @@
           <button class="btn btn-sm btn-primary" id="addBtn">+ Dodaj osobę</button>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Osoba</th><th>PWZ</th><th>Rola</th><th>Status</th><th class="num">Opisy (mies.)</th><th>Ostatnia aktywność</th><th class="num">Urządz.</th><th></th></tr></thead>
+          <thead><tr><th>Osoba</th><th>PWZ</th><th>Rola</th><th>Status</th><th class="num" data-usage>Opisy (mies.)</th><th>Ostatnia aktywność</th><th class="num">Urządz.</th><th></th></tr></thead>
           <tbody id="people"></tbody>
         </table></div>
         <p class="dim small" id="peopleNote" style="margin-top:10px"></p>
+      </section>
+
+      <section data-panel="problems" style="padding:0" hidden>
+        <div class="cols">
+          <div>
+            <div class="card"><div class="card-head"><h3>Stan usługi</h3></div><ul class="config-list" id="service"></ul></div>
+            <div class="card"><div class="card-head"><h3>Osoby, które mogą potrzebować pomocy</h3></div><div id="issues" class="small"></div></div>
+          </div>
+          <div>
+            <div class="card">
+              <div class="card-head"><h3>Zgłoś problem dostawcy</h3></div>
+              <form id="ticketForm">
+                <div class="field"><label for="tSubject">Temat</label><input id="tSubject" name="subject" maxlength="160" required placeholder="np. AI odpowiada bardzo wolno od 9:00" /></div>
+                <div class="field"><label for="tBody">Opis <span class="faint">(bez danych pacjentów)</span></label><textarea id="tBody" name="body" rows="5" maxlength="4000" required placeholder="Co się dzieje, od kiedy, u ilu osób, jaka przeglądarka…"></textarea></div>
+                <button class="btn btn-primary" type="submit">Wyślij zgłoszenie</button>
+              </form>
+            </div>
+            <div class="card"><div class="card-head"><h3>Twoje zgłoszenia</h3></div><div id="tickets" class="small"></div></div>
+          </div>
+        </div>
       </section>
 
       <section data-panel="log" style="padding:0" hidden>
@@ -79,6 +100,8 @@
           <h3>Bezpieczeństwo</h3>
           <ul>
             <li>Hasła są przechowywane wyłącznie jako skrót (scrypt) — nikt, także administrator, nie może ich odczytać.</li>
+            <li>Konsola IT pokazuje konta i problemy techniczne. Treść opisów, wyniki uczenia AI i kod aplikacji nie są dostępne dla działu IT ani firmy — to tajemnica przedsiębiorstwa dostawcy.</li>
+            <li>Każdy może włączyć logowanie dwuetapowe (kod z telefonu) na stronie „Moje konto” — zalecane zwłaszcza dla kont IT.</li>
             <li>Po 8 błędnych próbach logowania konto jest blokowane na 15 minut (ochrona przed zgadywaniem hasła).</li>
             <li>Bieżący opis i lista dzisiejszych opisów zostają w przeglądarce radiologa. Serwer przechowuje szablony radiologa i to, czego AI nauczyło się z jego poprawek (numery PESEL są usuwane), oraz liczbę opisów (rozliczenia).</li>
           </ul>

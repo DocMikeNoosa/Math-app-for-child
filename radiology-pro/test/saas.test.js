@@ -30,6 +30,7 @@ before(async () => {
   process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${mock.address().port}`;
   process.env.DB_FILE = ':memory:';
   process.env.BACKUP_DISABLED = '1';
+  process.env.TERMS_VERSION = '';
   process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
   delete process.env.AI_PROVIDER;
   delete process.env.RESEND_API_KEY;

@@ -11,7 +11,7 @@ const ROLE = { user: 'radiolog', orgadmin: 'IT' };
 const STATUS = { trial: 'okres próbny', active: 'aktywna', suspended: 'wstrzymana' };
 
 // ---------------------------------------------------------------- tabs
-const loaders = { people: load, log: loadLog };
+const loaders = { people: load, problems: loadProblems, log: loadLog };
 function openTab(name) {
   for (const b of $$('.admin-tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const p of $$('[data-panel]')) p.hidden = p.dataset.panel !== name;
@@ -46,12 +46,14 @@ async function load() {
   const working = users.filter((u) => u.reports > 0).length;
   const pending = active.filter((u) => u.mustChangePwd).length;
   const reports = users.reduce((s, u) => s + u.reports, 0);
+  for (const th of $$('[data-usage]')) th.hidden = !data.showUsage;
   $('#kpis').innerHTML = [
     kpi('Wolne miejsca', fmtNum(o.seatsFree), `${o.seatsUsed} zajętych z ${o.seats}`, o.seatsFree ? '' : 'bad'),
-    kpi('Pracują w tym miesiącu', fmtNum(working), `z ${active.length} aktywnych kont`),
-    kpi('Opisy w tym miesiącu', fmtNum(reports), working ? `śr. ${Math.round(reports / working)} na osobę` : '—'),
+    kpi('Aktywne konta', fmtNum(active.length), `${users.length - active.length} zablokowanych`),
+    data.showUsage ? kpi('Opisy w tym miesiącu', fmtNum(reports), working ? `${working} osób pracuje · śr. ${Math.round(reports / working)} na osobę` : '—') : '',
     kpi('Czekają na 1. logowanie', fmtNum(pending), pending ? 'mają jeszcze hasło tymczasowe' : 'wszyscy ustawili hasło', pending ? '' : 'good'),
   ].join('');
+  loadProblems(true).catch(() => {});
   renderPeople();
 }
 
@@ -78,7 +80,7 @@ function renderPeople() {
       <td class="mono">${esc(u.npwz || '—')}</td>
       <td>${u.role === 'orgadmin' ? '<span class="pill info">IT</span>' : 'radiolog'}</td>
       <td>${statusOf(u)}</td>
-      <td class="num">${fmtNum(u.reports)}</td>
+      ${data.showUsage ? `<td class="num">${fmtNum(u.reports)}</td>` : ''}
       <td>${u.lastSeen ? fmtDateTime(u.lastSeen) : u.lastLogin ? fmtDateTime(u.lastLogin) : '<span class="faint">nigdy</span>'}</td>
       <td class="num">${u.devices}</td>
       <td class="num"><button class="btn btn-sm" data-user="${u.id}" aria-label="Działania: ${esc(u.name || u.email)}">⋯ Działania</button></td></tr>`).join('')
@@ -212,7 +214,7 @@ function openPerson(id) {
   if (!u) return;
   const self = u.id === data.me;
   const m = openModal(`
-    <div class="drawer-head"><div><h2>${esc(u.name || u.email)}</h2><div class="dim small">${esc(u.email)} · konto od ${fmtDate(u.createdAt)} · ${fmtNum(u.reports)} opisów w tym miesiącu</div></div><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
+    <div class="drawer-head"><div><h2>${esc(u.name || u.email)}</h2><div class="dim small">${esc(u.email)} · konto od ${fmtDate(u.createdAt)}${data.showUsage ? ` · ${fmtNum(u.reports)} opisów w tym miesiącu` : ''}</div></div><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
     <form id="editForm">
       <div class="row"><div class="field"><label for="eName">Imię i nazwisko</label><input id="eName" name="name" value="${esc(u.name)}" /></div><div class="field" style="flex:0 1 150px"><label for="eNpwz">PWZ</label><input id="eNpwz" name="npwz" value="${esc(u.npwz)}" /></div></div>
       <div class="field"><label for="eEmail">E-mail (login)</label><input id="eEmail" name="email" type="email" value="${esc(u.email)}" /></div>
@@ -266,6 +268,42 @@ function openPerson(id) {
     });
   }
 }
+
+// ---------------------------------------------------------------- problems and tickets
+const ISSUE = { locked: 'zablokowane logowanie', pending: 'nie zalogował(a) się', errors: 'błędy AI' };
+async function loadProblems(countOnly = false) {
+  const d = await api(q('/api/it/problems'));
+  const n = d.issues.length + (d.service.ai ? 0 : 1) + (d.service.licence ? 0 : 1);
+  $('#probCount').hidden = !n;
+  $('#probCount').textContent = n;
+  if (countOnly) return;
+  const s = d.service;
+  const ok = (v, yes, no) => (v ? `<span class="pill ok">${yes}</span>` : `<span class="pill err">${no}</span>`);
+  $('#service').innerHTML = [
+    ['AI', ok(s.ai, 'działa', 'niedostępne')],
+    ['Licencja', `${ok(s.licence, 'aktywna', 'nieaktywna')} <span class="dim small">do ${fmtDate(s.licenceUntil)}</span>`],
+    ['Wolne miejsca', fmtNum(s.seatsFree)],
+    ['Błędy AI (24 h)', s.errorRate24h > 0.05 ? `<span class="pill warn">${(s.errorRate24h * 100).toFixed(1)}%</span>` : `<span class="pill ok">${(s.errorRate24h * 100).toFixed(1)}%</span>`],
+    ['Obciążenie', s.busy ? '<span class="pill warn">duże — odpowiedzi mogą być wolniejsze</span>' : '<span class="pill ok">normalne</span>'],
+    ...(s.announcement ? [['Komunikat dostawcy', esc(s.announcement)]] : []),
+  ].map(([k, v]) => `<li><span>${k}</span><span>${v}</span></li>`).join('');
+  $('#issues').innerHTML = d.issues.length
+    ? d.issues.map((i) => `<div class="log-row"><span class="pill warn">${esc(ISSUE[i.kind] || i.kind)}</span> <b>${esc(i.name || i.email)}</b> <span class="dim">${esc(i.email)}</span><div class="dim">${esc(i.text)}</div><button class="btn btn-sm" data-user="${i.id}" style="margin-top:6px">⋯ Działania</button></div>`).join('')
+    : '<p class="dim">Brak problemów — wszystko działa.</p>';
+  $('#tickets').innerHTML = d.tickets.length
+    ? d.tickets.map((t) => `<details class="log-row"><summary><b>${esc(t.subject)}</b> <span class="pill ${t.status === 'closed' ? 'ok' : 'info'}">${t.status === 'closed' ? 'zamknięte' : 'otwarte'}</span> <span class="dim">${fmtDateTime(t.ts)} · ${esc(t.author || '')}</span></summary><p style="white-space:pre-wrap">${esc(t.body)}</p>${t.answer ? `<div class="msg info" style="white-space:pre-wrap">Odpowiedź (${fmtDateTime(t.answered_at)}): ${esc(t.answer)}</div>` : ''}</details>`).join('')
+    : '<p class="dim">Brak zgłoszeń.</p>';
+}
+$('#ticketForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    await api(q('/api/it/tickets'), { method: 'POST', body: { subject: f.subject.value, body: f.body.value } });
+    f.reset();
+    toast('Zgłoszenie wysłane do dostawcy', 'ok');
+    loadProblems();
+  } catch (err) { toast(err.message, 'err'); }
+});
 
 // ---------------------------------------------------------------- change log
 const ACTION = {

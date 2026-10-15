@@ -41,6 +41,14 @@ export const DEFAULT_SETTINGS = {
   graceDaysPastDue: 3,       // access kept after a failed payment
   annualMonths: 10,          // yearly plan = price × 10 (2 months free)
   maxBackgroundCalls: 4,     // background pre-processing calls per report (cost guard); "Przygotuj opis" is never limited
+  // RODO / terms: users must accept this version of the terms + privacy notice before working ('' = not required).
+  // Raise it whenever the documents change: everybody accepts again at the next visit (proof kept per user).
+  termsVersion: process.env.TERMS_VERSION ?? '1.0',
+  sessionIdleDays: 7,        // log out a device unused for this many days (RODO art. 32: unattended sessions)
+  auditRetentionDays: 730,   // security / change log kept for 2 years, then deleted
+  outboxRetentionDays: 90,   // copies of sent e-mails
+  itShowUsage: false,        // organisations' IT sees report counts per person (off: IT sees only accounts and problems)
+  globalLearning: true,      // use the published global (central) knowledge in AI requests
 };
 
 export function plans() {
@@ -89,6 +97,8 @@ export function access(user, now = Date.now()) {
   if (user.role === 'admin') return { ok: true };
   if (user.blocked) return { ok: false, code: 'blocked', reason: 'Konto zablokowane — skontaktuj się z administratorem.' };
   if (user.must_change_pwd) return { ok: false, code: 'pwd', reason: 'Ustaw własne hasło, aby rozpocząć pracę.' };
+  const tv = settings().termsVersion;
+  if (tv && user.terms_version !== tv) return { ok: false, code: 'terms', reason: 'Zaakceptuj regulamin i informację o przetwarzaniu danych, aby rozpocząć pracę.' };
   const org = orgOf(user);
   if (org) {
     // members of an organisation: the organisation's licence decides (no personal subscription, no payments)

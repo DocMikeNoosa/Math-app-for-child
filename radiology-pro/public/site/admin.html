@@ -23,6 +23,8 @@
         <button role="tab" data-tab="dash" aria-selected="true">Pulpit</button>
         <button role="tab" data-tab="users" aria-selected="false">Użytkownicy</button>
         <button role="tab" data-tab="orgs" aria-selected="false">Organizacje</button>
+        <button role="tab" data-tab="learning" aria-selected="false">Nauka globalna AI</button>
+        <button role="tab" data-tab="tickets" aria-selected="false">Zgłoszenia <span class="pill err" id="ticketCount" hidden></span></button>
         <button role="tab" data-tab="usage" aria-selected="false">Zużycie i koszty AI</button>
         <button role="tab" data-tab="payments" aria-selected="false">Płatności</button>
         <button role="tab" data-tab="plans" aria-selected="false">Plany i ceny</button>
@@ -105,6 +107,46 @@
         </table></div>
       </section>
 
+      <!-- central learning -->
+      <section data-panel="learning" style="padding:0" hidden>
+        <div class="msg info small">Archiwum nauki zapisuje <b>na stałe</b> każdą lekcję od każdego radiologa (po usunięciu danych identyfikujących). Widzisz je tylko Ty — nie ma do niego dostępu dział IT, firma-klient ani żaden użytkownik, i nigdy nie trafia do przeglądarki. Wiedza globalna działa dopiero po Twojej akceptacji („Opublikuj”); osobisty styl radiologa ma zawsze pierwszeństwo.</div>
+        <div class="kpis" id="lkpis"></div>
+        <div class="cols">
+          <div>
+            <div class="card">
+              <div class="card-head"><h3>Nowa wersja wiedzy globalnej</h3></div>
+              <form id="lnew">
+                <div class="row">
+                  <div class="field"><label>Metoda</label><select name="method"><option value="ai">Analiza AI (zalecana — łączy i uogólnia lekcje)</option><option value="counts">Same liczby (bez AI)</option></select></div>
+                </div>
+                <div class="row">
+                  <div class="field"><label>Min. różnych radiologów na lekcję</label><input name="minContributors" type="number" min="2" max="50" value="3" /></div>
+                  <div class="field"><label>Min. różnych organizacji</label><input name="minOrgs" type="number" min="1" max="20" value="1" /></div>
+                </div>
+                <div class="field"><label>Notatka</label><input name="note" maxlength="500" placeholder="np. po pierwszym miesiącu pilotażu" /></div>
+                <button class="btn btn-primary" type="submit">Utwórz szkic</button>
+              </form>
+              <p class="dim small" style="margin-top:10px">Lekcja trafia do wiedzy globalnej tylko wtedy, gdy tę samą poprawkę zrobiło niezależnie co najmniej tylu radiologów — nawyk jednej osoby nie staje się regułą dla wszystkich, a pojedynczego radiologa nie da się rozpoznać.</p>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Archiwum</h3><a class="btn btn-sm" href="/api/admin/learning/export">Eksport całego archiwum (JSONL)</a></div>
+              <div class="table-wrap"><table><thead><tr><th>Rodzaj lekcji</th><th class="num">Lekcje</th><th class="num">Wspólne (≥2 osoby)</th><th class="num">Zgłoszenia</th></tr></thead><tbody id="lkinds"></tbody></table></div>
+            </div>
+          </div>
+          <div>
+            <div class="card">
+              <div class="card-head"><h3>Wersje</h3><button class="btn btn-sm" id="lunpub">Wyłącz wiedzę globalną</button></div>
+              <div class="table-wrap"><table><thead><tr><th>#</th><th>Utworzono</th><th>Metoda</th><th>Status</th><th></th></tr></thead><tbody id="lversions"></tbody></table></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- tickets -->
+      <section data-panel="tickets" style="padding:0" hidden>
+        <div class="card"><div class="card-head"><h3>Zgłoszenia od działów IT</h3></div><div id="ticketList" class="small"></div></div>
+      </section>
+
       <!-- usage -->
       <section data-panel="usage" style="padding:0" hidden>
         <div class="toolbar"><label for="month" style="margin:0">Miesiąc</label><input id="month" type="month" /><span class="grow"></span><a class="btn btn-sm" href="/api/admin/export/usage.csv">CSV</a></div>
@@ -164,6 +206,17 @@
               <div class="field"><label for="sBankName">Odbiorca przelewu (nazwa firmy)</label><input id="sBankName" name="bankName" /></div>
               <div class="field"><label for="sBank">Numer konta do przelewów</label><input id="sBank" name="bankAccount" placeholder="PL00 0000 0000 0000 0000 0000 0000" /></div>
               <div class="field"><label class="check"><input type="checkbox" name="registrationOpen" /> Rejestracja otwarta (nowi użytkownicy mogą sami założyć konto próbne)</label></div>
+              <h3 style="margin-top:18px">RODO, bezpieczeństwo, nauka</h3>
+              <div class="row">
+                <div class="field"><label for="sTerms">Wersja regulaminu / informacji RODO <span class="faint">(zmiana = wszyscy akceptują ponownie)</span></label><input id="sTerms" name="termsVersion" maxlength="20" /></div>
+                <div class="field"><label for="sIdle">Wylogowanie nieużywanego urządzenia po (dniach)</label><input id="sIdle" name="sessionIdleDays" type="number" min="1" max="30" /></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="sAudit">Dziennik zdarzeń przechowywany (dni)</label><input id="sAudit" name="auditRetentionDays" type="number" min="180" max="3650" /></div>
+                <div class="field"><label for="sOutbox">Kopie e-maili przechowywane (dni)</label><input id="sOutbox" name="outboxRetentionDays" type="number" min="7" max="365" /></div>
+              </div>
+              <div class="field"><label class="check"><input type="checkbox" name="globalLearning" /> Używaj opublikowanej wiedzy globalnej w zapytaniach AI</label></div>
+              <div class="field"><label class="check"><input type="checkbox" name="itShowUsage" /> Działy IT widzą liczbę opisów poszczególnych osób (domyślnie nie — tylko konta i problemy)</label></div>
               <div class="field"><label for="sAnn">Komunikat dla wszystkich użytkowników <span class="faint">(pasek w aplikacji, np. „Dziś 22:00–22:15 prace serwisowe”; puste = brak)</span></label><input id="sAnn" name="announcement" maxlength="300" /></div>
               <button class="btn btn-primary" type="submit">Zapisz ustawienia</button>
             </form>
