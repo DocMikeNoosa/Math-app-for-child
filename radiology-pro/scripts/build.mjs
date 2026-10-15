@@ -67,5 +67,7 @@ for (const f of await readdir(path.join(PUB, 'site'))) {
   else if (f.endsWith('.css')) await minifyCss(src, path.join(SITE, f));
   else if (f.endsWith('.js') && f !== 'common.js') await bundle(src, path.join(SITE, f));
 }
+// images of the public website
+await cp(path.join(PUB, 'site', 'img'), path.join(SITE, 'img'), { recursive: true }).catch(() => {});
 
 console.log(`Build OK${OBFUSCATE ? ' (obfuscated)' : ''}: dist/app/js/app.js ${(appSize / 1024).toFixed(0)} KB, dist/site`);
