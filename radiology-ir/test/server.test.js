@@ -379,3 +379,26 @@ test('learn: EN→PL pairs count as material; the glossary comes back', async ()
   assert.equal(data.glossary[0].en, 'fat stranding');
   assert.equal(JSON.parse(lastRequest.body.messages[0].content).translations.length, 1);
 });
+
+test('card parse: request carries the app vocabulary and a strict schema; the answer is validated', async () => {
+  const answer = {
+    branch: 'Neuro',
+    lesions: [{ part: 'acom', finding: 'aneurysm', position: 'mid', fields: [{ key: 'size', value: '6 × 5' }], procedures: ['coiling'], devices: [{ category: 'neuro_coil', name: 'Target 360', size: '', quantity: 4 }] },
+      { part: 'invented_vessel', finding: 'aneurysm', position: '', fields: [], procedures: [], devices: [] }],
+    general_devices: [], access: { site: 'cfa', side: 'right', sheath: '6 F', closure: '' }, anaesthesia: 'general', outcome: 'success',
+    no_complications: true, complications: '', contrast_ml: '', fluoroscopy_min: '', dose: '', dose_unit: '', indication: '', recommendations: '', follow_up: '', clinical: [], warnings: [],
+  };
+  nextReply = { json: message(JSON.stringify(answer)) };
+  const res = await fetch(`${appUrl}/api/card-parse`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'tętniak AComA, cztery spirale Target', lang: 'pl' }) });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(lastRequest.body.output_config.format.type, 'json_schema');
+  assert.match(lastRequest.body.system[0].text, /acom: AComA/);
+  assert.match(lastRequest.body.system[0].text, /LVIS EVO/);
+  assert.deepEqual(JSON.parse(lastRequest.body.messages[0].content), { dictation: 'tętniak AComA, cztery spirale Target', language: 'pl' });
+  assert.equal(data.lesions.length, 1);
+  assert.deepEqual(data.lesions[0].devices, [{ cat: 'neuro_coil', name: 'Target 360', size: '', qty: 4 }]);
+  assert.ok(data.warnings.some((w) => /invented_vessel/.test(w)));
+  const empty = await fetch(`${appUrl}/api/card-parse`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: '  ' }) });
+  assert.equal(empty.status, 400);
+});

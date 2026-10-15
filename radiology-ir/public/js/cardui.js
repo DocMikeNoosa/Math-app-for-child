@@ -15,6 +15,8 @@ import {
   builtinLetter, fillLetter, pseudonymiseLetter, greeting, figureCaption, figureCallout,
 } from './card.js';
 import { renderFigure } from './figure.js';
+import { Dictation, speechSupported } from './speech.js';
+import { localParse, applyParsed } from './parse.js';
 
 const CARD_KEY = 'radvox.card.v1';
 const PATIENT_KEY = 'radvox.patient.v1'; // sessionStorage only — never kept after the browser closes
@@ -142,7 +144,15 @@ function renderDiagramArea() {
   const dropViewer = () => { if (viewer) { viewer.ctrl.dispose(); viewer = null; } };
   if (!c.branch) {
     dropViewer();
-    host.innerHTML = `<div class="dgm-start">${BRANCHES.map(([id, pl, en]) => `<button type="button" class="dgm-start-btn" data-branch="${id}"><b>${esc(lang() === 'en' ? en : pl)}</b><small>${esc(id === 'Vascular' ? t2('aorta, tętnice trzewne, kończyny, żyły, wieńcowe', 'aorta, visceral, limbs, veins, coronary') : id === 'Neuro' ? t2('koło Willisa, tętnice szyjne i kręgowe, zatoki, rdzeń', 'circle of Willis, carotid and vertebral arteries, sinuses, spine') : t2('drogi żółciowe, nerki, narządy, klatka, kręgosłup, szyja', 'biliary, kidneys, organs, chest, spine, neck'))}</small></button>`).join('')}</div>`;
+    host.innerHTML = `<div class="dgm-start">
+      <div class="start-steps">
+        <div class="st"><b>1</b><span>${t2('Powiedz, co zrobiłeś', 'Say what you did')}</span><small>${t2('mikrofon lub tekst u góry — schemat i karta ustawią się same', 'microphone or text above — the diagram and the card set themselves up')}</small></div>
+        <div class="st"><b>2</b><span>${t2('Sprawdź i uzupełnij', 'Check and complete')}</span><small>${t2('sprzęt, rozmiary, wynik — kilka kliknięć', 'devices, sizes, result — a few clicks')}</small></div>
+        <div class="st"><b>3</b><span>${t2('Opis i list', 'Report and letter')}</span><small>${t2('jednym przyciskiem na dole', 'one button at the bottom')}</small></div>
+      </div>
+      <div class="start-or">${t2('albo wybierz ręcznie i kliknij naczynie na schemacie:', 'or choose by hand and click the vessel on the diagram:')}</div>
+      <div class="start-branches">${BRANCHES.map(([id, pl, en]) => `<button type="button" class="dgm-start-btn" data-branch="${id}"><b>${esc(lang() === 'en' ? en : pl)}</b><small>${esc(id === 'Vascular' ? t2('aorta, tętnice szyjne, trzewne, kończyny, żyły', 'aorta, carotids, visceral, limbs, veins') : id === 'Neuro' ? t2('tętniaki, AVM, udar, tętnice szyjne i kręgowe', 'aneurysms, AVM, stroke, carotid and vertebral arteries') : t2('drenaże, biopsje, ablacje, kręgosłup', 'drainage, biopsy, ablation, spine'))}</small></button>`).join('')}</div>
+    </div>`;
     $('dgmHint').hidden = true;
     return;
   }
@@ -203,8 +213,8 @@ function pickPart(partId, t = 0.5) {
   setTimeout(() => $('cardSide').querySelector('.les-editor select, .les-editor input')?.focus(), 0);
 }
 
-function sectionOpen(id) { return store.get('radvox.cardOpen.v1', { indication: true, access: true })[id] ?? false; }
-function rememberOpen(id, open) { const o = store.get('radvox.cardOpen.v1', { indication: true, access: true }); o[id] = open; store.set('radvox.cardOpen.v1', o); }
+function sectionOpen(id) { return store.get('radvox.cardOpen.v2', {})[id] ?? false; }
+function rememberOpen(id, open) { const o = store.get('radvox.cardOpen.v2', {}); o[id] = open; store.set('radvox.cardOpen.v2', o); }
 
 const sec_ = (id, title, body, summary = '') => `<details class="card-sec" data-sec="${id}"${sectionOpen(id) ? ' open' : ''}><summary><span>${esc(title)}</span><span class="sec-sum">${esc(summary)}</span></summary><div class="sec-body">${body}</div></details>`;
 
@@ -217,7 +227,7 @@ function renderSide() {
     : `<li class="les-empty">${t2('Brak zaznaczonych zmian — kliknij schemat.', 'Nothing marked yet — click the diagram.')}</li>`;
   const sites = ACCESS_SITES[c.branch || 'Vascular'];
   const opt = (arr, cur) => `<option value="">—</option>${arr.map(([id, pl, en]) => `<option value="${id}"${cur === id ? ' selected' : ''}>${esc(lg === 'en' ? en : pl)}</option>`).join('')}`;
-  const devList = (devs, owner) => `<ul class="dev-list">${devs.map((d, i) => `<li><span>${esc(deviceText(d, lg))}</span><button type="button" class="x-btn" data-del-dev="${owner}:${i}" title="${t2('Usuń', 'Remove')}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></li>`).join('')}</ul>`;
+  const devList = (devs, owner) => devRows(devs.map((d) => [d, c.devices.indexOf(d)]), owner);
   const generalDevs = c.devices.filter((d) => d.cat !== 'drugs');
   const drugs = c.devices.filter((d) => d.cat === 'drugs');
   const dev = c.devices;
@@ -226,6 +236,7 @@ function renderSide() {
     <div class="les-head"><span>${t2('Zmiany', 'Lesions')}</span></div>
     <ul class="les-list">${list}</ul>
     ${les ? lesionEditor(les) : ''}
+    <div class="les-head more-head"><span>${t2('Szczegóły zabiegu', 'Procedure details')}</span><small>${t2('rozwiń, jeśli potrzebne', 'open when needed')}</small></div>
     ${variantSection()}
     ${clinicalSection()}
     ${sec_('indication', t2('Wskazanie', 'Indication'), `<textarea id="cfIndication" rows="2" spellcheck="true" placeholder="${t2('np. objawowe zwężenie tętnicy szyjnej wewnętrznej prawej, TIA', 'e.g. symptomatic right ICA stenosis, TIA')}">${esc(c.indication)}</textarea>`, c.indication ? '✓' : '')}
@@ -241,7 +252,7 @@ function renderSide() {
       <p class="sec-note">${t2('Koszulki, cewniki prowadzące, prowadniki, zamknięcie — oraz leki (heparyna, trombolityk, nimodypina…).', 'Sheaths, guide catheters, wires, closure — and drugs (heparin, thrombolytic, nimodipine…).')}</p>
       ${devList(generalDevs.map((d) => d), 'general')}
       <button type="button" class="btn btn-small" data-add-dev="general">+ ${t2('Sprzęt', 'Device')}</button>
-      ${drugs.length ? `<div class="sec-sub">${t2('Leki', 'Drugs')}</div><ul class="dev-list">${drugs.map((d) => `<li><span>${esc(deviceText(d, lg))}</span><button type="button" class="x-btn" data-del-dev="general:${dev.indexOf(d)}" title="${t2('Usuń', 'Remove')}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></li>`).join('')}</ul>` : ''}
+      ${drugs.length ? `<div class="sec-sub">${t2('Leki', 'Drugs')}</div>${devRows(drugs.map((d) => [d, dev.indexOf(d)]), 'general')}` : ''}
       <button type="button" class="btn btn-small" data-add-dev="general" data-cat="drugs">+ ${t2('Lek', 'Drug')}</button>`,
     c.devices.length ? String(c.devices.length) : '')}
     ${sec_('dose', t2('Kontrast i dawka', 'Contrast and dose'), `
@@ -283,6 +294,76 @@ function fieldInput(f, value, prefix, id) {
   if (f.type === 'bool') return `<div class="field field-bool"><label class="lf-check"><input type="checkbox" id="${id}" data-${prefix}="${f.key}"${value ? ' checked' : ''} /> ${lab}</label></div>`;
   return `<div class="field"><label for="${id}">${lab}</label><input id="${id}" data-${prefix}="${f.key}" type="text" inputmode="${f.type === 'num' ? 'decimal' : 'text'}" value="${esc(value ?? '')}" /></div>`;
 }
+// procedures that fit a finding (the rest stay behind „wszystkie”)
+const REL_PROCS = {
+  aneurysm: ['coiling', 'stent_coiling', 'flow_diverter', 'intrasaccular', 'stent_graft', 'embolization', 'aneurysm_embolization', 'stent'],
+  pseudoaneurysm: ['embolization', 'stent_graft', 'aneurysm_embolization'],
+  thrombus: ['stroke_thrombectomy', 'thrombectomy', 'thrombolysis', 'pta', 'stent'],
+  stenosis: ['carotid_stenting', 'intracranial_stenting', 'pta', 'stent', 'atherectomy', 'stent_graft'],
+  occlusion: ['carotid_stenting', 'intracranial_stenting', 'pta', 'stent', 'thrombectomy', 'atherectomy', 'stroke_thrombectomy'],
+  dissection: ['carotid_stenting', 'intracranial_stenting', 'stent', 'stent_graft'],
+  avm: ['avm_embolization'], davf: ['davf_embolization'], spasm: ['vasospasm'],
+  bleeding: ['embolization', 'epistaxis', 'stent_graft', 'tumour_embolization'],
+  tumour: ['tumour_embolization', 'embolization', 'chemoembolization', 'radioembolization'],
+};
+// device categories offered as one-tap chips for each procedure
+const QUICK = {
+  coiling: ['neuro_coil', 'neuro_microcatheter', 'neuro_microwire', 'neuro_intermediate'],
+  stent_coiling: ['neuro_coil', 'neuro_stent_coil', 'neuro_balloon', 'neuro_microcatheter'],
+  flow_diverter: ['flow_diverter', 'neuro_microcatheter', 'neuro_intermediate', 'neuro_microwire'],
+  intrasaccular: ['intrasaccular', 'neuro_microcatheter', 'neuro_coil'],
+  stroke_thrombectomy: ['stent_retriever', 'neuro_aspiration', 'neuro_balloon_guide', 'neuro_microcatheter'],
+  carotid_stenting: ['stent_carotid', 'embolic_protection', 'balloon_pta', 'neuro_guide'],
+  intracranial_stenting: ['neuro_angioplasty_stent', 'neuro_balloon', 'neuro_microcatheter'],
+  avm_embolization: ['neuro_liquid_embolic', 'neuro_microcatheter', 'neuro_coil'],
+  davf_embolization: ['neuro_liquid_embolic', 'neuro_coil', 'neuro_microcatheter', 'neuro_balloon'],
+  tumour_embolization: ['particles', 'neuro_liquid_embolic', 'microcatheter'],
+  mma_embolization: ['particles', 'neuro_liquid_embolic', 'neuro_coil'],
+  vasospasm: ['neuro_balloon', 'neuro_microcatheter'],
+  stent: ['stent_se_peripheral', 'stent_be_peripheral', 'stent_covered_peripheral', 'balloon_pta'],
+  pta: ['balloon_pta', 'balloon_dcb', 'balloon_high_pressure', 'guidewire'],
+  stent_graft: ['aortic_evar', 'aortic_tevar', 'stent_covered_peripheral', 'balloon_occlusion'],
+  embolization: ['coil_detachable', 'coil_pushable', 'vascular_plug', 'particles', 'liquid_embolic', 'microcatheter'],
+  aneurysm_embolization: ['coil_detachable', 'vascular_plug', 'liquid_embolic', 'microcatheter'],
+  thrombectomy: ['thrombectomy', 'thrombolysis_catheter', 'balloon_pta'],
+  thrombolysis: ['thrombolysis_catheter'],
+  atherectomy: ['atherectomy', 'embolic_protection', 'balloon_dcb'],
+  chemoembolization: ['particles', 'microcatheter'],
+  radioembolization: ['radioembolization', 'microcatheter'],
+  epistaxis: ['particles', 'neuro_microcatheter', 'coil_pushable'],
+};
+const QUICK_BY_FINDING = {
+  aneurysm: ['neuro_coil', 'neuro_stent_coil', 'flow_diverter', 'intrasaccular'], thrombus: ['stent_retriever', 'neuro_aspiration'],
+  stenosis: ['stent_carotid', 'balloon_pta', 'stent_se_peripheral'], occlusion: ['balloon_pta', 'stent_se_peripheral'], avm: ['neuro_liquid_embolic'], davf: ['neuro_liquid_embolic', 'neuro_coil'],
+};
+const isCoilDev = (d) => /coil|spiral/i.test(`${d.cat} ${d.name}`) && !/stent_coil/.test(d.cat);
+/** Device rows: name, size typed in place, − qty + and remove. `items` = [[device, index in its list]]. */
+function devRows(items, owner) {
+  const lg = lang();
+  if (!items.length) return '';
+  return `<ul class="dev-list dev-edit">${items.map(([d, i]) => `<li>
+    <span class="dv-name" title="${esc(deviceText(d, lg))}">${d.common ? '<span class="pl-star">★</span>' : ''}${esc(d.name)}${d.maker ? ` <small>${esc(d.maker)}</small>` : ''}</span>
+    <input class="dv-size" type="text" data-dsize="${owner}:${i}" value="${esc(d.size || '')}" placeholder="${t2('rozmiar', 'size')}" aria-label="${t2('Rozmiar', 'Size')}" />
+    <span class="dv-qty"><button type="button" data-dqty="${owner}:${i}:-1" aria-label="−">−</button><b>${Number(d.qty) || 1}</b><button type="button" data-dqty="${owner}:${i}:1" aria-label="+">+</button></span>
+    <button type="button" class="x-btn" data-del-dev="${owner}:${i}" title="${t2('Usuń', 'Remove')}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></li>`).join('')}</ul>`;
+}
+function quickDevices(l) {
+  const avail = new Set(devCategories().map((x) => x.id));
+  let cats = [...new Set((l.procs || []).flatMap((p) => QUICK[p] || []))];
+  if (!cats.length) cats = QUICK_BY_FINDING[l.finding] || [];
+  cats = cats.filter((x) => avail.has(x)).slice(0, 4);
+  return cats.map((cid) => {
+    const c = categories.find((x) => x.id === cid);
+    if (!c) return '';
+    const items = [...(c.items || []).filter((i) => i.common), ...(c.items || []).filter((i) => !i.common)].slice(0, 5);
+    return `<div class="qd-row"><span class="qd-cat">${esc(lbl(c.label))}</span><div class="qd-chips">${items.map((it) => `<button type="button" class="qd-chip" data-qdev="${esc(`${cid}|${it.name}|${it.maker || ''}`)}">${it.common ? '<span class="pl-star">★</span>' : ''}${esc(it.name)}</button>`).join('')}<button type="button" class="qd-chip more" data-add-dev="${l.id}" data-cat="${cid}">${t2('więcej…', 'more…')}</button></div></div>`;
+  }).join('');
+}
+function leStep(l, n, id, title, summary, body, openByDefault) {
+  const key = `${l.id}:${id}`;
+  const open = ui.leOpen?.[key] ?? openByDefault;
+  return `<details class="le-step" data-step="${key}"${open ? ' open' : ''}><summary><span class="le-n">${n}</span><span class="le-st">${esc(title)}</span><span class="le-sum">${esc(summary)}</span></summary><div class="le-body">${body}</div></details>`;
+}
 function lesionEditor(l) {
   const lg = lang();
   const kind = l.kind === 'organ' ? 'organ' : 'vessel';
@@ -292,25 +373,37 @@ function lesionEditor(l) {
   const fields = def.fields.filter((f) => vascular || !f.vascularOnly);
   const pre = fields.filter((f) => f.group === 'pre').map((f) => fieldInput(f, l[f.key], 'lfield', `lf_${f.key}`)).join('');
   const post = fields.filter((f) => f.group === 'post').map((f) => fieldInput(f, l[f.key], 'lfield', `lf_${f.key}`)).join('');
-  const computed = lesionFacts(l, lg, { vascular }).computed;
+  const facts = lesionFacts(l, lg, { vascular });
+  const computed = facts.computed;
   const anat = anatOf(l);
-  const procs = proceduresFor(anat, api.templates()).filter((p) => branchFits(p));
-  const procChips = procs.map((p) => `<button type="button" class="anat-chip" data-proc="${p}" aria-pressed="${l.procs.includes(p)}">${esc(procLabel(p, lg))}</button>`).join('');
+  const all = proceduresFor(anat, api.templates()).filter((p) => branchFits(p));
+  const rel = all.filter((p) => (REL_PROCS[l.finding] || []).includes(p) || l.procs.includes(p));
+  const showAll = ui.allProcs || !rel.length;
+  const procs = showAll ? all : rel;
+  const procChips = procs.map((p) => `<button type="button" class="anat-chip" data-proc="${p}" aria-pressed="${l.procs.includes(p)}">${esc(procLabel(p, lg))}</button>`).join('')
+    + (rel.length && all.length > rel.length ? `<button type="button" class="link-btn" data-allprocs="1">${showAll ? t2('tylko pasujące', 'matching only') : t2(`wszystkie (${all.length})`, `all (${all.length})`)}</button>` : '');
   const position = d?.kind === 'model3d' ? `<div class="cf-row"><label for="leT">${t2('Miejsce na naczyniu', 'Position on vessel')}</label><input id="leT" type="range" min="0" max="100" value="${Math.round((l.t ?? 0.5) * 100)}" /><span class="le-pos">${(l.t ?? 0.5) < 0.34 ? t2('proksymalnie', 'proximal') : (l.t ?? 0.5) > 0.66 ? t2('dystalnie', 'distal') : t2('środek', 'mid')}</span></div>` : '';
   const sideRow = d?.kind === 'list' ? `<div class="cf-row"><label>${t2('Strona', 'Side')}</label><div class="seg" id="leSide">${[['', '—', '—'], ['right', 'prawa', 'right'], ['left', 'lewa', 'left'], ['both', 'obustronnie', 'bilateral']].map(([v, pl, en]) => `<button type="button" data-lside="${v}" aria-pressed="${(l.side || '') === v}">${esc(lg === 'en' ? en : pl)}</button>`).join('')}</div></div>` : '';
+  const coils = l.devices.filter(isCoilDev).reduce((a, x) => a + (Number(x.qty) || 1), 0);
+  const others = l.devices.filter((x) => !isCoilDev(x)).map((x) => x.name);
+  const devSum = [coils ? (lg === 'en' ? `${coils} coil${coils > 1 ? 's' : ''}` : `${coils} ${coils === 1 ? 'spirala' : coils < 5 ? 'spirale' : 'spiral'}`) : '', ...others].filter(Boolean).join(', ');
+  const step1 = `<div class="cf-row"><label for="leFinding">${t2('Zmiana', 'Finding')}</label><select id="leFinding">${FINDINGS[kind].map((f) => `<option value="${f.id}"${f.id === l.finding ? ' selected' : ''}>${esc(lbl(f.label))}</option>`).join('')}</select></div>
+    ${position}${sideRow}
+    ${pre ? `<div class="cf-grid2">${pre}</div>` : ''}
+    <div class="le-calc" id="leCalc"${computed.length ? '' : ' hidden'}>${computed.map((c) => `<span>${esc(c)}</span>`).join('')}</div>`;
+  const step2 = `<div class="chips">${procChips || `<span class="sec-note">${t2('Brak zabiegów dla tej okolicy.', 'No procedures for this region.')}</span>`}</div>`;
+  const step3 = `${devRows(l.devices.map((x, i) => [x, i]), l.id)}
+    ${coils ? `<div class="sec-note coil-total">${t2('Spirale łącznie', 'Coils in total')}: <b>${coils}</b></div>` : ''}
+    <div class="qd">${quickDevices(l)}</div>
+    <button type="button" class="btn btn-small" data-add-dev="${l.id}">${t2('Szukaj w katalogu sprzętu…', 'Search the device catalogue…')}</button>`;
+  const step4 = `${post ? `<div class="cf-grid2">${post}</div>` : ''}<input id="leNotes" type="text" value="${esc(l.notes)}" placeholder="${t2('Uwagi do tej zmiany (opcjonalnie)', 'Notes on this lesion (optional)')}" />`;
+  const preSum = [lbl(def.label), ...facts.pre.slice(0, 3)].join(', ');
   return `<div class="les-editor">
     <div class="le-title">${esc(labelOf(l))}</div>
-    <div class="cf-row"><label for="leFinding">${t2('Zmiana', 'Finding')}</label><select id="leFinding">${FINDINGS[kind].map((f) => `<option value="${f.id}"${f.id === l.finding ? ' selected' : ''}>${esc(lbl(f.label))}</option>`).join('')}</select></div>
-    ${position}${sideRow}
-    ${pre ? `<div class="le-sub">${t2('Przed leczeniem', 'Before treatment')}</div><div class="cf-grid2">${pre}</div>` : ''}
-    <div class="le-calc" id="leCalc"${computed.length ? '' : ' hidden'}>${computed.map((c) => `<span>${esc(c)}</span>`).join('')}</div>
-    <div class="le-sub">${t2('Wykonano', 'Performed')}</div>
-    <div class="chips">${procChips || `<span class="sec-note">${t2('Brak zabiegów dla tej okolicy.', 'No procedures for this region.')}</span>`}</div>
-    <div class="le-sub">${t2('Sprzęt użyty w tej zmianie', 'Devices used for this lesion')}</div>
-    <ul class="dev-list">${l.devices.map((dv, i) => `<li><span>${esc(deviceText(dv, lg))}</span><button type="button" class="x-btn" data-del-dev="${l.id}:${i}" title="${t2('Usuń', 'Remove')}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></li>`).join('')}</ul>
-    <button type="button" class="btn btn-small" data-add-dev="${l.id}">+ ${t2('Stent, flow diverter, spirala, balon, cewnik…', 'Stent, flow diverter, coil, balloon, catheter…')}</button>
-    ${post ? `<div class="le-sub">${t2('Wynik', 'Result')}</div><div class="cf-grid2">${post}</div>` : ''}
-    <input id="leNotes" type="text" value="${esc(l.notes)}" placeholder="${t2('Uwagi do tej zmiany (opcjonalnie)', 'Notes on this lesion (optional)')}" />
+    ${leStep(l, 1, 'finding', t2('Zmiana', 'Finding'), preSum, step1, !facts.pre.length)}
+    ${leStep(l, 2, 'procs', t2('Leczenie', 'Treatment'), l.procs.map((p) => procLabel(p, lg)).join(', ') || t2('wybierz', 'choose'), step2, !l.procs.length)}
+    ${leStep(l, 3, 'devices', t2('Sprzęt', 'Devices'), devSum || t2('wybierz', 'choose'), step3, Boolean(l.procs.length) && !l.devices.length)}
+    ${leStep(l, 4, 'result', t2('Wynik', 'Result'), facts.post.join(', ') || (post ? t2('uzupełnij', 'fill in') : '—'), step4, Boolean(l.devices.length) && !facts.post.length && Boolean(post))}
   </div>`;
 }
 
@@ -369,7 +462,12 @@ function onCardInput(e) {
     case 'cfNotes': c.notes = v; break;
     case 'leNotes': if (les) les.notes = v; break;
     default:
-      if (el.dataset.lfield && les) {
+      if (el.dataset.dsize) {
+        const [owner, i] = el.dataset.dsize.split(':');
+        const list = owner === 'general' ? c.devices : c.lesions.find((l) => l.id === owner)?.devices;
+        if (list?.[Number(i)]) list[Number(i)].size = v;
+        if (owner !== 'general') refreshBadges();
+      } else if (el.dataset.lfield && les) {
         les[el.dataset.lfield] = el.type === 'checkbox' ? el.checked : v;
         // calculators: stenosis % from the diameters, ratios, Spetzler-Martin
         Object.assign(les, lesionAuto(les));
@@ -426,7 +524,31 @@ function onCardClick(e) {
     ui.active = b.dataset.les;
     const l = c.lesions.find((x) => x.id === ui.active);
     if (l && l.diagram !== c.diagram) c.diagram = l.diagram;
-    renderCard(); return;
+    renderCard();
+    focusLesion(l);
+    return;
+  }
+  if (b.dataset.allprocs) { ui.allProcs = !ui.allProcs; renderSide(); return; }
+  if (b.dataset.qdev && les) {
+    const [cat, name, maker] = b.dataset.qdev.split('|');
+    const same = les.devices.find((x) => x.name === name && !x.size);
+    let idx;
+    if (same) { same.qty = (Number(same.qty) || 1) + 1; idx = les.devices.indexOf(same); }
+    else { les.devices.push({ cat, name, maker: maker || '', size: '', qty: 1 }); idx = les.devices.length - 1; }
+    // choosing a device for a lesion that has no procedure yet: tick the procedure it implies
+    if (!les.procs.length) { const p = Object.entries(QUICK).find(([, cats]) => cats[0] === cat)?.[0]; if (p && branchFits(p)) les.procs.push(p); }
+    ui.leOpen = { ...(ui.leOpen || {}), [`${les.id}:devices`]: true };
+    save(); renderSide(); refreshBadges(); renderGaps();
+    setTimeout(() => $('cardSide').querySelector(`[data-dsize="${les.id}:${idx}"]`)?.focus(), 0);
+    return;
+  }
+  if (b.dataset.dqty) {
+    const [owner, i, step] = b.dataset.dqty.split(':');
+    const list = owner === 'general' ? c.devices : c.lesions.find((l) => l.id === owner)?.devices;
+    const d = list?.[Number(i)];
+    if (d) d.qty = Math.max(1, Math.min(99, (Number(d.qty) || 1) + Number(step)));
+    save(); renderSide(); if (owner !== 'general') refreshBadges();
+    return;
   }
   if (b.dataset.delLes) {
     c.lesions = c.lesions.filter((l) => l.id !== b.dataset.delLes);
@@ -435,8 +557,9 @@ function onCardClick(e) {
   }
   if (b.dataset.proc && les) {
     les.procs = les.procs.includes(b.dataset.proc) ? les.procs.filter((p) => p !== b.dataset.proc) : [...les.procs, b.dataset.proc];
-    b.setAttribute('aria-pressed', String(les.procs.includes(b.dataset.proc)));
-    save(); renderGaps(); return;
+    // a procedure chosen → show its devices next
+    if (les.procs.includes(b.dataset.proc)) ui.leOpen = { ...(ui.leOpen || {}), [`${les.id}:devices`]: true };
+    save(); renderSide(); renderGaps(); return;
   }
   if (b.dataset.variant) {
     const id = b.dataset.variant;
@@ -457,7 +580,7 @@ function onCardClick(e) {
     const [owner, i] = b.dataset.delDev.split(':');
     const list = owner === 'general' ? c.devices : c.lesions.find((l) => l.id === owner)?.devices;
     if (list) list.splice(Number(i), 1);
-    renderSide(); save(); return;
+    renderSide(); save(); if (owner !== 'general') refreshBadges(); return;
   }
   if (b.dataset.lside !== undefined && les) { les.side = b.dataset.lside; setSeg('leSide', 'lside', les.side); save(); return; }
   if (b.dataset.side && b.closest('#cfSide')) { c.access.side = c.access.side === b.dataset.side ? '' : b.dataset.side; setSeg('cfSide', 'side', c.access.side); save(); return; }
@@ -548,7 +671,9 @@ function addDevice() {
   else ui.card.lesions.find((l) => l.id === ui.dev.target)?.devices.push(d);
   save();
   closeDevPicker();
+  if (ui.dev.target !== 'general') ui.leOpen = { ...(ui.leOpen || {}), [`${ui.dev.target}:devices`]: true };
   renderSide();
+  if (ui.dev.target !== 'general') refreshBadges();
   api.toast(`${t2('Dodano', 'Added')}: ${deviceText(d, lang())}`, 'ok', 1800);
 }
 function closeDevPicker() { $('devPicker').hidden = true; }
@@ -745,6 +870,80 @@ function renderReferrers() {
 }
 
 // ---------------------------------------------------------------- init
+// ---------------------------------------------------------------- „Powiedz, co zrobiłeś” (dictation → card)
+let sayRec = null;
+const sayLang = () => (document.querySelector('#inLang [aria-pressed="true"]')?.dataset.lang === 'en' ? 'en' : 'pl');
+function focusLesion(l) {
+  if (!l || !viewer?.ctrl?.focus) return;
+  const idx = ui.card.lesions.filter((x) => x.diagram === l.diagram).indexOf(l);
+  if (idx >= 0) setTimeout(() => viewer?.ctrl?.focus?.(idx), 30);
+}
+/** Microphone of the card (button, Space key, PowerMic): speech goes into the text box, stopping applies it. */
+export function toggleCardMic() {
+  if (!speechSupported) { api.toast(t2('Ta przeglądarka nie rozpoznaje mowy — wpisz tekst (Chrome i Edge rozpoznają mowę).', 'This browser has no speech recognition — type the text (Chrome and Edge have it).'), 'warn', 4000); $('sayText').focus(); return; }
+  if (sayRec?.active) {
+    const before = sayRec.before;
+    sayRec.stop().then(() => { $('sayInterim').textContent = ''; if ($('sayText').value.trim() && $('sayText').value.trim() !== before.trim()) sayApply(); });
+    return;
+  }
+  sayRec = new Dictation({
+    lang: sayLang() === 'en' ? 'en-GB' : 'pl-PL',
+    onFinal: (t) => { const ta = $('sayText'); ta.value = `${ta.value.trim()} ${t}`.trim(); },
+    onInterim: (t) => { $('sayInterim').textContent = t; },
+    onStateChange: (on) => { $('sayMic').classList.toggle('rec', on); $('sayMic').setAttribute('aria-pressed', String(on)); $('cardSay').classList.toggle('rec', on); },
+    onError: (m) => api.toast(m, 'err', 4500),
+  });
+  sayRec.before = $('sayText').value;
+  try { sayRec.start(); } catch { api.toast(t2('Nie udało się włączyć mikrofonu.', 'Could not start the microphone.'), 'err'); }
+}
+async function sayApply() {
+  const text = $('sayText').value.trim();
+  if (!text) { api.toast(t2('Powiedz lub wpisz, co zostało zrobione.', 'Say or type what was done.'), 'warn'); $('sayText').focus(); return; }
+  const lg = sayLang();
+  const btn = $('sayApply');
+  btn.disabled = true; btn.classList.add('busy');
+  let parsed = null; let via = 'local';
+  try {
+    if (api.state().ai) {
+      try {
+        const res = await fetch('/api/card-parse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: api.scrub(text), lang: lg, mode: api.state().aiMode }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `${res.status}`);
+        parsed = data; via = 'ai';
+      } catch (err) {
+        api.toast(`${t2('AI niedostępne — rozpoznano bez AI', 'AI unavailable — understood without AI')} (${err.message})`, 'warn', 4000);
+      }
+    }
+    if (!parsed) parsed = localParse(text, { categories });
+    ui.undo = JSON.stringify({ card: ui.card, active: ui.active });
+    const r = applyParsed(ui.card, parsed, { diagrams, categories, lang: lang() });
+    // keep the words for the report / letter AI — only when something was understood
+    if (r.summary.length) ui.card.dictation = [...(ui.card.dictation || []), text].slice(-12);
+    if (r.activeId) { ui.active = r.activeId; ui.leOpen = {}; }
+    save();
+    renderCard();
+    focusLesion(ui.card.lesions.find((l) => l.id === ui.active));
+    $('sayText').value = '';
+    const nothing = !r.summary.length;
+    $('sayResult').hidden = false;
+    $('sayResult').classList.toggle('empty', nothing);
+    $('sayResult').innerHTML = `<span class="sr-tag">${via === 'ai' ? 'AI' : t2('bez AI', 'no AI')}</span>
+      <span class="sr-text">${nothing ? t2('Nie rozpoznałem naczynia ani zabiegu — kliknij naczynie na schemacie albo powiedz to inaczej (np. „tętniak AComA”, „zwężenie lewej SFA 80%”).', 'I did not recognise a vessel or procedure — click the vessel on the diagram or say it differently (e.g. "AComA aneurysm", "left SFA stenosis 80%").') : `${t2('Wpisano', 'Added')}: ${r.summary.map(esc).join(' · ')}`}</span>
+      <span class="sr-acts"><button type="button" class="link-btn" id="sayUndo">${t2('Cofnij', 'Undo')}</button><button type="button" class="x-btn" id="sayClose" title="${t2('Zamknij', 'Close')}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>
+      ${r.warnings.length ? `<span class="sr-warn">⚠ ${r.warnings.map(esc).join(' · ')}</span>` : ''}`;
+  } finally {
+    btn.disabled = false; btn.classList.remove('busy');
+  }
+}
+function undoSay() {
+  if (!ui.undo) return;
+  const u = JSON.parse(ui.undo);
+  ui.card = u.card; ui.active = u.active; ui.undo = null;
+  save(); renderCard();
+  $('sayResult').hidden = true;
+  api.toast(t2('Cofnięto', 'Undone'), 'ok', 1500);
+}
+
 export async function initCard(appApi) {
   api = appApi;
   const saved = store.get(CARD_KEY, null);
@@ -774,7 +973,17 @@ export async function initCard(appApi) {
   cv.addEventListener('input', onCardInput);
   cv.addEventListener('change', onCardChange);
   cv.addEventListener('click', onCardClick);
-  cv.addEventListener('toggle', (e) => { const d = e.target.closest?.('.card-sec'); if (d) rememberOpen(d.dataset.sec, d.open); }, true);
+  cv.addEventListener('toggle', (e) => {
+    const d = e.target.closest?.('.card-sec');
+    if (d) rememberOpen(d.dataset.sec, d.open);
+    const st = e.target.closest?.('.le-step');
+    if (st) ui.leOpen = { ...(ui.leOpen || {}), [st.dataset.step]: st.open };
+  }, true);
+  // „Powiedz, co zrobiłeś”
+  $('sayApply').addEventListener('click', () => sayApply());
+  $('sayMic').addEventListener('click', () => toggleCardMic());
+  $('sayText').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sayApply(); } });
+  $('sayResult').addEventListener('click', (e) => { if (e.target.closest('#sayUndo')) undoSay(); if (e.target.closest('#sayClose')) $('sayResult').hidden = true; });
   $('cardToReport').addEventListener('click', cardToReport);
   $('cardToLetter').addEventListener('click', () => setView('letter'));
   $('cardClear').addEventListener('click', async () => {

@@ -7,7 +7,7 @@ import { Dictation, LevelMeter, speechSupported } from './speech.js';
 import { parseVoiceCommands, dropLastSentence, dropLastWord, COMMAND_LABELS } from './voice-commands.js';
 import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, addUnique, similarity } from './style-learning.js';
 import { MicButton } from './mic-button.js';
-import { initCard, setView, resetCard, onLanguageChanged, currentView } from './cardui.js';
+import { initCard, setView, resetCard, onLanguageChanged, currentView, toggleCardMic } from './cardui.js';
 
 const $ = (id) => document.getElementById(id);
 const els = Object.fromEntries(
@@ -1647,7 +1647,8 @@ async function stopRecording() {
   setSpeechTarget('dictation');
   schedulePrefetch(300);
 }
-const toggleRecording = () => (state.recording ? stopRecording() : startRecording());
+// on the procedure card the same key / pedal dictates into „Powiedz, co zrobiłeś”
+const toggleRecording = () => (currentView() === 'card' && !state.recording ? toggleCardMic() : state.recording ? stopRecording() : startRecording());
 function tick() {
   const s = Math.floor((Date.now() - timerStart) / 1000);
   els.recTimer.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;

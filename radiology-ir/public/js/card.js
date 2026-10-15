@@ -174,6 +174,8 @@ export function cardToText(card, { lang = 'pl', partOf = () => null, labelOf = n
   if (has(card.recommendations)) lines.push(`${en ? 'Recommendations' : 'Zalecenia'}: ${String(card.recommendations).trim().replace(/([^.!?])$/, '$1.')}`);
   if (has(card.followUp)) lines.push(`${en ? 'Follow-up' : 'Kontrola'}: ${String(card.followUp).trim().replace(/([^.!?])$/, '$1.')}`);
   if (has(card.notes)) lines.push(String(card.notes).trim().replace(/([^.!?])$/, '$1.'));
+  // what the radiologist said in „Powiedz, co zrobiłeś” — the full words, in case a detail did not fit a field
+  if (card.dictation?.length) lines.push(`${en ? 'Radiologist dictation (verbatim; the fields above take precedence)' : 'Dyktat lekarza (dosłownie; pola powyżej mają pierwszeństwo)'}: ${card.dictation.join(' ')}`);
   return lines.join('\n');
 }
 

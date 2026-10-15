@@ -25,6 +25,28 @@ RadVox IR only changes the colours (crimson accent, amber recording) and adds th
   `template-data.js` and the diagnostic tests were removed.
 - Tests: 58 (`npm test`): `ir.test.js`, `server.test.js` (mock API), plus the shared voice / style / text tests.
 
+## Version 1.4 (dictation → card)
+- `public/js/parse.js`:
+  - `localParse(text, { categories })` is the rule-based parser (Polish / English, Unicode-aware). It handles the vessel
+    alias table → model base id + side, findings and fields, catalogue device matching (flexible spacing, brand short
+    forms, quantities, sizes), procedures inferred from finding + devices, and card-level data.
+  - `applyParsed(card, parsed, { diagrams, categories })` merges the result into the card. It updates an existing lesion
+    on the same vessel; a sentence with results only fills the fields of the matching lesion.
+  - Helpers: `resolvePart`, `matchDevice`.
+- `lib/cardparse.js` + `POST /api/card-parse`:
+  - the Claude prompt is cached, together with the app vocabulary (parts, findings / fields, procedures, catalogue,
+    clinical keys);
+  - the output uses a strict JSON schema;
+  - `normaliseCardParse` drops anything outside the vocabulary.
+- `cardui.js`:
+  - the `#cardSay` bar (`toggleCardMic`, which app.js routes Space / PowerMic to on the card; `sayApply`; `undoSay`);
+  - lesion editor in steps (`leStep`), `REL_PROCS` (procedures per finding), `QUICK` (device categories per
+    procedure);
+  - `devRows` for editing size and quantity in place;
+  - `focusLesion` → `model3d.focus(index)`.
+- `card.dictation` (the last sentences) is added to `cardToText` as the radiologist's verbatim words.
+- Tests: 79 (`test/parse.test.js`, plus a server test for the card parse).
+
 ## Version 1.3 (letter figures, realism, Polish equipment ranking)
 - `public/js/figure.js`: `renderFigure(model, lesions, index, { lang, callout })`. It renders the lesion off-screen
   (`createModel3D(..., { figure: true })`, `frame(index)`, `figureLabels()`) and draws the labels, callout and scale bar

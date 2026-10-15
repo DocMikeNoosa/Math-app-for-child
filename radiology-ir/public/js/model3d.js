@@ -791,7 +791,7 @@ export function createModel3D(host, model, opts = {}) {
   tools.addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; setView(b.dataset.v === '__reset' ? current : views.find((x) => x.id === b.dataset.v)); });
 
   /** Camera for a letter figure: centred on the lesion, looking across the vessel (aneurysm sac in profile). */
-  function frameLesion(index = 0) {
+  function frameLesion(index = 0, { figure: forFigure = true } = {}) {
     const f = focusPoints[index];
     if (!f) return false;
     const t = f.tangent.clone().normalize();
@@ -810,9 +810,17 @@ export function createModel3D(host, model, opts = {}) {
     view.target.copy(f.at);
     view.size = Math.max(18, f.extent);
     view.zoom = 1; view.clip = null; view.hide = opts.figureHide || null;
-    view.depth = view.size * 1.6;
-    view.focus = { at: f.at.clone(), radius: view.size * 0.75, key: `${index}-${view.size}`, decor: view.size < 160, part: f.part };
-    draw(true);
+    if (forFigure) {
+      view.depth = view.size * 1.6;
+      view.focus = { at: f.at.clone(), radius: view.size * 0.75, key: `${index}-${view.size}`, decor: view.size < 160, part: f.part };
+      draw(true);
+    } else {
+      // interactive: zoom to the lesion with some surrounding anatomy, nothing hidden
+      view.size = Math.max(45, view.size * 2.2);
+      view.depth = null; view.focus = null;
+      for (const b of tools.querySelectorAll('[data-v]')) b.classList.remove('on');
+      draw();
+    }
     return true;
   }
 
@@ -947,6 +955,8 @@ export function createModel3D(host, model, opts = {}) {
     setView(id) { const v = views.find((x) => x.id === id); if (v) setView(v); },
     /** Point the camera at lesion number `index` (order of `lesions`) for a figure. */
     frame: frameLesion,
+    /** Zoom the interactive view to lesion number `index` (after dictation, or when it is picked in the list). */
+    focus: (index) => frameLesion(index, { figure: false }),
     dispose() {
       ro.disconnect();
       cancelAnimationFrame(raf);

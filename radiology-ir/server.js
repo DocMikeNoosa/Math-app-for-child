@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
 import { analyzeStyle, cleanLearnInput, cleanProfile, cleanTranslations } from './lib/learn.js';
 import { writeLetter, cleanLetterInput } from './lib/letter.js';
+import { parseCard } from './lib/cardparse.js';
 import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -154,6 +155,24 @@ async function handleLearn(req, res) {
   }
 }
 
+async function handleCardParse(req, res) {
+  if (!aiAvailable()) return sendJson(res, 503, { error: 'Brak klucza API — AI niedostępne.', code: 'no_api_key' });
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (err) {
+    if (err instanceof ClaudeError) return sendJson(res, err.status, { error: err.message });
+    return sendJson(res, 400, { error: 'Nieprawidłowy JSON.' });
+  }
+  try {
+    sendJson(res, 200, await parseCard(body.text, body.lang, ['fast', 'accurate', 'turbo'].includes(body.mode) ? body.mode : 'fast'));
+  } catch (err) {
+    if (err instanceof ClaudeError) return sendJson(res, err.status, { error: err.message });
+    console.error(err);
+    sendJson(res, 500, { error: 'Błąd serwera.' });
+  }
+}
+
 async function handleLetter(req, res) {
   if (!aiAvailable()) return sendJson(res, 503, { error: 'Brak klucza API — AI niedostępne.', code: 'no_api_key' });
   let body;
@@ -209,6 +228,7 @@ export function createServer() {
       if (req.url === '/api/format' && req.method === 'POST') return await handleFormat(req, res);
       if (req.url === '/api/learn' && req.method === 'POST') return await handleLearn(req, res);
       if (req.url === '/api/letter' && req.method === 'POST') return await handleLetter(req, res);
+      if (req.url === '/api/card-parse' && req.method === 'POST') return await handleCardParse(req, res);
       if (req.method === 'GET' || req.method === 'HEAD') return await serveStatic(req, res);
       res.writeHead(405);
       res.end();

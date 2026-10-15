@@ -4,6 +4,34 @@ RadVox IR is the interventional-radiology sister of **RadVox** (`../radiology-di
 layout and the same dictation / AI / learning features, a **crimson** colour scheme (RadVox is teal) and an amber
 recording button. It runs on its own port (**3300**), so RadVox (3000) and RadVox IR can be open at the same time.
 
+## Version 1.4 — „Powiedz, co zrobiłeś": say it, check it, done
+
+The procedure card is now built around one box at the top: **Powiedz, co zrobiłeś** (say what you did).
+1. **Say or type what you did.** Click the microphone (or press Space / the PowerMic button), speak, click again — or
+   type and press Enter. Example: „Embolizacja tętniaka AComA 6 na 5 mm, szyja 3 mm, pięć spiral MicroPlex Cosmos, stent
+   LVIS EVO 3,5 × 18, Raymond-Roy 1, dostęp prawa udowa 6 F, znieczulenie ogólne, bez powikłań".
+   - The card fills itself: the vessel (with side and segment), the finding and its numbers, the procedure, the devices
+     (matched to the catalogue, with sizes and quantities), access, anaesthesia, contrast / fluoroscopy / dose,
+     NIHSS / ASPECTS / times, Hunt-Hess, Rutherford… The 3D model zooms to the lesion and shows the treatment.
+   - A green line shows what was entered, with **Cofnij** (undo). More sentences can be added at any time; a sentence
+     about the same vessel updates it.
+   - With AI the dictation is understood by Claude, which is given the app's exact vessel list and device catalogue.
+     Without AI (or if the AI fails) a built-in parser does it. It understands Polish and English, including inflected
+     Polish words, number words and brand short forms. Nothing that was not said is filled in.
+2. **Check and complete — four small steps per lesion:** Zmiana (finding) → Leczenie (treatment) → Sprzęt (devices) →
+   Wynik (result). Only the open step is shown. The summary line of each step shows what is already there.
+   - Treatment shows only the procedures that fit the finding (all of them one click away).
+   - Devices: one-tap ★ chips with the products most used in Poland for the chosen procedure (e.g. coils, assist
+     stents, remodelling balloons, microcatheters for coiling). Type the size directly in the list; − / + changes the
+     quantity; the total number of coils is shown.
+3. **Report and letter** with the buttons at the bottom, as before. The dictated words also go to the report / letter AI
+   (the card fields take precedence).
+
+Other changes:
+- The left dictation panel is hidden on the card (one place to dictate). Procedure details (access, dose,
+  recommendations…) are folded under „Szczegóły zabiegu".
+- A start screen explains the three steps.
+
 ## Version 1.3 — schematic figures in the letter, realistic 3D vessels, equipment used in Poland
 
 - **The letter has a figure for each treated lesion** (up to 4): a 3D schematic centred on the lesion, showing the
