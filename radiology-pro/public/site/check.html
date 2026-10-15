@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Test stanowiska — Radiopis</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="check">
+  <nav class="nav">
+    <div class="wrap">
+      <a class="brand" href="/"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span><span data-brand>Radiopis</span> <span class="dim" style="font-weight:500">· test stanowiska</span></span></a>
+      <span class="grow"></span>
+      <a class="btn btn-sm" href="/app/">Aplikacja</a>
+    </div>
+  </nav>
+  <main class="shell">
+    <div class="wrap" style="max-width:900px">
+      <div class="page-head">
+        <div>
+          <h1>Test stanowiska</h1>
+          <p class="dim" style="margin:6px 0 0">Sprawdza na tym komputerze wszystko, czego potrzebuje dyktowanie: przeglądarkę, połączenie, mikrofon, rozpoznawanie mowy, schowek i przycisk mikrofonu (PowerMic / SpeechMike). Przy każdym problemie podpowiada, co zmienić. Nie wysyła nigdzie nagrania.</p>
+        </div>
+      </div>
+
+      <div class="card check-run">
+        <button class="btn btn-primary btn-lg" id="runAll">Uruchom test</button>
+        <span class="dim small">Przy teście mowy powiedz spokojnie: <b>„test, opis radiologiczny”</b>.</span>
+      </div>
+
+      <div class="checks" id="checks"></div>
+
+      <div class="card" id="hidCard">
+        <div class="card-head"><h3>Przycisk mikrofonu (PowerMic / SpeechMike)</h3><span id="hidPill"></span></div>
+        <p class="dim small">Kliknij „Połącz mikrofon”, wybierz go z listy, potem naciśnij przycisk nagrywania <b>dwa razy</b>. Poniżej widać na żywo dane, które mikrofon wysyła do przeglądarki.</p>
+        <div class="actions"><button class="btn btn-sm" id="hidConnect">Połącz mikrofon</button><button class="btn btn-sm btn-ghost" id="hidAny">Inne urządzenie…</button><button class="btn btn-sm" id="hidLearn" hidden>Sprawdź przycisk</button></div>
+        <pre class="cred mono" id="hidOut" style="margin-top:12px">—</pre>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Raport</h3></div>
+        <p class="dim small">Raport zawiera tylko wyniki testów i dane techniczne (przeglądarka, system, urządzenia) — bez danych pacjentów.</p>
+        <pre class="cred mono" id="report">Uruchom test, aby zobaczyć raport.</pre>
+        <div class="actions"><button class="btn btn-sm" id="copyReport">Kopiuj raport</button><button class="btn btn-sm btn-primary" id="sendReport" hidden>Wyślij wynik do działu IT</button></div>
+      </div>
+    </div>
+  </main>
+  <script type="module" src="/site/check.js"></script>
+</body>
+</html>

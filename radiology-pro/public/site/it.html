@@ -66,6 +66,7 @@
           <div>
             <div class="card"><div class="card-head"><h3>Stan usługi</h3></div><ul class="config-list" id="service"></ul></div>
             <div class="card"><div class="card-head"><h3>Osoby, które mogą potrzebować pomocy</h3></div><div id="issues" class="small"></div></div>
+            <div class="card"><div class="card-head"><h3>Wyniki testów stanowisk</h3><a class="btn btn-sm" href="/check" target="_blank" rel="noopener">Otwórz test stanowiska</a></div><div id="checks" class="small"></div></div>
           </div>
           <div>
             <div class="card">
@@ -87,23 +88,64 @@
 
       <section data-panel="help" style="padding:0" hidden>
         <div class="card help-card">
-          <h3>Jak to działa — w skrócie</h3>
+          <h3>Najpierw: test stanowiska</h3>
+          <p class="dim">Na komputerze, na którym coś nie działa, otwórz <a href="/check" target="_blank" rel="noopener">Test stanowiska</a> (bez logowania) i kliknij „Uruchom test”. Sprawdza przeglądarkę, połączenie, zegar, mikrofon, rozpoznawanie mowy, schowek i przycisk PowerMic — przy każdym błędzie podaje, co zmienić. Zalogowany radiolog może wysłać wynik — zobaczysz go w zakładce „Problemy i zgłoszenia”. Aplikacja sama zgłasza tam też problemy z mikrofonem, rozpoznawaniem mowy i schowkiem (same kody błędów, bez treści opisów).</p>
+
+          <h3>Konta — co możesz zrobić sam(a)</h3>
           <ol>
-            <li><b>Dodaj radiologów</b>: pojedynczo („+ Dodaj osobę”) albo całą listę naraz („Import listy osób” — wklej kolumny z Excela: e-mail, imię i nazwisko, PWZ).</li>
-            <li>Każda osoba dostaje <b>hasło tymczasowe</b> (pokazywane tylko raz — pobierz plik CSV albo zaznacz wysyłkę e-mailem). Przy pierwszym logowaniu ustawia własne hasło.</li>
-            <li><b>Ktoś zapomniał hasła?</b> Kliknij „⋯” przy osobie → „Nowe hasło tymczasowe” i przekaż je tej osobie. Może też sama użyć „Nie pamiętam hasła” na stronie logowania.</li>
-            <li><b>Ktoś odchodzi?</b> „Zablokuj” — konto przestaje działać od razu i zwalnia miejsce w licencji. „Usuń” kasuje dane osobowe (statystyki zostają anonimowe).</li>
-            <li><b>Zgubiony / cudzy komputer?</b> „Wyloguj ze wszystkich urządzeń”.</li>
-            <li>Każde konto może być zalogowane na <b id="helpDevices">2</b> urządzeniach naraz; zalogowanie na kolejnym wylogowuje najstarsze.</li>
-            <li>Konto IT także zajmuje miejsce w licencji (może też dyktować opisy).</li>
+            <li><b>Nowe osoby</b>: „+ Dodaj osobę” lub „Import listy osób” (wklej z Excela: e-mail; imię i nazwisko; PWZ). Hasła tymczasowe są pokazywane tylko raz — pobierz CSV.</li>
+            <li><b>Zapomniane hasło</b>: ⋯ → „Nowe hasło tymczasowe” (osoba dostaje też e-mail o zmianie).</li>
+            <li><b>Zablokowane logowanie</b> (8 błędnych haseł): ⋯ → „Odblokuj logowanie” — hasło zostaje.</li>
+            <li><b>Nowy / zgubiony telefon</b> (logowanie dwuetapowe): ⋯ → „Wyłącz logowanie dwuetapowe”.</li>
+            <li><b>Zgubiony laptop, wspólny komputer</b>: ⋯ → wyloguj pojedyncze urządzenie albo wszystkie.</li>
+            <li><b>Odejście z firmy</b>: „Zablokuj” (zwalnia miejsce) albo „Usuń” (kasuje dane osobowe).</li>
+            <li>Każde konto może być zalogowane na <b id="helpDevices">2</b> urządzeniach naraz; nieużywane urządzenie wylogowuje się po 7 dniach.</li>
           </ol>
+
+          <h3>Zapora, proxy, sieć</h3>
+          <ul>
+            <li>Zezwól na HTTPS (port 443) do adresu <code class="origin"></code>.</li>
+            <li><b>Rozpoznawanie mowy</b> wykonuje przeglądarka u swojego producenta: Chrome — usługi mowy Google, Edge — usługi mowy Microsoft. Gdy test stanowiska pokazuje błąd <code>network</code>, zapora / proxy / inspekcja TLS blokuje ten ruch — dodaj wyjątek dla usług mowy producenta przeglądarki (aktualną listę adresów podaje dokumentacja producenta). Nie przepuszczaj tego ruchu przez inspekcję TLS.</li>
+            <li>VPN o dużych opóźnieniach spowalnia dyktowanie — test pokazuje czas odpowiedzi serwera.</li>
+          </ul>
+
+          <h3>Zasady przeglądarki (Chrome / Edge, zarządzanie w domenie)</h3>
+          <p class="dim">Gotowe ustawienia, żeby mikrofon, schowek i przycisk PowerMic działały bez pytań. Nazwy zasad są takie same w Chrome i Edge — sprawdź je w dokumentacji zasad Chrome Enterprise / Microsoft Edge przed wdrożeniem w domenie.</p>
+          <ul>
+            <li><code>AudioCaptureAllowedUrls</code> = <code class="origin"></code> — mikrofon bez pytania.</li>
+            <li><code>ClipboardAllowedForUrls</code> = <code class="origin"></code> — kopiowanie opisu do RIS.</li>
+            <li><code>WebHidAllowDevicesForUrls</code> — przycisk mikrofonu: Nuance PowerMic (vendor_id 1364 = 0x0554), Philips SpeechMike (2321 = 0x0911).</li>
+            <li>Upewnij się, że <code>DefaultWebHidGuardSetting</code> nie blokuje WebHID i że adres Radiopis nie jest w <code>WebHidBlockedForUrls</code>, a przeglądarka nie działa w trybie gościa / incognito (ciasteczka muszą być dozwolone).</li>
+          </ul>
+          <pre class="cred mono" id="regPreview"></pre>
+          <div class="actions"><button class="btn btn-sm" id="regChrome">Pobierz plik .reg — Chrome</button><button class="btn btn-sm" id="regEdge">Pobierz plik .reg — Edge</button></div>
+
+          <h3>Przycisk mikrofonu (PowerMic / SpeechMike)</h3>
+          <ol>
+            <li>W aplikacji: Ustawienia → „Połącz PowerMic” → wybierz mikrofon → „Naucz przycisk” → naciśnij przycisk nagrywania <b>dwa razy</b>. Można włączyć „Przytrzymaj, aby mówić”.</li>
+            <li>Jeśli przycisk nie reaguje: Ustawienia → „Diagnostyka mikrofonu” (lub test stanowiska) pokazuje, czy mikrofon w ogóle wysyła dane.</li>
+            <li><b>Brak danych</b> — najczęściej mikrofon przechwytuje inny program (oprogramowanie Nuance PowerMic, Dragon, SpeechMike Control Center). Zamknij go / wyłącz autostart albo zezwól na urządzenie zasadą <code>WebHidAllowDevicesForUrls</code>.</li>
+            <li>Podłącz mikrofon bezpośrednio do komputera (nie przez hub), wyłącz oszczędzanie energii USB (selektywne wstrzymywanie USB) — mikrofon nie będzie się „odłączał”.</li>
+            <li><b>Alternatywa zawsze działająca</b>: jeśli oprogramowanie mikrofonu pozwala przypisać przyciskowi klawisz (np. F9), ustaw go, a w aplikacji: Ustawienia → „Klawisz nagrywania” → naciśnij ten przycisk.</li>
+          </ol>
+
+          <h3>Mikrofon w systemie</h3>
+          <ul>
+            <li>Windows → Ustawienia → Prywatność → Mikrofon: dostęp włączony, także dla aplikacji klasycznych (przeglądarka).</li>
+            <li>Windows → Dźwięk → Nagrywanie: właściwy mikrofon jako domyślny, poziom ok. 70–90%, mikrofon niewyciszony.</li>
+          </ul>
+
+          <h3>Co zgłaszasz dostawcy (przycisk „Zgłoś problem”)</h3>
+          <ul>
+            <li>AI niedostępne lub często „przeciążone”, błędy AI u wielu osób, sprawy licencji i liczby miejsc, błędy w działaniu aplikacji.</li>
+            <li>Dołącz raport z testu stanowiska lub z „Diagnostyki mikrofonu” — nie wpisuj danych pacjentów.</li>
+          </ul>
+
           <h3>Bezpieczeństwo</h3>
           <ul>
-            <li>Hasła są przechowywane wyłącznie jako skrót (scrypt) — nikt, także administrator, nie może ich odczytać.</li>
-            <li>Konsola IT pokazuje konta i problemy techniczne. Treść opisów, wyniki uczenia AI i kod aplikacji nie są dostępne dla działu IT ani firmy — to tajemnica przedsiębiorstwa dostawcy.</li>
-            <li>Każdy może włączyć logowanie dwuetapowe (kod z telefonu) na stronie „Moje konto” — zalecane zwłaszcza dla kont IT.</li>
-            <li>Po 8 błędnych próbach logowania konto jest blokowane na 15 minut (ochrona przed zgadywaniem hasła).</li>
-            <li>Bieżący opis i lista dzisiejszych opisów zostają w przeglądarce radiologa. Serwer przechowuje szablony radiologa i to, czego AI nauczyło się z jego poprawek (numery PESEL są usuwane), oraz liczbę opisów (rozliczenia).</li>
+            <li>Konsola IT pokazuje konta i problemy techniczne. Serwer, kod aplikacji, treść opisów i wyniki uczenia AI nie są dostępne dla działu IT ani firmy — to tajemnica przedsiębiorstwa dostawcy; sprawy serwera rozwiązuje dostawca w ramach zgłoszenia.</li>
+            <li>Hasła są przechowywane wyłącznie jako skrót (scrypt) — nikt nie może ich odczytać. Każda akcja w tej konsoli trafia do dziennika zmian.</li>
+            <li>Zalecane logowanie dwuetapowe dla kont IT (strona „Moje konto”).</li>
           </ul>
         </div>
       </section>

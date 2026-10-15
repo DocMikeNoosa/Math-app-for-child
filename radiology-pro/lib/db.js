@@ -124,6 +124,16 @@ CREATE TABLE IF NOT EXISTS tickets (                        -- problems reported
   answer TEXT NOT NULL DEFAULT '',
   answered_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS client_events (                  -- technical problems reported by the app (codes only, never report text)
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  ts INTEGER NOT NULL,
+  kind TEXT NOT NULL,                                       -- speech | mic | clipboard | check | ai
+  code TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  ua TEXT NOT NULL DEFAULT ''                               -- browser · system, e.g. "Chrome 130 · Windows"
+);
+CREATE INDEX IF NOT EXISTS client_events_user ON client_events(user_id, ts);
 CREATE TABLE IF NOT EXISTS outbox (                         -- e-mails (sent or, without a mail provider, only logged)
   id INTEGER PRIMARY KEY,
   ts INTEGER NOT NULL,

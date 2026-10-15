@@ -561,6 +561,11 @@
           <button class="btn btn-small" id="micLearn" hidden>Naucz przycisk</button>
           <button class="btn btn-small" id="micForget" hidden>Odłącz</button>
         </div>
+        <label class="check mic-hold"><input type="checkbox" id="micHold" /> Przytrzymaj przycisk, aby mówić (puszczenie = koniec dyktowania)</label>
+        <details class="mic-diag" id="micDiagBox"><summary>Diagnostyka mikrofonu (gdy przycisk nie działa)</summary>
+          <pre class="mono" id="micDiag"></pre>
+          <div class="btn-row"><button class="btn btn-small" id="micDiagCopy">Kopiuj raport</button></div>
+        </details>
         <div class="field-head key-head">
           <label>Klawisz nagrywania</label>
           <span class="count-soft" id="keyStatus"></span>

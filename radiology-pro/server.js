@@ -285,8 +285,12 @@ async function handleFormat(req, res, ctx) {
     recordUsage(ctx.user, { kind: 'format', reportId, model: result.model, usage, ms: Date.now() - started, lang: langTag, globalVersion });
     sendJson(res, 200, { ...out, quota: { used: q.used ?? null, limit: q.quota ?? null, warn: Boolean(q.warn) } });
   } catch (err) {
-    if (err instanceof BusyError) return sendAiError(res, err); // refused before calling the AI: nothing to meter
+    if (err instanceof BusyError) {
+      if (err.code === 'busy') recordEvent(ctx.user.id, 'ai', 'busy', '', req.headers['user-agent']);
+      return sendAiError(res, err); // refused before calling the AI: nothing to meter
+    }
     recordUsage(ctx.user, { kind: 'format', reportId: '', ms: Date.now() - started, ok: false, lang: langTag });
+    recordEvent(ctx.user.id, 'ai', String(err.status || 500), '', req.headers['user-agent']);
     if (err instanceof ClaudeError) return sendAiError(res, err);
     console.error(err);
     sendJson(res, 500, { error: 'Błąd serwera.' });
@@ -346,6 +350,40 @@ function eraseUser(u, actorId) {
   forgetContributor(u.id);
   audit(actorId, 'rodo.erase', u.id);
 }
+
+// ---- technical problems reported by the app (for the organisation's IT; codes only, never report content)
+export const EVENT_KINDS = ['speech', 'mic', 'clipboard', 'check', 'ai'];
+export function browserOf(ua = '') {
+  const b = /Edg\/(\d+)/.exec(ua) ? `Edge ${/Edg\/(\d+)/.exec(ua)[1]}` : /Chrome\/(\d+)/.exec(ua) ? `Chrome ${/Chrome\/(\d+)/.exec(ua)[1]}` : /Firefox\/(\d+)/.exec(ua) ? `Firefox ${/Firefox\/(\d+)/.exec(ua)[1]}` : /Safari\//.test(ua) ? 'Safari' : 'inna przeglądarka';
+  const os = /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Linux/.test(ua) ? 'Linux' : '';
+  return `${b}${os ? ` · ${os}` : ''}`;
+}
+function recordEvent(userId, kind, code, detail = '', ua = '') {
+  if (!userId || !EVENT_KINDS.includes(kind)) return false;
+  const recent = one('SELECT COUNT(*) AS n FROM client_events WHERE user_id = ? AND ts > ?', userId, Date.now() - 3600_000).n;
+  if (recent >= 40) return false; // a broken workstation must not flood the table
+  run('INSERT INTO client_events(user_id, ts, kind, code, detail, ua) VALUES (?, ?, ?, ?, ?, ?)', userId, Date.now(), kind, String(code || '').slice(0, 40), String(detail || '').slice(0, 1500), browserOf(ua));
+  return true;
+}
+
+// What each reported problem means and what the organisation's IT can do about it (shown in the IT console).
+const EVENT_HELP = {
+  'speech:network': 'Rozpoznawanie mowy nie łączy się z usługą przeglądarki (Chrome → Google, Edge → Microsoft). Najczęściej blokuje ją zapora / proxy / inspekcja TLS. Odblokuj ruch przeglądarki do usług mowy producenta — szczegóły: Pomoc → Zapora i proxy. Sprawdź „Testem stanowiska”.',
+  'speech:not-allowed': 'Przeglądarka nie ma dostępu do mikrofonu. Zezwól na mikrofon dla adresu Radiopis (kłódka przy adresie) albo zasadą AudioCaptureAllowedUrls; sprawdź też Ustawienia Windows → Prywatność → Mikrofon.',
+  'speech:service-not-allowed': 'Rozpoznawanie mowy jest wyłączone zasadami przeglądarki lub systemu. Sprawdź zasady Chrome / Edge oraz czy przeglądarka nie działa w trybie gościa / incognito.',
+  'speech:audio-capture': 'Przeglądarka nie widzi mikrofonu: sprawdź podłączenie, domyślne urządzenie nagrywania w Windows i czy mikrofonu nie blokuje inny program.',
+  'speech:language-not-supported': 'Przeglądarka nie obsługuje języka polskiego — zaktualizuj Chrome / Edge.',
+  'speech:*': 'Błąd rozpoznawania mowy w przeglądarce. Uruchom „Test stanowiska” na tym komputerze.',
+  'mic:no-data': 'Przycisk mikrofonu (PowerMic / SpeechMike) nie wysyła danych do przeglądarki — zwykle przechwytuje go program Nuance / Dragon / SpeechMike Control Center albo blokują go zasady (WebHidAllowDevicesForUrls). Zamknij ten program lub zezwól na urządzenie. Alternatywa: tryb klawisza (przycisk wysyła np. F9).',
+  'mic:open-failed': 'Nie można otworzyć mikrofonu — używa go inny program. Zamknij oprogramowanie Nuance / Dragon / SpeechMike i spróbuj ponownie.',
+  'mic:unclear': 'Nie udało się nauczyć przycisku mikrofonu — spróbuj ponownie, naciskając tylko przycisk nagrywania (bez ruszania kulką).',
+  'mic:*': 'Problem z przyciskiem mikrofonu — raport diagnostyczny: Ustawienia aplikacji → Diagnostyka mikrofonu.',
+  'clipboard:denied': 'Przeglądarka blokuje kopiowanie do schowka. Zezwól na schowek dla adresu Radiopis (zasada ClipboardAllowedForUrls).',
+  'clipboard:*': 'Problem z kopiowaniem do schowka — sprawdź zasady schowka przeglądarki.',
+  'ai:busy': 'Serwer AI był chwilowo przeciążony (aplikacja ponawia sama). Jeśli zdarza się często — zgłoś dostawcy.',
+  'ai:429': 'Limit zapytań do AI u dostawcy usługi — po stronie dostawcy; jeśli się powtarza, zgłoś.',
+  'ai:*': 'Błąd usługi AI po stronie dostawcy — jeśli się powtarza, zgłoś problem (przycisk obok).',
+};
 
 /** Where to go after logging in. */
 function homeFor(user) {
@@ -498,6 +536,11 @@ async function handleMe(req, res, ctx, route) {
     audit(u.id, 'password.first', u.id);
     return sendJson(res, 200, { ok: true, next: homeFor(getUser(u.id)) });
   }
+  if (route === 'event') {
+    // the app reports a technical problem (speech recognition, microphone, clipboard, workstation check)
+    const ok = recordEvent(u.id, str(body.kind, 20), str(body.code, 40), str(body.detail, 1500), req.headers['user-agent']);
+    return sendJson(res, 200, { ok });
+  }
   if (route === 'accept') {
     if (body.accept !== true) return sendJson(res, 400, { error: 'Zaznacz akceptację.' });
     acceptTerms(u.id, clientIp(req));
@@ -603,7 +646,7 @@ function adminUserRow(u, month = monthOf()) {
   return {
     id: u.id, email: u.email, name: u.name, role: u.role, blocked: Boolean(u.blocked), plan: u.plan, planName: org ? org.name : p.name,
     subStatus: org ? 'org' : u.sub_status, subUntil: org ? org.sub_until : u.sub_until, quota: quotaOf(u), quotaOverride: u.quota_override,
-    orgId: org?.id || null, orgName: org?.name || '', mustChangePwd: Boolean(u.must_change_pwd),
+    orgId: org?.id || null, orgName: org?.name || '', mustChangePwd: Boolean(u.must_change_pwd), twoFactor: Boolean(u.totp_on),
     reports: used.reports, calls: used.calls, costUsd: used.costUsd, costPln: used.costUsd * usdPln(), pricePln: org ? org.price_per_seat : p.pricePln,
     lastLogin: u.last_login, createdAt: u.created_at, npwz: u.npwz, company: u.company, nip: u.nip, phone: u.phone, note: u.note,
     stripe: Boolean(u.stripe_sub), access: access(u).ok,
@@ -804,6 +847,13 @@ async function handleAdmin(req, res, ctx, parts) {
       audit(me, 'user.reset_link', u.id);
       return sendJson(res, 200, { link });
     }
+    if (action === 'reset-2fa' && method === 'POST') {
+      run("UPDATE users SET totp_on = 0, totp_secret = '' WHERE id = ?", u.id);
+      deleteUserSessions(u.id);
+      audit(me, 'user.reset_2fa', u.id);
+      if (u.id !== me) await sendMail(u.email, `${BRAND.name}: logowanie dwuetapowe wyłączone`, `Dzień dobry,\n\nlogowanie dwuetapowe na Twoim koncie ${BRAND.name} zostało wyłączone przez administratora usługi. Zaloguj się hasłem i włącz je ponownie na stronie konta.`);
+      return sendJson(res, 200, { ok: true });
+    }
     if (action === 'logout' && method === 'POST') {
       deleteUserSessions(u.id);
       audit(me, 'user.logout_all', u.id);
@@ -990,13 +1040,21 @@ async function handleIt(req, res, ctx, parts) {
       if (u.mustChangePwd && Date.now() - u.createdAt > 3 * 86400000) issues.push({ id: u.id, email: u.email, name: u.name, kind: 'pending', text: 'Ma konto od ponad 3 dni, ale jeszcze się nie zalogował(a) — hasło tymczasowe mogło nie dotrzeć.' });
       if (errs.get(u.id) >= 3) issues.push({ id: u.id, email: u.email, name: u.name, kind: 'errors', text: `Błędy AI w ostatnich 24 h: ${errs.get(u.id)} — jeśli się powtarzają, zgłoś problem.` });
     }
+    // problems the app reported in the last 7 days, grouped per person and kind, with what to do
+    for (const ev of all(`SELECT e.user_id, e.kind, e.code, COUNT(*) AS n, MAX(e.ts) AS last, MAX(e.ua) AS ua, u.email, u.name FROM client_events e
+        JOIN users u ON u.id = e.user_id WHERE u.org_id = ? AND e.ts > ? AND e.kind <> 'check' GROUP BY e.user_id, e.kind, e.code ORDER BY last DESC LIMIT 100`, org.id, Date.now() - 7 * 86400000)) {
+      const help = EVENT_HELP[`${ev.kind}:${ev.code}`] || EVENT_HELP[`${ev.kind}:*`] || 'Problem techniczny — jeśli się powtarza, zgłoś go dostawcy.';
+      issues.push({ id: ev.user_id, email: ev.email, name: ev.name, kind: 'event', event: `${ev.kind}:${ev.code}`, count: ev.n, last: ev.last, ua: ev.ua, text: help });
+    }
+    const checks = all(`SELECT e.ts, e.detail, e.ua, u.email, u.name, u.id FROM client_events e JOIN users u ON u.id = e.user_id
+        WHERE u.org_id = ? AND e.kind = 'check' ORDER BY e.ts DESC LIMIT 20`, org.id);
     const st = orgPublic(org);
     const service = {
       ai: aiAvailable(), licence: st.access, licenceUntil: st.subUntil, seatsFree: st.seatsFree,
       errorRate24h: tot.n ? (tot.bad || 0) / tot.n : 0, busy: aiLimiter.snapshot().queued > 0, announcement: settings().announcement || '',
     };
     const tickets = all('SELECT t.id, t.ts, t.subject, t.body, t.status, t.answer, t.answered_at, u.email AS author FROM tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.org_id = ? ORDER BY t.ts DESC LIMIT 50', org.id);
-    return sendJson(res, 200, { service, issues, tickets });
+    return sendJson(res, 200, { service, issues, tickets, checks });
   }
 
   if (section === 'tickets' && method === 'POST') {
@@ -1095,6 +1153,36 @@ async function handleIt(req, res, ctx, parts) {
       deleteUserSessions(u.id);
       audit(me, 'it.user.logout_all', u.id);
       return sendJson(res, 200, { ok: true });
+    }
+    if (action === 'unlock' && method === 'POST') {
+      // after 8 wrong passwords: allow logging in again now (the password stays the same)
+      clearFailures(u.email);
+      audit(me, 'it.user.unlock', u.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === 'reset-2fa' && method === 'POST') {
+      // lost / new phone: the person logs in with the password only and can switch two-factor on again
+      if (!u.totp_on) return sendJson(res, 400, { error: 'Ta osoba nie ma włączonego logowania dwuetapowego.' });
+      run("UPDATE users SET totp_on = 0, totp_secret = '' WHERE id = ?", u.id);
+      deleteUserSessions(u.id);
+      audit(me, 'it.user.reset_2fa', u.id);
+      await sendMail(u.email, `${BRAND.name}: logowanie dwuetapowe wyłączone`, `Dzień dobry,\n\nadministrator IT (${ctx.user.email}) wyłączył logowanie dwuetapowe na Twoim koncie ${BRAND.name} (np. po zmianie telefonu). Zaloguj się hasłem i włącz je ponownie na stronie konta. Jeśli o to nie prosiłeś/aś, skontaktuj się z działem IT.`);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === 'details' && method === 'GET') {
+      // what IT needs to help one person: devices and recent technical problems — no report content
+      return sendJson(res, 200, {
+        twoFactor: Boolean(u.totp_on), lockedOut: isLockedOut(u.email),
+        devices: all('SELECT id, created_at, last_seen, ip, ua FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen DESC', u.id, Date.now()).map((d) => ({ ...d, id: d.id.slice(0, 16), browser: browserOf(d.ua), ua: undefined })),
+        events: all('SELECT ts, kind, code, detail, ua FROM client_events WHERE user_id = ? ORDER BY ts DESC LIMIT 30', u.id),
+      });
+    }
+    if (action === 'devices' && method === 'DELETE') {
+      const sid = str(url.searchParams.get('device'), 16);
+      if (!/^[0-9a-f]{16}$/.test(sid)) return sendJson(res, 400, { error: 'Nieprawidłowe urządzenie.' });
+      const n = run("DELETE FROM sessions WHERE user_id = ? AND substr(id, 1, 16) = ?", u.id, sid).changes;
+      audit(me, 'it.user.logout_device', u.id);
+      return sendJson(res, n ? 200 : 404, n ? { ok: true } : { error: 'To urządzenie jest już wylogowane.' });
     }
     if (!action && method === 'DELETE') {
       if (self) return sendJson(res, 400, { error: 'Nie możesz usunąć własnego konta.' });
@@ -1318,6 +1406,9 @@ export function createServer() {
         if (!allowed) { res.writeHead(404, headers()); return res.end(); }
         return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'private, no-cache', req });
       }
+      if (p === '/check') return sitePage(res, 'check', req); // workstation check: public, so IT can test before accounts exist
+      // the check page imports the (generic) microphone-button module; in production it is bundled into check.js
+      if (p === '/js/mic-button.js' && !PROD) return serveFile(res, PUBLIC, 'js/mic-button.js', { req });
       if (p.startsWith('/site/')) return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'public, max-age=3600', req });
       if (p.startsWith('/fonts/') || p.startsWith('/icons/')) return serveFile(res, PUBLIC, p.slice(1), { cache: 'public, max-age=604800', req });
       if (p === '/favicon.ico') return serveFile(res, PUBLIC, 'icons/radvox.ico', { cache: 'public, max-age=604800', req });

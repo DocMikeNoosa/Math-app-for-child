@@ -1130,3 +1130,9 @@ body[data-view="card"] .panel.dictation { display: none; }
 .qd-chip { height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid rgba(232, 62, 92, 0.35); background: rgba(232, 62, 92, 0.06); color: var(--text-strong); font: 500 12.5px/1 Inter, system-ui, sans-serif; cursor: pointer; }
 .qd-chip:hover { border-color: rgba(255, 107, 132, 0.85); background: rgba(232, 62, 92, 0.14); }
 .qd-chip.more { border-style: dashed; color: var(--text-dim); }
+
+/* hardware button: hold-to-talk option and diagnostics */
+.mic-hold { margin: 8px 0 4px; font-size: 12.5px; }
+.mic-diag { margin-top: 8px; font-size: 12px; }
+.mic-diag summary { cursor: pointer; color: var(--text-dim); }
+.mic-diag pre { white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); font-size: 11px; line-height: 1.5; user-select: all; }

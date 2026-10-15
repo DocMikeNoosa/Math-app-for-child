@@ -225,10 +225,29 @@ function openPerson(id) {
     <div class="action-list">
       <button class="btn btn-sm" data-act="temp">Nowe hasło tymczasowe<small>gdy ktoś zapomniał hasła — wyloguje go wszędzie</small></button>
       <button class="btn btn-sm" data-act="logout">Wyloguj ze wszystkich urządzeń<small>np. zgubiony laptop, wspólny komputer</small></button>
+      <button class="btn btn-sm" data-act="unlock">Odblokuj logowanie<small>po 8 błędnych hasłach — hasło pozostaje bez zmian</small></button>
+      <button class="btn btn-sm" data-act="reset2fa" hidden id="act2fa">Wyłącz logowanie dwuetapowe<small>zgubiony / nowy telefon — osoba włączy je ponownie</small></button>
       ${self ? '' : `<button class="btn btn-sm ${u.blocked ? '' : 'btn-danger'}" data-act="block">${u.blocked ? 'Odblokuj' : 'Zablokuj'}<small>${u.blocked ? 'przywraca dostęp (zajmuje miejsce w licencji)' : 'dostęp kończy się od razu, miejsce się zwalnia'}</small></button>
       <button class="btn btn-sm btn-danger" data-act="delete">Usuń konto<small>kasuje dane osobowe; nie da się cofnąć</small></button>`}
     </div>
-    <div id="actOut" style="margin-top:12px"></div>`);
+    <div id="actOut" style="margin-top:12px"></div>
+    <h3>Urządzenia</h3><div id="pDevices" class="small dim">…</div>
+    <h3>Problemy techniczne (30 dni)</h3><div id="pEvents" class="small dim">…</div>`);
+  api(q(`/api/it/users/${id}/details`)).then((d) => {
+    m.querySelector('#act2fa').hidden = !d.twoFactor;
+    m.querySelector('#pDevices').innerHTML = d.devices.length
+      ? d.devices.map((x) => `<div class="log-row"><b>${esc(x.browser)}</b> <span class="dim">· ostatnio ${fmtDateTime(x.last_seen)} · IP ${esc(x.ip || '—')}</span> <button class="btn btn-sm btn-ghost" data-dev="${esc(x.id)}">Wyloguj</button></div>`).join('')
+      : '<span class="dim">Nie jest nigdzie zalogowany(a).</span>';
+    for (const b of m.querySelectorAll('[data-dev]')) {
+      b.addEventListener('click', async () => {
+        try { await api(q(`/api/it/users/${id}/devices?device=${b.dataset.dev}`), { method: 'DELETE' }); toast('Wylogowano to urządzenie', 'ok'); b.closest('.log-row').remove(); } catch (err) { toast(err.message, 'err'); }
+      });
+    }
+    m.querySelector('#pEvents').innerHTML = d.events.length
+      ? d.events.map((e) => `<details class="log-row"><summary><span class="dim">${fmtDateTime(e.ts)}</span> · <b>${esc(EVENT_LABEL[`${e.kind}:${e.code}`] || `${e.kind}: ${e.code}`)}</b> <span class="dim">${esc(e.ua)}</span></summary>${e.detail ? `<pre class="cred mono">${esc(e.detail)}</pre>` : ''}</details>`).join('')
+      : '<span class="dim">Brak zgłoszonych problemów.</span>';
+    if (d.lockedOut) m.querySelector('#actOut').innerHTML = '<div class="msg err">Logowanie jest teraz wstrzymane (za dużo błędnych haseł) — kliknij „Odblokuj logowanie”.</div>';
+  }).catch(() => {});
   m.querySelector('#editForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -252,6 +271,12 @@ function openPerson(id) {
           return;
         }
         if (act === 'logout') { await api(q(`/api/it/users/${id}/logout`), { method: 'POST', body: {} }); toast('Wylogowano ze wszystkich urządzeń', 'ok'); }
+        if (act === 'unlock') { await api(q(`/api/it/users/${id}/unlock`), { method: 'POST', body: {} }); toast('Logowanie odblokowane', 'ok'); }
+        if (act === 'reset2fa') {
+          if (!confirm(`Wyłączyć logowanie dwuetapowe dla ${u.email}? Osoba dostanie e-mail i włączy je ponownie na nowym telefonie.`)) return;
+          await api(q(`/api/it/users/${id}/reset-2fa`), { method: 'POST', body: {} });
+          toast('Logowanie dwuetapowe wyłączone', 'ok');
+        }
         if (act === 'block') {
           if (!u.blocked && !confirm(`Zablokować ${u.email}? Osoba straci dostęp od razu.`)) return;
           await api(q(`/api/it/users/${id}`), { method: 'PATCH', body: { blocked: !u.blocked } });
@@ -271,6 +296,12 @@ function openPerson(id) {
 
 // ---------------------------------------------------------------- problems and tickets
 const ISSUE = { locked: 'zablokowane logowanie', pending: 'nie zalogował(a) się', errors: 'błędy AI' };
+const EVENT_LABEL = {
+  'speech:network': 'Rozpoznawanie mowy: brak połączenia z usługą mowy', 'speech:not-allowed': 'Brak zgody na mikrofon', 'speech:service-not-allowed': 'Rozpoznawanie mowy zablokowane',
+  'speech:audio-capture': 'Przeglądarka nie widzi mikrofonu', 'speech:language-not-supported': 'Brak języka polskiego w przeglądarce',
+  'mic:no-data': 'PowerMic: brak danych z przycisku', 'mic:open-failed': 'PowerMic: nie można otworzyć (zajęty)', 'mic:unclear': 'PowerMic: nie nauczono przycisku',
+  'clipboard:denied': 'Schowek zablokowany', 'ai:busy': 'AI chwilowo przeciążone', 'ai:429': 'Limit zapytań AI', 'check:ok': 'Test stanowiska: wszystko OK', 'check:problems': 'Test stanowiska: problemy',
+};
 async function loadProblems(countOnly = false) {
   const d = await api(q('/api/it/problems'));
   const n = d.issues.length + (d.service.ai ? 0 : 1) + (d.service.licence ? 0 : 1);
@@ -288,8 +319,11 @@ async function loadProblems(countOnly = false) {
     ...(s.announcement ? [['Komunikat dostawcy', esc(s.announcement)]] : []),
   ].map(([k, v]) => `<li><span>${k}</span><span>${v}</span></li>`).join('');
   $('#issues').innerHTML = d.issues.length
-    ? d.issues.map((i) => `<div class="log-row"><span class="pill warn">${esc(ISSUE[i.kind] || i.kind)}</span> <b>${esc(i.name || i.email)}</b> <span class="dim">${esc(i.email)}</span><div class="dim">${esc(i.text)}</div><button class="btn btn-sm" data-user="${i.id}" style="margin-top:6px">⋯ Działania</button></div>`).join('')
+    ? d.issues.map((i) => `<div class="log-row"><span class="pill warn">${esc(i.kind === 'event' ? EVENT_LABEL[i.event] || i.event : ISSUE[i.kind] || i.kind)}</span>${i.count ? ` <span class="dim small">× ${i.count}, ostatnio ${fmtDateTime(i.last)} · ${esc(i.ua || '')}</span>` : ''} <b>${esc(i.name || i.email)}</b> <span class="dim">${esc(i.email)}</span><div class="dim">${esc(i.text)}</div><button class="btn btn-sm" data-user="${i.id}" style="margin-top:6px">⋯ Działania</button></div>`).join('')
     : '<p class="dim">Brak problemów — wszystko działa.</p>';
+  $('#checks').innerHTML = d.checks.length
+    ? d.checks.map((c) => `<details class="log-row"><summary><span class="pill ${/BŁĄD/.test(c.detail) ? 'err' : 'ok'}">${/BŁĄD/.test(c.detail) ? 'problemy' : 'OK'}</span> <b>${esc(c.name || c.email)}</b> <span class="dim">${fmtDateTime(c.ts)} · ${esc(c.ua)}</span></summary><pre class="cred mono">${esc(c.detail)}</pre></details>`).join('')
+    : '<p class="dim">Nikt jeszcze nie wysłał wyniku. Otwórz „Test stanowiska” na komputerze radiologa.</p>';
   $('#tickets').innerHTML = d.tickets.length
     ? d.tickets.map((t) => `<details class="log-row"><summary><b>${esc(t.subject)}</b> <span class="pill ${t.status === 'closed' ? 'ok' : 'info'}">${t.status === 'closed' ? 'zamknięte' : 'otwarte'}</span> <span class="dim">${fmtDateTime(t.ts)} · ${esc(t.author || '')}</span></summary><p style="white-space:pre-wrap">${esc(t.body)}</p>${t.answer ? `<div class="msg info" style="white-space:pre-wrap">Odpowiedź (${fmtDateTime(t.answered_at)}): ${esc(t.answer)}</div>` : ''}</details>`).join('')
     : '<p class="dim">Brak zgłoszeń.</p>';
@@ -320,3 +354,36 @@ load().catch((err) => {
   if (err.code === 'pwd') location.href = '/change-password';
   else toast(err.message, 'err', 8000);
 });
+
+// ---------------------------------------------------------------- IT guide: browser policies for this address
+const ORIGIN = location.origin;
+for (const el of $$('.origin')) el.textContent = ORIGIN;
+const hidJson = JSON.stringify([{ devices: [{ vendor_id: 1364 }, { vendor_id: 2321 }], urls: [ORIGIN] }]);
+function regFile(vendor) {
+  const key = vendor === 'edge' ? 'Microsoft\\Edge' : 'Google\\Chrome';
+  return `Windows Registry Editor Version 5.00
+
+; Radiopis — mikrofon, schowek i przycisk PowerMic / SpeechMike bez pytań dla ${ORIGIN}
+; Sprawdź nazwy zasad w dokumentacji ${vendor === 'edge' ? 'Microsoft Edge' : 'Chrome Enterprise'} przed wdrożeniem w domenie.
+
+[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\${key}\\AudioCaptureAllowedUrls]
+"1"="${ORIGIN}"
+
+[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\${key}\\ClipboardAllowedForUrls]
+"1"="${ORIGIN}"
+
+[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\${key}]
+"WebHidAllowDevicesForUrls"="${hidJson.replace(/"/g, '\\"')}"
+`;
+}
+$('#regPreview').textContent = regFile('chrome');
+function download(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text.replace(/\n/g, '\r\n')], { type: 'text/plain' }));
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+$('#regChrome').addEventListener('click', () => download('radiopis-chrome.reg', regFile('chrome')));
+$('#regEdge').addEventListener('click', () => download('radiopis-edge.reg', regFile('edge')));

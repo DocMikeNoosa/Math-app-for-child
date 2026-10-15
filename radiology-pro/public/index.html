@@ -68,6 +68,7 @@
         <div class="popover account-pop" id="accountPop" role="menu" hidden>
           <div class="pop-group" id="accountWho">Konto</div>
           <a class="pop-item" href="/account" role="menuitem">Konto i subskrypcja<small id="accountPlan">plan, zużycie, płatności</small></a>
+          <a class="pop-item" href="/check" target="_blank" rel="noopener" role="menuitem">Test stanowiska<small>mikrofon, rozpoznawanie mowy, PowerMic, sieć</small></a>
           <a class="pop-item" href="/admin" role="menuitem" id="accountAdmin" hidden>Panel administratora<small>użytkownicy, subskrypcje, koszty AI</small></a>
           <a class="pop-item" href="/it" role="menuitem" id="accountIt" hidden>Konsola IT<small>konta radiologów w organizacji</small></a>
           <button class="pop-item" id="accountLogout" role="menuitem">Wyloguj<small>czyści dzisiejsze opisy z tego komputera</small></button>
@@ -393,6 +394,11 @@
           <button class="btn btn-small" id="micLearn" hidden>Naucz przycisk</button>
           <button class="btn btn-small" id="micForget" hidden>Odłącz</button>
         </div>
+        <label class="check mic-hold"><input type="checkbox" id="micHold" /> Przytrzymaj przycisk, aby mówić (puszczenie = koniec dyktowania)</label>
+        <details class="mic-diag" id="micDiagBox"><summary>Diagnostyka mikrofonu (gdy przycisk nie działa)</summary>
+          <pre class="mono" id="micDiag"></pre>
+          <div class="btn-row"><button class="btn btn-small" id="micDiagCopy">Kopiuj raport</button><a class="btn btn-small" href="/check" target="_blank" rel="noopener">Test stanowiska</a></div>
+        </details>
         <div class="field-head key-head">
           <label>Klawisz nagrywania</label>
           <span class="count-soft" id="keyStatus"></span>

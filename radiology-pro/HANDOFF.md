@@ -61,6 +61,15 @@ overall layout — add functionality in the existing style.
   hidden; an IT admin can still reset a password and sign in as a radiologist (the radiologist is e-mailed and it
   is logged).
 
+## PowerMic fix and IT support (1.2)
+- PowerMic "toggle never worked" (owner's station): learning bound the first changed bit, and the first report has no
+  baseline, so a constant status bit could be learned. Now `chooseButton()` learns from two presses (bit that goes on
+  and off, ignores constant and noisy bits); hold-to-talk mode; diagnose() + raw data view; same `mic-button.js` in
+  all three apps (RadVox PL, RadVox IR, Radiopis). Not tested with a physical PowerMic here (no hardware) —
+  simulated device reports in `test/mic-button.test.js`.
+- `client_events` (codes only, 30 days), `/api/me/event`, `EVENT_HELP` texts, `/api/it/users/:id/{details,unlock,reset-2fa,devices}`,
+  `/check` page (public), owner `reset-2fa`.
+
 ## Technical notes
 - Templates: 397 + 112 snippets (MR and X-ray libraries completed Oct 2026: mr-body-msk-2.js, mr-neuro-spine-2.js, xray-2.js).
 - Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (134 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),

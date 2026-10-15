@@ -43,7 +43,7 @@ export class Dictation {
     rec.onerror = (e) => {
       if (e.error === 'no-speech' || e.error === 'aborted') return;
       const fatal = ['not-allowed', 'service-not-allowed', 'audio-capture', 'language-not-supported'].includes(e.error);
-      this.onError(ERRORS[e.error] || `Błąd rozpoznawania mowy: ${e.error}`);
+      this.onError(ERRORS[e.error] || `Błąd rozpoznawania mowy: ${e.error}`, e.error);
       if (fatal) this.active = false;
     };
     rec.onend = () => {

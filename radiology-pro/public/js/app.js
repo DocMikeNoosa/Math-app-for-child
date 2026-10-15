@@ -28,7 +28,7 @@ const els = Object.fromEntries(
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
-    'micStatus', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'keyLearn', 'keyClear', 'keyStatus',
+    'micStatus', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micHold', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
   ].map((id) => [id, $(id)]),
 );
 
@@ -1048,6 +1048,11 @@ function setBusy(busy, label) {
 }
 
 // ---------------------------------------------------------------- copy
+/** Technical problems go to the organisation's IT console (codes only — never report text). */
+function reportProblem(kind, code, detail = '') {
+  window.dispatchEvent(new CustomEvent('radiopis:problem', { detail: { kind, code, detail } }));
+}
+
 async function copyReport() {
   if (isBlank()) { toast('Brak opisu do skopiowania — wybierz szablon.', 'warn'); return; }
   if (document.activeElement?.isContentEditable) document.activeElement.blur();
@@ -1079,6 +1084,7 @@ async function copyReport() {
     toast(liveConflicts.length ? 'Skopiowano — uwaga: w opisie są nierozwiązane sprzeczności' : 'Skopiowano do schowka — wklej do RIS (Ctrl+V)', liveConflicts.length ? 'warn' : 'ok', 3600);
   } else {
     toast('Nie udało się skopiować — zaznacz tekst ręcznie.', 'err');
+    reportProblem('clipboard', 'denied');
   }
 }
 
@@ -1462,7 +1468,7 @@ const dictationEngine = new Dictation({
   },
   onInterim: (text) => { els.interim.textContent = text; },
   onStateChange: (on) => { if (!on && state.recording) stopRecording(); },
-  onError: (msg) => toast(msg, 'err', 5000),
+  onError: (msg, code) => { toast(msg, 'err', 5000); if (code) reportProblem('speech', code); },
 });
 
 function startRecording() {
@@ -1615,7 +1621,7 @@ function openToday(open = true) {
   els.todayModal.hidden = !open;
 }
 async function copyText(text) {
-  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+  try { await navigator.clipboard.writeText(text); return true; } catch (err) { reportProblem('clipboard', 'denied', err?.name || ''); return false; }
 }
 function openTodayItem(id) {
   const it = today.items.find((x) => x.id === id);
@@ -1718,10 +1724,36 @@ function renderStyle() {
 }
 
 // ---------------------------------------------------------------- dictation button (PowerMic / key)
+// 'toggle': press = start / press again = stop; 'hold': hold to talk, release = stop
+let holdStarted = false;
+const rawReports = [];
 const mic = new MicButton({
-  onPress: () => { if (!state.busy) toggleRecording(); },
+  onPress: () => {
+    if (state.busy) return;
+    if (mic.mode === 'hold') holdStarted = !state.recording;
+    toggleRecording();
+  },
+  onRelease: () => { if (holdStarted) { holdStarted = false; toggleRecording(); } },
   onChange: () => renderMic(),
+  onRaw: (reportId, bytes) => {
+    rawReports.push(`#${reportId}: ${[...bytes].map((b) => b.toString(16).padStart(2, '0')).join(' ')}`);
+    if (rawReports.length > 8) rawReports.shift();
+    if (els.micDiagBox.open) renderMicDiag();
+  },
 });
+function micReport() {
+  const d = mic.diagnose();
+  return [
+    `Przeglądarka: ${navigator.userAgent}`,
+    `WebHID: ${d.supported ? 'tak' : 'NIE'} · połączony: ${d.connected ? 'tak' : 'nie'} · tryb: ${d.mode === 'hold' ? 'przytrzymaj' : 'naciśnij'}`,
+    `Urządzenie: ${d.product || '—'} (vendor ${d.vendorId}, product ${d.productId})`,
+    `Kolekcje HID: ${d.collections.map((c) => `${c.usagePage}/${c.usage}${c.protected ? ' (zablokowana przez przeglądarkę)' : ''}`).join(', ') || '—'}`,
+    `Odebrane raporty: ${d.reportsReceived} · przycisk: ${d.binding ? `raport ${d.binding.reportId}, bajt ${d.binding.byte}, maska 0x${d.binding.mask.toString(16)}` : 'nienauczony'}`,
+    `Ostatnie dane: ${rawReports.length ? `\n  ${rawReports.join('\n  ')}` : '—'}`,
+    `Wskazówka: ${d.hint}`,
+  ].join('\n');
+}
+function renderMicDiag() { els.micDiag.textContent = micReport(); }
 const KEY_NAMES = { Space: 'Spacja', Enter: 'Enter', Pause: 'Pause', ScrollLock: 'Scroll Lock', Insert: 'Insert' };
 const keyLabel = (code) => KEY_NAMES[code] || code.replace(/^Key|^Digit/, '').replace(/^Numpad/, 'Num ');
 let learningKey = false;
@@ -1731,13 +1763,15 @@ function renderMic() {
     els.micStatus.textContent = 'Ta przeglądarka nie obsługuje WebHID (użyj Chrome lub Edge). Możesz przypisać klawisz poniżej.';
     els.micConnect.disabled = els.micConnectAny.disabled = true;
   } else if (mic.connected) {
-    els.micStatus.textContent = mic.bound ? `Połączono: ${mic.name}. Przycisk nauczony — naciśnij, aby zacząć / zakończyć dyktowanie.` : `Połączono: ${mic.name}. Kliknij „Naucz przycisk” i naciśnij przycisk nagrywania na mikrofonie.`;
+    els.micStatus.textContent = mic.bound ? `Połączono: ${mic.name}. Przycisk nauczony — ${mic.mode === 'hold' ? 'przytrzymaj, aby dyktować' : 'naciśnij, aby zacząć / zakończyć dyktowanie'}.` : `Połączono: ${mic.name}. Kliknij „Naucz przycisk” i naciśnij przycisk nagrywania dwa razy.`;
   } else if (mic.config) {
     els.micStatus.textContent = `Zapamiętano: ${mic.name || 'urządzenie'} — niepodłączone. Podłącz mikrofon lub kliknij „Połącz PowerMic”.`;
   } else {
     els.micStatus.textContent = 'Nie połączono. Kliknij „Połącz PowerMic”, wybierz mikrofon z listy, a potem naucz przycisk.';
   }
   els.micLearn.hidden = !mic.connected;
+  els.micHold.checked = mic.mode === 'hold';
+  if (els.micDiagBox.open) renderMicDiag();
   els.micForget.hidden = !mic.config;
   els.keyStatus.textContent = learningKey ? 'naciśnij klawisz…' : state.recordKey ? keyLabel(state.recordKey) : 'brak (Spacja / F2 zawsze działają)';
   els.keyClear.hidden = !state.recordKey;
@@ -1750,14 +1784,18 @@ async function connectMic(any) {
       learnMicButton();
     }
   } catch (err) {
-    if (err?.name !== 'NotFoundError') toast(`Nie udało się połączyć: ${err.message}`, 'err', 5000);
+    if (err?.name !== 'NotFoundError') { toast(`Nie udało się połączyć: ${err.message}`, 'err', 5000); reportProblem('mic', 'open-failed', err.message); }
   }
 }
 async function learnMicButton() {
-  els.micStatus.textContent = 'Naciśnij teraz przycisk na mikrofonie, którym chcesz włączać i wyłączać dyktowanie…';
-  const ok = await mic.learn();
-  toast(ok ? 'Przycisk zapamiętany — naciśnij raz: dyktowanie, drugi raz: stop' : 'Nie wykryto naciśnięcia przycisku.', ok ? 'ok' : 'warn', 4000);
+  els.micStatus.textContent = 'Naciśnij teraz DWA RAZY przycisk nagrywania na mikrofonie (naciśnij – puść – naciśnij – puść)…';
+  const r = await mic.learn();
+  if (r.ok) toast(mic.mode === 'hold' ? 'Przycisk zapamiętany — przytrzymaj, aby dyktować' : 'Przycisk zapamiętany — naciśnij raz: dyktowanie, drugi raz: stop', 'ok', 4000);
+  else if (r.reason === 'no-data') { toast(mic.diagnose().hint, 'err', 10000); els.micDiagBox.open = true; }
+  if (!r.ok) reportProblem('mic', r.reason, micReport());
+  else toast('Nie rozpoznano przycisku — spróbuj jeszcze raz, naciskając tylko przycisk nagrywania (bez ruszania kulką / myszką).', 'warn', 7000);
   renderMic();
+  renderMicDiag();
 }
 
 // ---------------------------------------------------------------- AI status
@@ -1981,6 +2019,11 @@ function bind() {
   // dictation button
   els.micConnect.addEventListener('click', () => connectMic(false));
   els.micConnectAny.addEventListener('click', () => connectMic(true));
+  els.micHold.addEventListener('change', () => mic.setMode(els.micHold.checked ? 'hold' : 'toggle'));
+  els.micDiagBox.addEventListener('toggle', () => { if (els.micDiagBox.open) renderMicDiag(); });
+  els.micDiagCopy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(micReport()); toast('Raport skopiowany — wklej go w zgłoszeniu do działu IT / wsparcia', 'ok', 4000); } catch { toast('Zaznacz tekst raportu i skopiuj ręcznie.', 'warn'); }
+  });
   els.micLearn.addEventListener('click', learnMicButton);
   els.micForget.addEventListener('click', async () => { await mic.disconnect(); toast('Mikrofon odłączony', 'info'); });
   els.keyLearn.addEventListener('click', () => { learningKey = true; renderMic(); els.keyLearn.blur(); });

@@ -188,6 +188,7 @@ async function openUser(id) {
     <div class="actions" style="margin-top:12px">
       <button class="btn btn-sm" data-act="reset-link">Link do zmiany hasła</button>
       <button class="btn btn-sm" data-act="logout">Wyloguj ze wszystkich urządzeń</button>
+      ${u.twoFactor ? '<button class="btn btn-sm" data-act="reset2fa">Wyłącz logowanie dwuetapowe</button>' : ''}
       <button class="btn btn-sm ${u.blocked ? '' : 'btn-danger'}" data-act="block">${u.blocked ? 'Odblokuj' : 'Zablokuj'}</button>
       <button class="btn btn-sm btn-danger" data-act="delete">Usuń konto</button>
     </div>
@@ -241,6 +242,11 @@ async function openUser(id) {
           box.hidden = false;
           box.innerHTML = `<label>Link (ważny 24 h) — wyślij użytkownikowi:</label><div class="copybox"><input readonly value="${esc(r.link)}" /><button class="btn btn-sm" type="button">Kopiuj</button></div>`;
           box.querySelector('button').addEventListener('click', () => { navigator.clipboard.writeText(r.link); toast('Skopiowano', 'ok'); });
+        } else if (act === 'reset2fa') {
+          if (!window.confirm(`Wyłączyć logowanie dwuetapowe dla ${u.email}? (np. zgubiony telefon)`)) return;
+          await api(`/api/admin/users/${id}/reset-2fa`, { method: 'POST', body: {} });
+          toast('Logowanie dwuetapowe wyłączone', 'ok');
+          openUser(id);
         } else if (act === 'logout') {
           await api(`/api/admin/users/${id}/logout`, { method: 'POST', body: {} });
           toast('Wylogowano', 'ok');

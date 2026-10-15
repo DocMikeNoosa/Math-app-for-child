@@ -76,6 +76,7 @@ export async function runJobs(now = Date.now(), baseUrl = process.env.PUBLIC_URL
   // RODO retention: security / change log and copies of e-mails are not kept forever
   done.auditDeleted = Number(run('DELETE FROM audit WHERE ts < ?', now - s.auditRetentionDays * DAY).changes);
   done.outboxDeleted = Number(run('DELETE FROM outbox WHERE ts < ?', now - s.outboxRetentionDays * DAY).changes);
+  run('DELETE FROM client_events WHERE ts < ?', now - 30 * DAY);
   // devices idle longer than the limit are logged out
   run('DELETE FROM sessions WHERE last_seen < ?', now - s.sessionIdleDays * DAY);
   return done;

@@ -159,3 +159,14 @@ function wireAccount() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireAccount); else wireAccount();
 
 export const hostedUser = () => me;
+
+// ---------------------------------------------------------------- technical problems → the organisation's IT console
+// (error codes and the microphone diagnostic only — never report text). The same problem is sent at most once a minute.
+const sentProblems = new Map();
+window.addEventListener('radiopis:problem', (e) => {
+  const { kind, code, detail } = e.detail || {};
+  const key = `${kind}:${code}`;
+  if (Date.now() - (sentProblems.get(key) || 0) < 60_000) return;
+  sentProblems.set(key, Date.now());
+  nativeFetch('/api/me/event', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Radiopis': '1' }, body: JSON.stringify({ kind, code, detail }) }).catch(() => {});
+});
