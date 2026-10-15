@@ -4,7 +4,8 @@ Repository: https://github.com/DocMikeNoosa/Math-app-for-child — branch `claud
 Two apps live side by side:
 - `radiology-dictation/` — **RadVox**, the original single-user desktop app (see its own HANDOFF.md).
 - `radiology-pro/` — **Radiopis** (working name), the commercial hosted version with accounts, subscriptions and
-  an admin panel. Version 1.0.0. Read `README.md` here first.
+  an admin panel. Version 1.1.0 (rollout-ready for a teleradiology company of ~200 radiologists). Read `README.md`
+  here first, then `DEPLOY.md` (server) and `docs/LOAD-TEST.md` (200-user test).
 
 ## The person
 A Polish emergency radiologist, not technical: explain in short, simple steps. Never invent facts — say
@@ -25,9 +26,27 @@ overall layout — add functionality in the existing style.
   customers, DPIA, Anthropic ZDR/DPA or Bedrock EU), KSeF e-invoicing (connect an invoicing tool), lawyer review of
   `/privacy` and `/terms` drafts.
 
+## Rollout (1.1, October 2026)
+- Target customer: a teleradiology company with ~200 radiologists; 2-week trial for a limited number of seats,
+  then a subscription per seat (pricing advice given: ~249 PLN/seat at volume, 349 list, 100-seat minimum,
+  setup fee 10–20k PLN — not final).
+- Roles: `admin` (the owner — everything), `orgadmin` (the company's IT: only its own organisation, `/it`),
+  `user` (radiologist). Organisation members have `org_id`, `plan = 'org'`, `sub_status = 'org'`; access follows
+  the organisation's licence (`orgs.status`, `orgs.sub_until`), not a personal subscription.
+- Seats = non-blocked accounts of the organisation (IT accounts count too). Blocking frees a seat; deleting
+  anonymises the account (`u<id>@usuniety.invalid`) so usage statistics stay.
+- Temporary passwords (`abcd-ef23-gh45`) → `must_change_pwd = 1` → everything except `/change-password` is
+  blocked (API answers 402 code `pwd`).
+- AI traffic control: `lib/limiter.js` (`AI_MAX_CONCURRENT`, `AI_QUEUE_WAIT_MS`, `AI_PER_USER`); background calls
+  are refused first (429 `bg_busy`); busy → 503 `busy` + Retry-After; the app retries "Przygotuj opis" twice.
+- Cross-check speed-up (Oct 2026): substring pre-check before each term regex — 6× faster, verified identical on
+  4,764 template × dictation cases.
+- Deployment kit: `deploy/` (compose + Caddy + setup/offsite/restore scripts). Not run on a real cloud server from
+  the development environment (no Docker daemon there) — first deployment must follow DEPLOY.md and be checked.
+
 ## Technical notes
 - Templates: 397 + 112 snippets (MR and X-ray libraries completed Oct 2026: mr-body-msk-2.js, mr-neuro-spine-2.js, xray-2.js).
-- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (108 tests), `npm run build` (obfuscated bundle),
+- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (122 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
   `NODE_ENV=production` serves `dist/`.
 - Report counting: the browser sends `reportId` (one per report); usage rows with the same id count once.
 - `background: true` marks pre-processing calls; capped per report by `maxBackgroundCalls` (settings).
@@ -40,7 +59,7 @@ overall layout — add functionality in the existing style.
   fallbacks and fast mode are disabled there (not supported on Bedrock).
 
 ## Not done yet / ideas
-- Real deployment (needs the owner's hosting, domain, Stripe and e-mail accounts).
-- KSeF invoicing integration; team/clinic accounts (one invoice, many seats); per-report B2B billing for
-  teleradiology; better speech recognition (Azure / ElevenLabs) — the browser's engine is the weakest part.
+- Real deployment (needs the owner's hosting, domain, AI account, e-mail) — follow DEPLOY.md.
+- SSO (Microsoft Entra ID / Google) and two-factor login for organisations; KSeF invoicing integration;
+  per-report B2B billing for teleradiology; better speech recognition (Azure / ElevenLabs) — the browser's engine is the weakest part.
 - Italian version (asked about; not started).

@@ -45,6 +45,7 @@ async function loadDash() {
     ['Odrzucone (przeciążenie)', ai.rejectedBusy ? `<span class="pill err">${ai.rejectedBusy}</span>` : '<span class="pill ok">0</span>'],
     ['Pominięte w tle (oszczędność)', fmtNum(ai.rejectedBg)],
     ['Pamięć serwera', `${sv.rssMb} MB`],
+    ['Najdłuższe „zamrożenie” (ostatnia godzina)', `${sv.loop.maxMs} ms ${sv.loop.maxMs > 500 ? '<span class="pill warn">wysokie</span>' : '<span class="pill ok">OK</span>'} <span class="dim small">99%: ${sv.loop.p99Ms} ms</span>`],
     ['Działa od', `${Math.floor(sv.uptimeS / 3600)} h ${Math.floor((sv.uptimeS % 3600) / 60)} min`],
     ['Ostatnia kopia bazy', bk?.error ? `<span class="pill err">błąd</span>` : bk?.at ? `${fmtDateTime(bk.at)} <span class="dim small">${(bk.size / 1048576).toFixed(1)} MB</span>${bkAge > 26 ? ' <span class="pill err">stara!</span>' : ''}` : '<span class="pill warn">brak</span>'],
   ].map(([k, v]) => `<li><span>${k}</span><span>${v}</span></li>`).join('');

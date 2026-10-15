@@ -6,6 +6,8 @@ import './lib/env.js';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
+import { gzip } from 'node:zlib';
+import { promisify } from 'node:util';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,8 +21,9 @@ import {
   createUser, getUser, getUserByEmail, verifyPassword, passwordProblem, setPassword, publicUser, EMAIL_RE,
   loginBlocked, noteFailure, clearFailures, createOneTimeToken, useOneTimeToken, peekOneTimeToken, setTempPassword,
 } from './lib/auth.js';
-import { getOrg, listOrgs, seatsUsed, orgUsers, createOrg, updateOrg, tempPassword, parseUserList, ORG_STATUS } from './lib/orgs.js';
+import { getOrg, listOrgs, seatsUsed, orgUsers, createOrg, updateOrg, tempPassword, parseUserList, ORG_STATUS, TEMP_PASSWORD_RE } from './lib/orgs.js';
 import { aiLimiter, BusyError } from './lib/limiter.js';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { lastBackup, backupNow } from './lib/backup.js';
 import { plans, planById, settings, access, quotaCheck, quotaOf, monthUsage, costUsd, DEFAULT_PLANS, DEFAULT_SETTINGS } from './lib/plans.js';
 import { extendSubscription, stripeEnabled, createCheckout, createPortal, verifyStripeSignature, handleStripeEvent } from './lib/billing.js';
@@ -114,6 +117,23 @@ function currentUser(req) {
 }
 
 // ---------------------------------------------------------------- static files
+// Text files are kept in memory, gzip-compressed once (the app script shrinks ~4×) and re-read only when the file
+// changes — 200 people opening the app at 8:00 cost almost nothing.
+const gzipAsync = promisify(gzip);
+const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.svg', '.json', '.txt', '.webmanifest']);
+const fileCache = new Map(); // path → { key, data, gz: Promise<Buffer> }
+async function cachedFile(file, st) {
+  const key = `${st.size}-${st.mtimeMs}`;
+  let c = fileCache.get(file);
+  if (!c || c.key !== key) {
+    const data = await readFile(file);
+    c = { key, data, gz: COMPRESSIBLE.has(path.extname(file)) && data.length > 1024 ? gzipAsync(data, { level: 6 }) : null };
+    if (fileCache.size > 500) fileCache.clear();
+    fileCache.set(file, c);
+  }
+  return c;
+}
+
 async function serveFile(res, root, rel, { cache = 'no-cache', status = 200, req = null } = {}) {
   const file = path.normalize(path.join(root, rel));
   if (!file.startsWith(root + path.sep) && file !== root) {
@@ -132,9 +152,16 @@ async function serveFile(res, root, rel, { cache = 'no-cache', status = 200, req
       res.writeHead(304, headers({ ETag: etag, 'Cache-Control': cache }));
       return res.end();
     }
-    const data = await readFile(file);
-    res.writeHead(status, headers({ 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': cache, ETag: etag }));
-    res.end(req?.method === 'HEAD' ? undefined : data);
+    const c = await cachedFile(file, st);
+    const h = { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': cache, ETag: etag, Vary: 'Accept-Encoding' };
+    let body = c.data;
+    if (c.gz && /\bgzip\b/.test(String(req?.headers['accept-encoding'] || ''))) {
+      body = await c.gz;
+      h['Content-Encoding'] = 'gzip';
+    }
+    h['Content-Length'] = body.length;
+    res.writeHead(status, headers(h));
+    res.end(req?.method === 'HEAD' ? undefined : body);
   } catch {
     res.writeHead(404, headers({ 'Content-Type': 'text/plain; charset=utf-8' }));
     res.end('Nie znaleziono');
@@ -401,7 +428,8 @@ async function handleMe(req, res, ctx, route) {
     if (!u.must_change_pwd) return sendJson(res, 400, { error: 'Hasło jest już ustawione — zmień je na stronie konta.' });
     const problem = passwordProblem(body.next);
     if (problem) return sendJson(res, 400, { error: problem });
-    if (await verifyPassword(String(body.next), u.pwd)) return sendJson(res, 400, { error: 'Nowe hasło musi być inne niż tymczasowe.' });
+    // (pattern check instead of another slow password hash: temporary passwords always look like "abcd-ef23-gh45")
+    if (TEMP_PASSWORD_RE.test(String(body.next).trim())) return sendJson(res, 400, { error: 'Wybierz własne hasło — inne niż tymczasowe.' });
     await setPassword(u.id, body.next);
     deleteUserSessions(u.id, ctx.sessionId);
     audit(u.id, 'password.first', u.id);
@@ -465,9 +493,15 @@ function adminUserRow(u, month = monthOf()) {
   };
 }
 
+// How long the server was "frozen" (busy with one task while others wait): measured continuously, reset hourly.
+const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+loopDelay.enable();
+setInterval(() => loopDelay.reset(), 3600_000).unref();
+
 function serverHealth() {
   const mem = process.memoryUsage();
   return {
+    loop: { p99Ms: Math.round(loopDelay.percentile(99) / 1e6), maxMs: Math.round(loopDelay.max / 1e6) },
     uptimeS: Math.round(process.uptime()), rssMb: Math.round(mem.rss / 1048576), heapMb: Math.round(mem.heapUsed / 1048576),
     sessions: one('SELECT COUNT(*) AS n FROM sessions WHERE last_seen > ?', Date.now() - 15 * 60_000).n,
     ai: aiLimiter.snapshot(), backup: lastBackup(), node: process.version,
@@ -1110,6 +1144,7 @@ export async function ensureAdmin() {
   const password = process.env.ADMIN_PASSWORD;
   if (!email || !password) return null;
   if (passwordProblem(password)) throw new Error(`ADMIN_PASSWORD: ${passwordProblem(password)}`);
+  if (/^change-me/i.test(password)) throw new Error('ADMIN_PASSWORD: zmień przykładowe hasło z .env.example na własne.');
   const existing = getUserByEmail(email);
   if (existing) { run("UPDATE users SET role = 'admin' WHERE id = ?", existing.id); return getUser(existing.id); }
   return createUser({ email, password, name: 'Administrator', role: 'admin' });

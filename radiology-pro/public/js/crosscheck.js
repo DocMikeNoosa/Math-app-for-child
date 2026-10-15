@@ -155,7 +155,9 @@ function termRe(term, allowNie = false) {
   re.lastIndex = 0;
   return re;
 }
-const has = (lc, terms, allowNie = false) => terms.some((t) => termRe(t, allowNie).test(lc));
+// Every pattern contains its term literally, so a plain substring check first skips most regular expressions
+// (same result, several times faster — this runs for every sentence of every report).
+const has = (lc, terms, allowNie = false) => terms.some((t) => lc.includes(t) && termRe(t, allowNie).test(lc));
 
 function isNegatedAt(lc, idx) {
   let start = 0;
@@ -185,6 +187,7 @@ function findingConcepts(sentence) {
   const out = new Set();
   for (const [name, terms] of Object.entries(CONCEPTS)) {
     for (const t of terms) {
+      if (!lc.includes(t)) continue;
       for (const m of lc.matchAll(termRe(t))) if (!isNegatedAt(lc, m.index)) out.add(name);
     }
   }
@@ -304,7 +307,7 @@ function firstOrganIndex(text) {
   let best = -1;
   for (const o of Object.values(ORGANS)) {
     for (const st of o.stems) {
-      const m = termRe(st).exec(lc);
+      const m = lc.includes(st) ? termRe(st).exec(lc) : null;
       if (m && (best < 0 || m.index < best)) best = m.index;
     }
   }

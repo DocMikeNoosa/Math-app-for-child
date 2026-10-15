@@ -18,7 +18,10 @@ Polish (or English) report built from their templates, with clinically ordered f
 | Subscriptions | Plans with monthly report quotas (10% grace), trial → paid, monthly/annual, card payments via **Stripe** (Checkout + Customer Portal + signed webhooks) or **bank transfer** recorded by the admin. Automatic expiry, reminders 7 and 1 day before the end, past-due grace days. |
 | Usage metering | Every AI call stores tokens and cost (from the API's own usage numbers). Several calls for one report count as **one report**. Background pre-processing is capped per report (cost guard). |
 | Admin panel (`/admin`) | Dashboard (paying users, MRR, AI cost, margin, reports, cost per report, 30-day chart, expiring/past-due lists, top-cost users, server configuration), users (search/filter, detail drawer: extend subscription, record payment, change plan/limit/status, reset link, log out, block, delete, notes, monthly usage, payments, devices, history), AI usage per user and month, payments, plans & prices editor with a margin calculator, settings, audit log, outgoing e-mail, CSV exports (users, usage, payments for accounting). |
-| Device sync | Own templates and the style profile follow the user to every computer. Report text never leaves the browser storage (current report, today's list and automatically learned examples stay local; they are cleared when another user logs in on the same browser and on logout). |
+| Device sync | Own templates, the style profile and what the AI learned from the radiologist's corrections (style pairs, example reports, conclusion changes) follow the user to every computer — stored on the server with PESEL numbers removed. The current report and today's list never leave the browser; they are cleared when another user logs in on the same browser and on logout. |
+| Organisations (1.1) | For teleradiology companies: **one licence, N seats**, per-user monthly report limit, devices per user, price per seat. The owner creates them in **Admin → Organizacje** (with the first IT administrator) and extends the licence there. |
+| IT console (`/it`, 1.1) | For the company's IT administrator: seats used / free, add a person, **bulk import** (paste from Excel / CSV) with **temporary passwords** (copy or download CSV, optional e-mail), block (frees the seat at once), new temporary password, log out everywhere, delete (personal data removed, anonymous usage kept), change log, CSV export. Temporary passwords must be replaced at the first login. IT sees only its own organisation. |
+| Operations (1.1) | **AI traffic control** (concurrency cap + fair queue, background calls shed first, per-user cap, clear "busy" answers, automatic retry in the app), daily **online database backups** with retention + manual backup button, `/healthz`, graceful shutdown during updates, JSON request log without patient data, server health on the dashboard (queue, rejections, memory, event-loop freezes, last backup), announcement banner for all users, ETag revalidation of the app files. Deployment kit in `deploy/` (Docker Compose + Caddy HTTPS, server setup, off-site backup, restore) — see **DEPLOY.md**. Load test with 200 simultaneous users: `scripts/loadtest.mjs`, results in `docs/LOAD-TEST.md`. |
 | Code protection | The app's code is served only to logged-in users with an active subscription. `npm run build` bundles, minifies and **obfuscates** the browser code (templates become encoded strings). AI instructions, billing and the database are server-only. Security headers (CSP, frame-deny, HSTS in production), CSRF header check on all API writes. |
 | Privacy | PESEL numbers stripped before the AI; no report archive on the server; self-hosted fonts (no Google requests); optional **EU processing via Claude on Amazon Bedrock** (`AI_PROVIDER=bedrock`, `AWS_REGION=eu-central-1`). |
 | Public site | Landing page with live pricing, FAQ, login/registration pages, draft privacy policy and terms (marked as drafts for a lawyer). |
@@ -44,16 +47,18 @@ Node 22.5+ (uses the built-in SQLite). The first start creates the administrator
 
 ## Production
 
+**Step-by-step server guide (Poland / EU): [DEPLOY.md](DEPLOY.md)** — Docker Compose with Caddy (automatic HTTPS),
+server setup script, daily backups + off-site copy, restore, monitoring, updates, capacity for 200 radiologists.
+
+Without Docker:
+
 ```bash
 npm run build                          # protected browser bundle in dist/
 NODE_ENV=production npm start          # serves dist/, secure cookies, HSTS
 ```
 
-or with Docker: `docker build -t radiopis . && docker run -d -p 3000:3000 -v radiopis-data:/data --env-file .env radiopis`.
-(The Dockerfile was checked by replaying its steps; the image itself was not built in the development environment.)
-
-Put it behind HTTPS (e.g. Caddy or nginx with Let's Encrypt, or a platform that terminates TLS) and set
-`PUBLIC_URL` and `TRUST_PROXY=1`. Back up the `data/` folder (one SQLite file) daily.
+Put it behind HTTPS and set `PUBLIC_URL` and `TRUST_PROXY=1` (only when the app is reachable through the proxy
+alone).
 
 ### Stripe (optional)
 1. Create products/prices (PLN, monthly and yearly) in Stripe.
@@ -69,10 +74,12 @@ Without Stripe, users see bank-transfer details (Admin → Settings) and the adm
 
 ## Tests
 
-`npm test` — 108 tests: report engine and templates (every library template passes the safety net without
+`npm test` — 122 tests (incl. organisations, IT console, seats, temporary passwords, licence access, AI queue,
+health check): report engine and templates (every library template passes the safety net without
 changes or self-contradictions), server + Claude request shape (mock API), accounts, quotas, device limit,
 expiry, admin API, exports, Stripe webhook signatures/idempotency, sync isolation, security headers,
-background cost guard. UI was checked with Playwright against a mock AI server (development and the
+background cost guard. `npm run loadtest` — 200 simultaneous users against a fake AI (see `docs/LOAD-TEST.md`).
+UI was checked with Playwright against a mock AI server (development and the
 obfuscated production build).
 
 ## Layout
@@ -84,6 +91,8 @@ lib/plans.js         plans, prices, quotas, AI cost      lib/billing.js  subscri
 lib/jobs.js          hourly expiry / reminders / alerts  lib/mail.js     e-mail (Resend or outbox)
 lib/ai-client.js     Anthropic API or Bedrock (EU)       lib/claude.js   report prompt + request
 lib/learn.js         style analysis                      lib/brand.js    product name
+lib/orgs.js          organisations, seats, temp passwords lib/limiter.js AI concurrency queue
+lib/backup.js        daily online backups               deploy/         compose, Caddy, setup, backup, restore
 public/              the dictation app (+ public/js/hosted.js: session, sync, account menu)
 public/site/         landing, login, account, admin, legal pages
 scripts/build.mjs    protected production build          tools/check-templates.mjs  template validator

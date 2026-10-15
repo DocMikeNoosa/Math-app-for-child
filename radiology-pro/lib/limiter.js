@@ -1,5 +1,5 @@
 // AI traffic control for many simultaneous users.
-// - at most AI_MAX_CONCURRENT calls to the AI provider at once (default 40); the rest wait in a queue
+// - at most AI_MAX_CONCURRENT calls to the AI provider at once (default 60); the rest wait in a queue
 //   (first come, first served) for up to AI_QUEUE_WAIT_MS (default 60 s), then get a clear "busy" answer
 // - background pre-processing (sent automatically during dictation pauses) is optional: it is refused when the
 //   server is busy, so the radiologists' own "Przygotuj opis" clicks always go first
@@ -23,12 +23,12 @@ export class AiLimiter {
     this.active = 0;
     this.queue = [];
     this.byUser = new Map();
-    this.stats = { started: 0, queued: 0, rejectedBusy: 0, rejectedBg: 0, rejectedUser: 0, maxQueueLen: 0, maxWaitMs: 0, totalWaitMs: 0 };
+    this.stats = { started: 0, queuedTotal: 0, rejectedBusy: 0, rejectedBg: 0, rejectedUser: 0, maxQueueLen: 0, maxWaitMs: 0, totalWaitMs: 0 };
   }
 
   snapshot() {
     return {
-      max: this.max, active: this.active, queued: this.queue.length, perUser: this.perUser, ...this.stats,
+      ...this.stats, max: this.max, active: this.active, queued: this.queue.length, perUser: this.perUser,
       avgWaitMs: this.stats.started ? Math.round(this.stats.totalWaitMs / this.stats.started) : 0,
     };
   }
@@ -52,7 +52,7 @@ export class AiLimiter {
           this.stats.rejectedBusy++;
           throw new BusyError('Serwer AI jest teraz bardzo obciążony — spróbuj ponownie za chwilę.', 503, 'busy', 10);
         }
-        this.stats.queued++;
+        this.stats.queuedTotal++;
         await new Promise((resolve, reject) => {
           const item = { resolve, reject, timer: null };
           item.timer = setTimeout(() => {
@@ -104,7 +104,7 @@ export class AiLimiter {
 }
 
 export const aiLimiter = new AiLimiter({
-  max: Number(process.env.AI_MAX_CONCURRENT) || 40,
+  max: Number(process.env.AI_MAX_CONCURRENT) || 60,
   maxWaitMs: Number(process.env.AI_QUEUE_WAIT_MS) || 60_000,
   perUser: Number(process.env.AI_PER_USER) || 3,
 });

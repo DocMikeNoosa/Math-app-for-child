@@ -1,6 +1,6 @@
 {
   "name": "radiopis",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "description": "Radiopis — dyktowanie opisów radiologicznych z AI (wersja z kontami i subskrypcją).",
   "type": "module",
@@ -10,7 +10,9 @@
     "build": "node scripts/build.mjs",
     "prod": "npm run build && NODE_ENV=production node --disable-warning=ExperimentalWarning server.js",
     "test": "node --test test/*.test.js",
-    "check-templates": "node tools/check-templates.mjs public/js/templates-pro/*.js"
+    "check-templates": "node tools/check-templates.mjs public/js/templates-pro/*.js",
+    "loadtest": "npm run build && node --disable-warning=ExperimentalWarning scripts/loadtest.mjs",
+    "backup": "node --disable-warning=ExperimentalWarning scripts/backup.mjs"
   },
   "engines": {
     "node": ">=22.5"

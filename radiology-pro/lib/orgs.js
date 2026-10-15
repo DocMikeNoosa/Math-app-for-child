@@ -67,6 +67,8 @@ export function tempPassword() {
   return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8, 12)}`;
 }
 
+export const TEMP_PASSWORD_RE = /^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$/;
+
 /** Parse a pasted list / CSV of users: one per line — e-mail, name, PWZ (separated by ; , or tab). */
 export function parseUserList(text) {
   const rows = [];

@@ -316,3 +316,27 @@ test('health check, announcement banner text, static files revalidate with ETag 
   assert.equal(itPage.status, 200);
   assert.match(await itPage.text(), /Konsola IT/);
 });
+
+test('AI queue snapshot: "queued" is the current queue, "queuedTotal" the count since start', async () => {
+  const { AiLimiter } = await import('../lib/limiter.js');
+  const lim = new AiLimiter({ max: 1, maxWaitMs: 1000 });
+  const a = lim.run(1, () => new Promise((r) => setTimeout(r, 80)));
+  const b = lim.run(2, () => Promise.resolve());
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(lim.snapshot().queued, 1);
+  await Promise.all([a, b]);
+  const s = lim.snapshot();
+  assert.equal(s.queued, 0);
+  assert.equal(s.queuedTotal, 1);
+});
+
+test('static files: sent gzip-compressed when the browser accepts it, plain otherwise', async () => {
+  const gz = await new Promise((resolve) => http.get(`${url}/site/site.css`, { headers: { 'Accept-Encoding': 'gzip' } }, (res) => { res.resume(); resolve(res); }));
+  assert.equal(gz.headers['content-encoding'], 'gzip');
+  assert.equal(gz.headers.vary, 'Accept-Encoding');
+  const plain = await new Promise((resolve) => http.get(`${url}/site/site.css`, (res) => { let n = 0; res.on('data', (c) => (n += c.length)); res.on('end', () => resolve({ res, n })); }));
+  assert.equal(plain.res.headers['content-encoding'], undefined);
+  assert.ok(plain.n > Number(gz.headers['content-length']), 'compressed is smaller');
+  const text = await (await fetch(`${url}/site/site.css`)).text(); // fetch decompresses
+  assert.match(text, /\.seat-box/);
+});
