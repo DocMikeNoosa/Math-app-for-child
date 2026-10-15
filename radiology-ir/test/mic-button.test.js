@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 
 globalThis.localStorage = { _m: new Map(), getItem(k) { return this._m.get(k) ?? null; }, setItem(k, v) { this._m.set(k, String(v)); }, removeItem(k) { this._m.delete(k); } };
 Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
-const { chooseButton, risingBits, MicButton } = await import('../public/js/mic-button.js');
+const { chooseButton, risingBits, MicButton, ledCandidates, ledBytes } = await import('../public/js/mic-button.js');
 
 const R = (...bytes) => ({ reportId: 1, bytes: Uint8Array.from(bytes) });
 
@@ -75,4 +75,85 @@ test('diagnosis when the device sends nothing (another program holds it)', async
   assert.match(mic.diagnose().hint, /nie wysłało żadnych danych/);
   dev.collections = [{ usagePage: 0x01, usage: 0x06 }];
   assert.match(mic.diagnose().hint, /klawiatura/);
+});
+
+// HID descriptor as Chrome exposes it: an output report with 3 LED-page bits + 5 bits padding, and one vendor byte
+const LED = (u) => (0x08 << 16) | u;
+const ledCollections = [{
+  usagePage: 0xffa0, usage: 1, inputReports: [{ reportId: 1 }],
+  outputReports: [{ reportId: 2, items: [{ reportSize: 1, reportCount: 3, usages: [LED(0x18), LED(0x19), LED(0x1a)] }, { reportSize: 5, reportCount: 1, usages: [], usageMinimum: 0 }] }],
+  featureReports: [{ reportId: 3, items: [{ reportSize: 8, reportCount: 2, usages: [0xff000001, 0xff000002] }] }], // settings: never touched
+  children: [{ usagePage: 0xffa0, usage: 2, outputReports: [{ reportId: 4, items: [{ reportSize: 8, reportCount: 1, usages: [0xff000010] }] }] }],
+}];
+
+test('red light: candidate switches come from the descriptor, standard lights first, device settings never touched', () => {
+  const c = ledCandidates(ledCollections);
+  assert.deepEqual(c.slice(0, 3).map((x) => [x.type, x.reportId, x.byte, x.mask, x.led]), [['output', 2, 0, 1, true], ['output', 2, 0, 2, true], ['output', 2, 0, 4, true]]);
+  assert.ok(c.some((x) => x.reportId === 4 && !x.led), 'vendor output byte is a fallback candidate');
+  assert.ok(!c.some((x) => x.type === 'feature'), 'feature reports without a light are skipped');
+  assert.equal(c.filter((x) => x.reportId === 2).length, 4, 'padding is a candidate but not a duplicate');
+  assert.deepEqual([...ledBytes(c[1], true)], [0x02]);
+  assert.deepEqual([...ledBytes(c[1], false)], [0x00]);
+  assert.deepEqual(ledCandidates([]), []);
+  assert.deepEqual(ledCandidates(), []);
+});
+
+function ledDevice(collections) {
+  const dev = fakeDevice();
+  dev.collections = collections;
+  dev.sent = [];
+  dev.sendReport = async (id, data) => { dev.sent.push(['out', id, [...data]]); };
+  dev.sendFeatureReport = async (id, data) => { dev.sent.push(['feat', id, [...data]]); };
+  return dev;
+}
+
+test('red light: found by "does it light up?", then on while dictating and off after', async () => {
+  const mic = new MicButton({ onPress: () => {} });
+  const dev = ledDevice(ledCollections);
+  await mic.open(dev);
+  assert.equal(mic.autoLed(), null, 'three standard lights → the user is asked which one');
+  assert.equal(await mic.setLed(true), false, 'no light chosen yet → nothing sent');
+  assert.deepEqual(dev.sent, []);
+  const first = await mic.tryLed(0);
+  const second = await mic.tryLed(1); // user: "no" → next
+  assert.deepEqual(dev.sent, [['out', 2, [0x01]], ['out', 2, [0x00]], ['out', 2, [0x02]]], 'previous candidate is switched off first');
+  assert.notDeepEqual(first, second);
+  mic.saveLed(second); // user: "yes"
+  dev.sent.length = 0;
+  await mic.setLed(true); await mic.setLed(false);
+  assert.deepEqual(dev.sent, [['out', 2, [0x02]], ['out', 2, [0x00]]]);
+  assert.equal(await mic.tryLed(99), null, 'no more candidates');
+  assert.deepEqual(mic.diagnose().led, second);
+});
+
+test('red light: one standard light is used automatically; a failing device never throws', async () => {
+  localStorage._m.clear(); // a different microphone than in the test above
+  const one = [{ usagePage: 0xffa0, usage: 1, outputReports: [{ reportId: 5, items: [{ reportSize: 1, reportCount: 1, usages: [LED(0x4b)] }, { reportSize: 7, reportCount: 1, usages: [] }] }] }];
+  const mic = new MicButton({ onPress: () => {} });
+  const dev = ledDevice(one);
+  await mic.open(dev);
+  assert.deepEqual(mic.autoLed(), { type: 'output', reportId: 5, length: 1, byte: 0, mask: 1, led: true });
+  dev.sendReport = async () => { throw new Error('NotAllowedError'); };
+  assert.equal(await mic.setLed(true), false);
+  assert.match(mic.diagnose().ledError, /NotAllowed/);
+  // reconnecting while dictating switches the light back on
+  dev.sendReport = async (id, data) => { dev.sent.push(['out', id, [...data]]); };
+  dev.sent.length = 0;
+  await mic.open(dev);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(dev.sent, [['out', 5, [0x01]]]);
+});
+
+test('the toggle / hold choice survives "Odłącz" and a reload; test pages never save it', async () => {
+  const mic = new MicButton({ onPress: () => {} });
+  mic.setMode('hold');
+  await mic.disconnect();
+  assert.equal(mic.mode, 'hold');
+  assert.equal(mic.known, false);
+  assert.equal(new MicButton({ onPress: () => {} }).mode, 'hold', 'reload keeps it');
+  mic.setMode('toggle');
+  assert.equal(new MicButton({ onPress: () => {} }).mode, 'toggle');
+  const probe = new MicButton({ onPress: () => {}, persist: false });
+  probe.setMode('hold');
+  assert.equal(new MicButton({ onPress: () => {} }).mode, 'toggle', 'persist: false leaves the saved choice alone');
 });

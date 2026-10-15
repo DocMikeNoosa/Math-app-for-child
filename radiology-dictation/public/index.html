@@ -375,7 +375,26 @@
           <button class="btn btn-small" id="micLearn" hidden>Naucz przycisk</button>
           <button class="btn btn-small" id="micForget" hidden>Odłącz</button>
         </div>
-        <label class="check mic-hold"><input type="checkbox" id="micHold" /> Przytrzymaj przycisk, aby mówić (puszczenie = koniec dyktowania)</label>
+        <div class="mic-mode" role="radiogroup" aria-label="Jak działa przycisk nagrywania">
+          <label><input type="radio" name="micMode" id="micModeToggle" value="toggle" /> <span><b>Naciśnij</b> — dyktujesz, naciśnij ponownie — stop</span></label>
+          <label><input type="radio" name="micMode" id="micModeHold" value="hold" /> <span><b>Przytrzymaj</b>, aby dyktować — puść, aby zakończyć</span></label>
+        </div>
+        <p class="hint">Dotyczy przycisku na mikrofonie (PowerMic / SpeechMike) i przypisanego klawisza.</p>
+        <div class="mic-led" id="micLedRow" hidden>
+          <p class="hint" id="micLedStatus"></p>
+          <div class="btn-row">
+            <button class="btn btn-small" id="micLedFind">Znajdź czerwoną diodę</button>
+            <button class="btn btn-small" id="micLedTest" hidden>Test diody</button>
+          </div>
+          <div class="mic-led-ask" id="micLedAsk" hidden>
+            <p id="micLedQ"></p>
+            <div class="btn-row">
+              <button class="btn btn-small btn-primary" id="micLedYes">Tak, świeci</button>
+              <button class="btn btn-small" id="micLedNo">Nie — następna</button>
+              <button class="btn btn-small" id="micLedStop">Przerwij</button>
+            </div>
+          </div>
+        </div>
         <details class="mic-diag" id="micDiagBox"><summary>Diagnostyka mikrofonu (gdy przycisk nie działa)</summary>
           <pre class="mono" id="micDiag"></pre>
           <div class="btn-row"><button class="btn btn-small" id="micDiagCopy">Kopiuj raport</button></div>
@@ -388,7 +407,18 @@
           <button class="btn btn-small" id="keyLearn">Przypisz klawisz…</button>
           <button class="btn btn-small" id="keyClear" hidden>Usuń</button>
         </div>
-        <p class="hint">Jeden przycisk: naciśnij — dyktujesz, naciśnij ponownie — stop. Zatrzymanie nie tworzy opisu: opis powstaje po „Przygotuj opis”. Jeśli przeglądarka nie widzi mikrofonu, ustaw w programie Nuance (PowerMic Manager) przycisk tak, by wysyłał klawisz, np. F9, i przypisz go tutaj.</p>
+        <p class="hint">Zatrzymanie nie tworzy opisu: opis powstaje po „Przygotuj opis”. Jeśli przeglądarka nie widzi mikrofonu, ustaw w programie Nuance (PowerMic Manager) przycisk tak, by wysyłał klawisz, np. F9, i przypisz go tutaj.</p>
+      </div>
+      <div class="field">
+        <div class="field-head"><label>Mikrofon do dyktowania</label></div>
+        <p class="hint">Możesz dyktować dowolnym mikrofonem: PowerMic, SpeechMike, zestawem słuchawkowym albo mikrofonem wbudowanym w komputer lub monitor. Przycisk na ekranie, Spacja, F2 i przypisany klawisz działają z każdym z nich.</p>
+        <div class="btn-row audio-row">
+          <select id="audioInput" aria-label="Mikrofon do sprawdzenia"></select>
+          <button class="btn btn-small" id="audioTest">Sprawdź mikrofon</button>
+        </div>
+        <div class="audio-level" id="audioLevelWrap" hidden><div class="audio-level-bar" id="audioLevel"></div></div>
+        <p class="hint" id="audioStatus"></p>
+        <p class="hint">Dyktowanie słucha mikrofonu ustawionego w przeglądarce jako <b>domyślny</b>. Aby dyktować innym (np. wbudowanym): Chrome → Ustawienia → Prywatność i bezpieczeństwo → Ustawienia witryn → Mikrofon (Edge: Ustawienia → Pliki cookie i uprawnienia witryny → Mikrofon) i wybierz go z listy — albo ustaw go jako domyślny w Windows: Ustawienia → System → Dźwięk → Wejście.</p>
       </div>
       <div class="field">
         <div class="field-head"><label>Rozpoznawanie mowy</label></div>

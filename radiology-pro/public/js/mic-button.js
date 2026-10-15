@@ -6,6 +6,7 @@
 // microphone, the browser blocks this kind of device, or no permission) — the workstation check shows it too.
 
 const STORE_KEY = 'radvox.mic.v1';
+const MODE_KEY = 'radvox.micmode.v1'; // kept apart so "Odłącz" does not reset the user's choice
 export const NUANCE_VENDOR_ID = 0x0554;
 export const PHILIPS_VENDOR_ID = 0x0911;
 
@@ -67,6 +68,56 @@ export function chooseButton(reports, { expectedPresses = 2 } = {}) {
   return best ? { reportId: best.reportId, byte: best.byte, mask: best.mask } : null;
 }
 
+/**
+ * Places in the device's output / feature reports that could switch a light, from the HID descriptor the browser
+ * exposes. Bits declared on the standard LED usage page (0x08) come first — that is where a "record" light is
+ * normally described. Pure, for tests: [{ type: 'output'|'feature', reportId, length, byte, mask, led }].
+ */
+export function ledCandidates(collections = []) {
+  const out = [];
+  const walk = (cols) => {
+    for (const c of cols || []) {
+      for (const [type, reports] of [['output', c.outputReports], ['feature', c.featureReports]]) {
+        for (const r of reports || []) {
+          let bit = 0;
+          const slots = [];
+          for (const it of r.items || []) {
+            const size = Number(it.reportSize) || 0;
+            const count = Number(it.reportCount) || 0;
+            const usages = it.usages || [];
+            const page = usages.length ? usages[0] >>> 16 : it.usageMinimum >>> 16;
+            for (let k = 0; k < count; k++) {
+              const led = page === 0x08;
+              // feature reports can hold device settings: only touch those declared as lights
+              if (type === 'feature' && !led) continue;
+              if (size === 1) slots.push({ bit: bit + k, led });
+              else if (size > 1 && size <= 8) slots.push({ bit: bit + k * size, led }); // multi-bit field: lowest bit = "on"
+            }
+            bit += size * count;
+          }
+          const length = Math.ceil(bit / 8);
+          if (!length || length > 64) continue;
+          for (const sl of slots) out.push({ type, reportId: r.reportId || 0, length, byte: sl.bit >> 3, mask: 1 << (sl.bit & 7), led: sl.led });
+        }
+      }
+      walk(c.children);
+    }
+  };
+  walk(collections);
+  // LED-page bits first, output before feature; no duplicates
+  const seen = new Set();
+  return out.sort((a, b) => Number(b.led) - Number(a.led) || (a.type === 'output' ? -1 : 1) + (b.type === 'output' ? 1 : -1))
+    .filter((c) => { const k = `${c.type}:${c.reportId}:${c.byte}:${c.mask}`; if (seen.has(k)) return false; seen.add(k); return true; })
+    .slice(0, 48);
+}
+
+/** The bytes to send for one light state. */
+export function ledBytes(led, on) {
+  const data = new Uint8Array(led.length);
+  if (on) data[led.byte] |= led.mask;
+  return data;
+}
+
 // HID usages Chrome does not give to web pages (keyboards, mice…): a device that only has these cannot be read
 const PROTECTED = (c) => c.usagePage === 0x01 && [0x02, 0x06, 0x07, 0x80].includes(c.usage);
 
@@ -84,6 +135,7 @@ export class MicButton {
     this.pressed = false;
     this.reports = 0; // reports received since connecting (diagnostics)
     this.config = persist ? load() : null;
+    this.modeValue = (persist && loadMode()) || this.config?.mode || 'toggle';
     this.handle = (e) => this.onReport(e);
   }
 
@@ -91,10 +143,42 @@ export class MicButton {
   get connected() { return Boolean(this.device?.opened); }
   get bound() { return Boolean(this.config?.binding); }
   get name() { return this.device?.productName || this.config?.productName || ''; }
-  get mode() { return this.config?.mode === 'hold' ? 'hold' : 'toggle'; }
-  setMode(mode) {
-    this.config = { ...(this.config || {}), mode: mode === 'hold' ? 'hold' : 'toggle' };
+  get mode() { return this.modeValue === 'hold' ? 'hold' : 'toggle'; }
+  /** A device was chosen (not only the mode / light settings). */
+  get known() { return Boolean(this.config?.vendorId); }
+  get led() { return this.config?.led || null; }
+  /** Possible light switches of the connected device (for the "find the light" step). */
+  ledCandidates() { return this.device ? ledCandidates(this.device.collections) : []; }
+
+  /** Light on / off (the red "recording" light of a PowerMic). Never throws. */
+  async setLed(on, led = this.led) {
+    this.ledOn = Boolean(on);
+    if (!led || !this.connected) return false;
+    try {
+      const data = ledBytes(led, on);
+      if (led.type === 'feature') await this.device.sendFeatureReport(led.reportId, data);
+      else await this.device.sendReport(led.reportId, data);
+      return true;
+    } catch (err) {
+      this.ledError = err?.message || String(err);
+      return false;
+    }
+  }
+  saveLed(led) {
+    this.config = { ...(this.config || {}), led: led || null };
     this.save(this.config);
+    this.onChange();
+  }
+  /** With exactly one standard LED declared, it is used without asking. */
+  autoLed() {
+    if (this.led) return this.led;
+    const leds = this.ledCandidates().filter((c) => c.led);
+    if (leds.length === 1) { this.saveLed(leds[0]); return leds[0]; }
+    return null;
+  }
+  setMode(mode) {
+    this.modeValue = mode === 'hold' ? 'hold' : 'toggle';
+    if (this.persist) { try { localStorage.setItem(MODE_KEY, this.modeValue); } catch { /* ignore */ } }
     this.onChange();
   }
 
@@ -127,7 +211,7 @@ export class MicButton {
     const d = devices.find((x) => x.collections?.some((c) => !PROTECTED(c))) || devices[0];
     await this.open(d);
     const same = this.config && this.config.vendorId === d.vendorId && this.config.productId === d.productId;
-    this.config = { vendorId: d.vendorId, productId: d.productId, productName: d.productName, binding: same ? this.config.binding : null, mode: this.mode };
+    this.config = { vendorId: d.vendorId, productId: d.productId, productName: d.productName, binding: same ? this.config.binding : null, led: same ? this.config.led || null : null };
     this.save(this.config);
     this.onChange();
     return true;
@@ -147,6 +231,21 @@ export class MicButton {
     this.last.clear();
     d.addEventListener('inputreport', this.handle);
     this.onChange();
+    // keep the light in step with dictation after (re)connecting
+    if (this.led) this.setLed(Boolean(this.ledOn));
+  }
+
+  /**
+   * "Find the light": switch candidate n on (the previous one off). The page asks "is the red light on?" and calls
+   * saveLed(candidate) on yes. Returns the candidate or null when there are no more.
+   */
+  async tryLed(n) {
+    const list = this.ledCandidates();
+    if (n > 0 && list[n - 1]) await this.setLed(false, list[n - 1]);
+    const c = list[n];
+    if (!c) return null;
+    await this.setLed(true, c);
+    return c;
   }
 
   async disconnect() {
@@ -232,10 +331,14 @@ export class MicButton {
     else if (!this.reports) hint = 'Urządzenie nie wysłało żadnych danych. Najczęściej mikrofon jest przechwytywany przez inny program (oprogramowanie Nuance PowerMic, Dragon, SpeechMike Control Center) — zamknij go i spróbuj ponownie — albo zasady przeglądarki blokują to urządzenie (polityka WebHidAllowDevicesForUrls / WebHidBlockedForUrls).';
     else if (!this.bound) hint = 'Dane z mikrofonu docierają. Kliknij „Naucz przycisk” i naciśnij przycisk nagrywania dwa razy.';
     else hint = 'Mikrofon połączony, przycisk nauczony.';
-    return { supported: this.supported, connected: this.connected, product: d?.productName || this.config?.productName || '', vendorId: hex(d?.vendorId ?? this.config?.vendorId), productId: hex(d?.productId ?? this.config?.productId), collections, reportsReceived: this.reports, binding: this.config?.binding || null, mode: this.mode, hint };
+    const leds = d ? ledCandidates(d.collections) : [];
+    return { leds: leds.length, ledsStandard: leds.filter((c) => c.led).length, led: this.led, ledError: this.ledError || '', supported: this.supported, connected: this.connected, product: d?.productName || this.config?.productName || '', vendorId: hex(d?.vendorId ?? this.config?.vendorId), productId: hex(d?.productId ?? this.config?.productId), collections, reportsReceived: this.reports, binding: this.config?.binding || null, mode: this.mode, hint };
   }
 }
 
+function loadMode() {
+  try { return localStorage.getItem(MODE_KEY); } catch { return null; }
+}
 function load() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch { return null; }
 }

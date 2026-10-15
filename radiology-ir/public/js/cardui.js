@@ -907,6 +907,7 @@ function focusLesion(l) {
   if (idx >= 0) setTimeout(() => viewer?.ctrl?.focus?.(idx), 30);
 }
 /** Microphone of the card (button, Space key, PowerMic): speech goes into the text box, stopping applies it. */
+export const cardMicActive = () => Boolean(sayRec?.active);
 export function toggleCardMic() {
   if (!speechSupported) { api.toast(t2('Ta przeglądarka nie rozpoznaje mowy — wpisz tekst (Chrome i Edge rozpoznają mowę).', 'This browser has no speech recognition — type the text (Chrome and Edge have it).'), 'warn', 4000); $('sayText').focus(); return; }
   if (sayRec?.active) {
@@ -918,7 +919,7 @@ export function toggleCardMic() {
     lang: sayLang() === 'en' ? 'en-GB' : 'pl-PL',
     onFinal: (t) => { const ta = $('sayText'); ta.value = `${ta.value.trim()} ${t}`.trim(); },
     onInterim: (t) => { $('sayInterim').textContent = t; },
-    onStateChange: (on) => { $('sayMic').classList.toggle('rec', on); $('sayMic').setAttribute('aria-pressed', String(on)); $('cardSay').classList.toggle('rec', on); },
+    onStateChange: (on) => { api.recLight?.(on); $('sayMic').classList.toggle('rec', on); $('sayMic').setAttribute('aria-pressed', String(on)); $('cardSay').classList.toggle('rec', on); },
     onError: (m) => api.toast(m, 'err', 4500),
   });
   sayRec.before = $('sayText').value;
