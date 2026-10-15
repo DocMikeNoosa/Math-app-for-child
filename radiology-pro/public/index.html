@@ -36,9 +36,16 @@
 
     <div class="topbar-right">
       <time class="clock mono" id="clock" aria-label="Data i godzina"></time>
-      <button class="icon-btn learn-btn" id="learnBtn" title="Nauka AI — Twój styl opisów" aria-haspopup="dialog">
-        <svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5-9 5z"/><path d="M7 11.5V16c0 1.4 2.2 3 5 3s5-1.6 5-3v-4.5"/><path d="M21 9v5"/></svg>
+      <button class="learn-btn" id="learnBtn" aria-label="Uczenie AI — Twój styl opisów" aria-haspopup="dialog" aria-describedby="learnTip">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9l9-5 9 5-9 5z"/><path d="M7 11.5V16c0 1.4 2.2 3 5 3s5-1.6 5-3v-4.5"/><path d="M21 9v5"/></svg>
+        <span class="learn-label">Uczenie AI</span>
         <span class="learn-dot" id="learnDot" hidden></span>
+        <span class="learn-tip" id="learnTip" role="tooltip">
+          <b class="learn-tip-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9l9-5 9 5-9 5z"/><path d="M7 11.5V16c0 1.4 2.2 3 5 3s5-1.6 5-3v-4.5"/><path d="M21 9v5"/></svg>To jest uczenie AI</b>
+          <span>Radiopis uczy się <b>Twojego</b> stylu opisów: z poprawek, które robisz przed skopiowaniem opisu, z Twoich przykładowych opisów i z odpowiedzi na krótkie pytania.</span>
+          <span>Kliknij, aby zobaczyć, czego AI już się nauczyło, dodać przykłady albo wyłączyć naukę.</span>
+          <span class="learn-tip-state" id="learnTipState"></span>
+        </span>
       </button>
       <button class="today-btn" id="todayBtn" title="Dzisiejsze opisy (D)" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>
@@ -61,6 +68,7 @@
           <div class="pop-group" id="accountWho">Konto</div>
           <a class="pop-item" href="/account" role="menuitem">Konto i subskrypcja<small id="accountPlan">plan, zużycie, płatności</small></a>
           <a class="pop-item" href="/admin" role="menuitem" id="accountAdmin" hidden>Panel administratora<small>użytkownicy, subskrypcje, koszty AI</small></a>
+          <a class="pop-item" href="/it" role="menuitem" id="accountIt" hidden>Konsola IT<small>konta radiologów w organizacji</small></a>
           <button class="pop-item" id="accountLogout" role="menuitem">Wyloguj<small>czyści dzisiejsze opisy z tego komputera</small></button>
         </div>
       </div>

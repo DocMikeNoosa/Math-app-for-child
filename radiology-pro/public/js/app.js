@@ -430,7 +430,12 @@ const learnedItems = () => styleExamples.length + learned.conclusionRemoved.leng
 function renderLearnDot() {
   const pending = profile.questions.length > 0 || learnedItems() - (profile.itemsAtAnalysis || 0) >= 8;
   els.learnDot.hidden = !pending;
-  els.learnBtn.title = pending ? 'Nauka AI — są nowe pytania lub materiał do analizy' : 'Nauka AI — Twój styl opisów';
+  const tip = document.getElementById('learnTipState');
+  if (tip) {
+    const n = learnedItems();
+    const on = !els.learnStyle || els.learnStyle.checked;
+    tip.textContent = `${pending ? 'Są nowe pytania lub materiał do analizy — kliknij. ' : ''}${on ? 'Nauka włączona' : 'Nauka wyłączona'} · zebrano ${n} ${n === 1 ? 'przykład' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'przykłady' : 'przykładów'}.`;
+  }
 }
 /** A pasted report / phrase, or an edited template (kind 'szablon'). */
 function addSample(text, lang = 'pl', kind = 'przykład', title = '') {
@@ -750,14 +755,27 @@ function formatPayload() {
 }
 const payloadKey = (p) => JSON.stringify(p);
 
-async function callFormat(payload) {
+// When the server is busy (many radiologists at once) or the AI provider asks to slow down, a report the
+// radiologist asked for is retried automatically (twice, after the wait the server suggests). Background
+// pre-processing is never retried — "Przygotuj opis" does it when needed. A bare 502/503/504 without our JSON
+// comes from the proxy while the server restarts (an update) — also retried.
+const RETRY_CODES = new Set(['busy', 'ai_rate']);
+async function callFormat(payload, attempt = 0) {
   const res = await fetch('/api/format', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
+  if (!res.ok) {
+    if (!payload.background && attempt < 2 && (RETRY_CODES.has(data.code) || ([502, 503, 504].includes(res.status) && !data.error))) {
+      const wait = Math.min(15, Math.max(2, Number(res.headers.get('Retry-After')) || 5));
+      toast(`Serwer AI jest teraz obciążony — ponawiam za ${wait} s…`, 'warn', wait * 1000);
+      await new Promise((r) => setTimeout(r, wait * 1000));
+      return callFormat(payload, attempt + 1);
+    }
+    throw new Error(data.error || `Błąd ${res.status}`);
+  }
   return data;
 }
 
@@ -1896,7 +1914,7 @@ function bind() {
   };
   els.learnRuleAdd.addEventListener('click', addRule);
   els.learnRuleInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addRule(); } });
-  els.learnOn.addEventListener('change', () => { els.learnStyle.checked = els.learnOn.checked; save(); toast(els.learnOn.checked ? 'AI używa Twojego stylu' : 'AI nie używa Twojego stylu (nauka wyłączona)', 'info'); });
+  els.learnOn.addEventListener('change', () => { els.learnStyle.checked = els.learnOn.checked; save(); renderLearnDot(); toast(els.learnOn.checked ? 'AI używa Twojego stylu' : 'AI nie używa Twojego stylu (nauka wyłączona)', 'info'); });
   els.learnForget.addEventListener('click', async () => {
     if (!(await askConfirm('Zapomnieć wszystko: przykłady, reguły, sformułowania, odpowiedzi i zapamiętane poprawki?', { ok: 'Zapomnij', danger: true }))) return;
     profile = { rules: [], phrases: [], glossary: [], summary: '', questions: [], answers: [], samples: [], analyzedAt: 0, itemsAtAnalysis: 0 };

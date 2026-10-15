@@ -66,7 +66,12 @@ function render() {
   const u = me.user;
   $('#who').textContent = `${u.name} · ${u.email}`;
   $('#adminLink').hidden = u.role !== 'admin';
-  $('#statusPill').innerHTML = statusPill({ ...u, blocked: false });
+  $('#itLink').hidden = u.role !== 'orgadmin';
+  const org = me.org;
+  $('#choose').hidden = Boolean(org);
+  $('#paymentsCard').hidden = Boolean(org);
+  if (org) u.subUntil = org.subUntil;
+  $('#statusPill').innerHTML = statusPill({ ...u, blocked: false, ...(me.org ? { subStatus: 'org', subUntil: me.org.subUntil } : {}) });
   $('#planName').textContent = me.plan.name;
   const left = daysLeft(u.subUntil);
   $('#until').textContent = u.subUntil ? `${fmtDate(u.subUntil)}${left > 0 ? ` (${left} dni)` : ''}` : '—';
@@ -81,6 +86,7 @@ function render() {
   if (p.get('paid')) showMsg($('#notice'), 'Dziękujemy! Płatność przyjęta — dostęp zaktualizuje się w ciągu kilku sekund (odśwież stronę).', 'ok');
   else if (p.get('canceled')) showMsg($('#notice'), 'Płatność anulowana — nic nie zostało pobrane.', 'info');
   else if (!me.access.ok) showMsg($('#notice'), me.access.reason, 'err');
+  else if (org) showMsg($('#notice'), `Licencję zapewnia ${org.name}${org.status === 'trial' ? ' (okres próbny)' : ''}. Sprawy konta i hasła: dział IT${org.contact ? ` — ${org.contact}` : ''}.`, 'info');
   else if (u.subStatus === 'trial') showMsg($('#notice'), `Okres próbny: zostało ${left} dni. Wybierz plan, aby pracować dalej bez przerwy.`, 'info');
   else if (left <= 7 && !u.hasStripe) showMsg($('#notice'), `Subskrypcja kończy się za ${left} dni.`, 'info');
   renderPlans();

@@ -92,3 +92,21 @@ if (page === 'reset') {
     }
   });
 }
+
+if (page === 'change-password') {
+  const form = $('#form');
+  api('/api/me').then((d) => { $('#who').textContent = d.user.email; }).catch(() => { location.href = '/login'; });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showMsg(msg, '');
+    if (form.password.value !== form.password2.value) return showMsg(msg, 'Hasła nie są takie same.');
+    busy(form, true);
+    try {
+      const d = await api('/api/me/first-password', { method: 'POST', body: { next: form.password.value } });
+      location.href = d.next || '/app/';
+    } catch (err) {
+      showMsg(msg, err.message);
+      busy(form, false);
+    }
+  });
+}

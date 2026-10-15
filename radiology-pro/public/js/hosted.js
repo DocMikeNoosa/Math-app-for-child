@@ -14,7 +14,7 @@ const origRemove = Storage.prototype.removeItem;
 const isApi = (u) => typeof u === 'string' && u.startsWith('/api/');
 
 let bannerShown = '';
-export function showBanner(text, { error = false, link = true } = {}) {
+export function showBanner(text, { error = false, link = true, onClose = null } = {}) {
   if (bannerShown === text) return;
   bannerShown = text;
   const show = () => {
@@ -35,7 +35,7 @@ export function showBanner(text, { error = false, link = true } = {}) {
     const x = document.createElement('button');
     x.textContent = '×';
     x.setAttribute('aria-label', 'Zamknij');
-    x.addEventListener('click', () => { b.remove(); bannerShown = ''; });
+    x.addEventListener('click', () => { b.remove(); bannerShown = ''; onClose?.(); });
     b.append(x);
     document.body.append(b);
   };
@@ -51,6 +51,7 @@ window.fetch = async (input, init = {}) => {
     location.href = '/login?next=/app/';
   } else if (res.status === 402) {
     const d = await res.clone().json().catch(() => ({}));
+    if (d.code === 'pwd') { location.href = '/change-password'; return res; }
     showBanner(d.error || 'Brak dostępu.', { error: d.code !== 'quota' });
   } else if (res.ok && u === '/api/format') {
     const d = await res.clone().json().catch(() => null);
@@ -58,7 +59,12 @@ window.fetch = async (input, init = {}) => {
   } else if (res.ok && u === '/api/status') {
     const d = await res.clone().json().catch(() => null);
     if (d && !d.user) location.href = '/login?next=/app/';
-    else if (d && d.access && !d.access.ok) showBanner(d.access.reason, { error: true });
+    else if (d && d.access && !d.access.ok) {
+      if (d.access.code === 'pwd') location.href = '/change-password';
+      else showBanner(d.access.reason, { error: true });
+    } else if (d?.announcement && sessionStorage.getItem('radiopis.ann') !== d.announcement) {
+      showBanner(d.announcement, { link: false, onClose: () => sessionStorage.setItem('radiopis.ann', d.announcement) });
+    }
   }
   return res;
 };
@@ -139,6 +145,7 @@ function wireAccount() {
   if (me) {
     document.getElementById('accountWho').textContent = me.name || me.email;
     if (me.role === 'admin') document.getElementById('accountAdmin').hidden = false;
+    if (me.role === 'orgadmin') document.getElementById('accountIt').hidden = false;
   }
   btn.addEventListener('click', (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; });
   document.addEventListener('click', (e) => { if (!pop.hidden && !pop.contains(e.target)) pop.hidden = true; });

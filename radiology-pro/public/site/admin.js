@@ -9,7 +9,7 @@ const LANG = { 'pl>pl': 'PL → PL', 'en>pl': 'EN → PL', 'en>en': 'EN → EN',
 const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '—');
 
 // ---------------------------------------------------------------- tabs
-const loaders = { dash: loadDash, users: loadUsers, usage: loadUsage, payments: loadPayments, plans: loadPlans, settings: loadSettings, log: loadLog };
+const loaders = { dash: loadDash, users: loadUsers, orgs: loadOrgs, usage: loadUsage, payments: loadPayments, plans: loadPlans, settings: loadSettings, log: loadLog };
 function openTab(name) {
   for (const b of $$('.admin-tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const p of $$('[data-panel]')) p.hidden = p.dataset.panel !== name;
@@ -32,7 +32,23 @@ async function loadDash() {
     kpi('Marża po kosztach AI', fmtPln(o.marginPln), o.mrrPln ? `${pct(o.marginPln, o.mrrPln)} przychodu` : 'brak przychodu', o.marginPln >= 0 ? 'good' : 'bad'),
     kpi('Opisy (ten miesiąc)', fmtNum(o.ai.reports), `${fmtNum(o.ai.calls)} zapytań AI · ${o.ai.callsPerReport.toFixed(1)} na opis`),
     kpi('Koszt AI na opis', fmtPln(o.ai.costPerReportPln, 2), `śr. czas odpowiedzi ${(o.ai.avgMs / 1000).toFixed(1)} s · błędy: ${o.ai.errors}`),
+    kpi('Organizacje', fmtNum(o.orgs.count), `${fmtNum(o.orgs.seatsUsed)} / ${fmtNum(o.orgs.seats)} miejsc zajętych · ${fmtPln(o.orgs.mrrPln)} / mies.`),
   ].join('');
+  const sv = o.server;
+  const ai = sv.ai;
+  const bk = sv.backup;
+  const bkAge = bk?.at ? (Date.now() - bk.at) / 3600000 : null;
+  $('#server').innerHTML = [
+    ['Zalogowani aktywni (15 min)', fmtNum(sv.sessions)],
+    ['Zapytania AI teraz', `${ai.active} / ${ai.max}${ai.queued ? ` <span class="pill warn">${ai.queued} w kolejce</span>` : ''}`],
+    ['Najdłuższe czekanie w kolejce', `${(ai.maxWaitMs / 1000).toFixed(1)} s <span class="dim small">(śr. ${(ai.avgWaitMs / 1000).toFixed(1)} s)</span>`],
+    ['Odrzucone (przeciążenie)', ai.rejectedBusy ? `<span class="pill err">${ai.rejectedBusy}</span>` : '<span class="pill ok">0</span>'],
+    ['Pominięte w tle (oszczędność)', fmtNum(ai.rejectedBg)],
+    ['Pamięć serwera', `${sv.rssMb} MB`],
+    ['Działa od', `${Math.floor(sv.uptimeS / 3600)} h ${Math.floor((sv.uptimeS % 3600) / 60)} min`],
+    ['Ostatnia kopia bazy', bk?.error ? `<span class="pill err">błąd</span>` : bk?.at ? `${fmtDateTime(bk.at)} <span class="dim small">${(bk.size / 1048576).toFixed(1)} MB</span>${bkAge > 26 ? ' <span class="pill err">stara!</span>' : ''}` : '<span class="pill warn">brak</span>'],
+  ].map(([k, v]) => `<li><span>${k}</span><span>${v}</span></li>`).join('');
+  for (const org of o.orgs.expiring) toast(`Licencja ${org.name} kończy się ${fmtDate(org.subUntil)}`, 'warn', 6000);
   drawChart(o.daily);
   const userCell = (u) => `<td><b>${esc(u.name || u.email)}</b><span class="sub">${esc(u.email)}</span></td>`;
   $('#expiring').innerHTML = o.expiring.length ? o.expiring.map((u) => `<tr class="click" data-user="${u.id}">${userCell(u)}<td>${esc(u.planName)}</td><td>${statusPill(u)}</td><td>${fmtDate(u.subUntil)} (${daysLeft(u.subUntil)} d)</td></tr>`).join('') : '<tr><td colspan="4" class="empty">Brak</td></tr>';
@@ -74,6 +90,15 @@ function drawChart(daily) {
   $('#chartNote').textContent = `maks. ${maxR} opisów / dzień · ${fmtUsd(maxC)} / dzień`;
 }
 
+$('#backupNow').addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  try {
+    const d = await api('/api/admin/backup', { method: 'POST', body: {} });
+    toast(`Kopia zapisana: ${d.file} (${(d.size / 1048576).toFixed(1)} MB)`, 'ok', 5000);
+    loadDash();
+  } catch (err) { toast(err.message, 'err'); } finally { e.target.disabled = false; }
+});
+
 $('#runJobs').addEventListener('click', async () => {
   const d = await api('/api/admin/jobs', { method: 'POST', body: {} });
   toast(`Wygaszono: ${d.expired} · przypomnienia: ${d.reminded} · alerty kosztów: ${d.costAlerts}`, 'ok', 5000);
@@ -87,7 +112,7 @@ async function loadUsers() {
   const d = await api(`/api/admin/users?q=${q}&filter=${$('#filter').value}`);
   const rate = overviewData?.usdPln;
   $('#users').innerHTML = d.users.length ? d.users.map((u) => `<tr class="click" data-user="${u.id}">
-      <td><b>${esc(u.name || '—')}</b>${u.role === 'admin' ? ' <span class="pill info">admin</span>' : ''}<span class="sub">${esc(u.email)}</span></td>
+      <td><b>${esc(u.name || '—')}</b>${u.role === 'admin' ? ' <span class="pill info">admin</span>' : u.role === 'orgadmin' ? ' <span class="pill info">IT</span>' : ''}${u.mustChangePwd ? ' <span class="pill warn">hasło tymcz.</span>' : ''}<span class="sub">${esc(u.email)}</span></td>
       <td>${esc(u.planName)}${u.quotaOverride != null ? ' <span class="pill warn">limit*</span>' : ''}${u.stripe ? ' <span class="pill">karta</span>' : ''}</td>
       <td>${statusPill(u)}</td>
       <td>${fmtDate(u.subUntil)}</td>
@@ -109,10 +134,14 @@ function closeLayers() { $('#drawer').hidden = true; $('#modal').hidden = true; 
 $('#overlay').addEventListener('click', closeLayers);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLayers(); });
 
+let orgsList = null;
 async function openUser(id) {
   const d = await api(`/api/admin/users/${id}`);
   if (!plansData.length) plansData = (await api('/api/admin/plans')).plans;
+  if (!orgsList) orgsList = (await api('/api/admin/orgs')).orgs;
   const u = d.user;
+  const orgOpts = `<option value="">— brak (konto indywidualne) —</option>${orgsList.map((o) => `<option value="${o.id}"${o.id === u.orgId ? ' selected' : ''}>${esc(o.name)}</option>`).join('')}`;
+  const roleOpts = [['user', 'radiolog'], ['orgadmin', 'administrator IT organizacji'], ['admin', 'administrator usługi (Ty)']].map(([k, v]) => `<option value="${k}"${k === u.role ? ' selected' : ''}>${v}</option>`).join('');
   const planOpts = plansData.map((p) => `<option value="${esc(p.id)}"${p.id === u.plan ? ' selected' : ''}>${esc(p.name)} (${fmtPln(p.pricePln)})</option>`).join('');
   const dr = $('#drawer');
   dr.innerHTML = `
@@ -122,8 +151,9 @@ async function openUser(id) {
       ${kpi('Opisy (mies.)', `${u.reports} / ${u.quota}`, `${u.calls} zapytań AI`)}
       ${kpi('Koszt AI (mies.)', fmtPln(u.costPln, 2), `${fmtUsd(u.costUsd)}${u.pricePln ? ` · ${pct(u.costPln, u.pricePln)} ceny planu` : ''}`)}
     </div>
-    <h3>Przedłuż / zapisz płatność</h3>
-    <form id="extendForm" class="card" style="padding:16px">
+    ${u.orgId ? `<div class="msg info">Licencja z organizacji <b>${esc(u.orgName)}</b> (do ${fmtDate(u.subUntil)}). Przedłużasz ją w zakładce „Organizacje”.</div>` : ''}
+    <h3${u.orgId ? ' hidden' : ''}>Przedłuż / zapisz płatność</h3>
+    <form id="extendForm" class="card" style="padding:16px"${u.orgId ? ' hidden' : ''}>
       <div class="row">
         <div class="field"><label>Plan</label><select name="plan">${planOpts}</select></div>
         <div class="field"><label>Okres</label><select name="interval"><option value="month">miesiąc</option><option value="year">rok</option></select></div>
@@ -148,7 +178,7 @@ async function openUser(id) {
         <div class="field"><label>Limit opisów <span class="faint">(puste = z planu)</span></label><input name="quotaOverride" type="number" min="0" value="${u.quotaOverride ?? ''}" /></div>
       </div>
       <div class="field"><label>Notatka (widoczna tylko dla administratora)</label><textarea name="note">${esc(u.note)}</textarea></div>
-      <div class="field"><label class="check"><input type="checkbox" name="admin"${u.role === 'admin' ? ' checked' : ''} /> Administrator</label></div>
+      <div class="row"><div class="field"><label>Organizacja</label><select name="orgId">${orgOpts}</select></div><div class="field"><label>Rola</label><select name="role">${roleOpts}</select></div></div>
       <button class="btn" type="submit">Zapisz zmiany</button>
     </form>
     <div class="actions" style="margin-top:12px">
@@ -188,8 +218,9 @@ async function openUser(id) {
   $('#editForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
-    const body = { name: f.name.value, email: f.email.value, npwz: f.npwz.value, phone: f.phone.value, company: f.company.value, nip: f.nip.value, note: f.note.value, subStatus: f.subStatus.value, quotaOverride: f.quotaOverride.value === '' ? null : Number(f.quotaOverride.value), role: f.admin.checked ? 'admin' : 'user' };
-    if (f.until.value) body.subUntil = Date.parse(`${f.until.value}T23:59:59`);
+    const body = { name: f.name.value, email: f.email.value, npwz: f.npwz.value, phone: f.phone.value, company: f.company.value, nip: f.nip.value, note: f.note.value, subStatus: f.subStatus.value, quotaOverride: f.quotaOverride.value === '' ? null : Number(f.quotaOverride.value), orgId: f.orgId.value ? Number(f.orgId.value) : null, role: f.role.value };
+    if (u.orgId) { delete body.subStatus; delete body.subUntil; }
+    if (f.until.value && !u.orgId) body.subUntil = Date.parse(`${f.until.value}T23:59:59`);
     try {
       await api(`/api/admin/users/${id}`, { method: 'PATCH', body });
       toast('Zapisano', 'ok');
@@ -336,16 +367,142 @@ $('#savePlans').addEventListener('click', async () => {
 async function loadSettings() {
   const { settings: s } = await api('/api/admin/settings');
   const f = $('#settingsForm');
-  for (const k of ['usdPln', 'trialDays', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount']) f[k].value = s[k] ?? '';
+  for (const k of ['usdPln', 'trialDays', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount', 'announcement']) f[k].value = s[k] ?? '';
   f.registrationOpen.checked = s.registrationOpen;
 }
 $('#settingsForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked } });
+    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, announcement: f.announcement.value } });
     toast('Ustawienia zapisane', 'ok');
   } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------- organisations
+const ORG_STATUS = { trial: 'okres próbny', active: 'aktywna', suspended: 'wstrzymana' };
+function orgPill(o) {
+  if (o.status === 'suspended') return '<span class="pill err">wstrzymana</span>';
+  if (!o.access) return '<span class="pill err">wygasła</span>';
+  return o.status === 'trial' ? '<span class="pill info">okres próbny</span>' : '<span class="pill ok">aktywna</span>';
+}
+let orgPlans = [];
+async function loadOrgs() {
+  const d = await api('/api/admin/orgs');
+  orgsList = d.orgs;
+  orgPlans = d.plans;
+  $('#orgs').innerHTML = d.orgs.length ? d.orgs.map((o) => `<tr>
+      <td><b>${esc(o.name)}</b><span class="sub">${o.nip ? `NIP ${esc(o.nip)} · ` : ''}${esc(o.contact || 'brak kontaktu IT')}</span></td>
+      <td>${orgPill(o)}</td>
+      <td>${fmtDate(o.subUntil)}${o.access ? ` <span class="dim small">(${daysLeft(o.subUntil)} d)</span>` : ''}</td>
+      <td class="num">${o.seatsUsed} / ${o.seats}</td>
+      <td class="num">${o.activeUsers}</td>
+      <td class="num">${fmtNum(o.reports)}</td>
+      <td class="num">${fmtPln(o.costPln, 2)}</td>
+      <td class="num">${o.revenuePln ? fmtPln(o.revenuePln) : '—'}</td>
+      <td class="num">${o.revenuePln ? fmtPln(o.marginPln) : '—'}</td>
+      <td class="num" style="white-space:nowrap"><a class="btn btn-sm" href="/it?org=${o.id}">Konsola IT</a> <button class="btn btn-sm" data-org="${o.id}">Edytuj</button></td></tr>`).join('')
+    : '<tr><td colspan="10" class="empty">Brak organizacji — kliknij „+ Nowa organizacja”.</td></tr>';
+}
+
+function orgForm(o = null) {
+  const planOpts = orgPlans.map((p) => `<option value="${esc(p.id)}"${(o ? o.plan : 'pro') === p.id ? ' selected' : ''}>${esc(p.name)} (${p.quota} opisów)</option>`).join('');
+  const until = o ? new Date(o.subUntil).toISOString().slice(0, 10) : '';
+  return `
+    <div class="row"><div class="field"><label>Nazwa</label><input name="name" required value="${esc(o?.name || '')}" /></div><div class="field" style="flex:0 1 160px"><label>NIP</label><input name="nip" value="${esc(o?.nip || '')}" /></div></div>
+    <div class="row">
+      <div class="field"><label>Miejsca (konta)</label><input name="seats" type="number" min="1" max="5000" value="${o?.seats ?? 10}" /></div>
+      <div class="field"><label>Cena netto / miejsce / mies. (zł)</label><input name="pricePerSeat" type="number" min="0" step="1" value="${o?.pricePerSeat ?? 0}" /></div>
+      <div class="field"><label>Urządzenia na osobę</label><input name="devices" type="number" min="1" max="10" value="${o?.devices ?? 2}" /></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Status</label><select name="status">${Object.entries(ORG_STATUS).map(([k, v]) => `<option value="${k}"${(o?.status || 'trial') === k ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
+      ${o ? `<div class="field"><label>Licencja do</label><input name="until" type="date" value="${until}" /></div>` : '<div class="field"><label>Okres próbny / licencja (dni)</label><input name="days" type="number" min="1" value="14" /></div>'}
+    </div>
+    <div class="row">
+      <div class="field"><label>Limit opisów z planu</label><select name="plan">${planOpts}</select></div>
+      <div class="field"><label>…albo własny limit / osobę / mies.</label><input name="quotaPerUser" type="number" min="0" value="${o?.quotaOverride ?? ''}" placeholder="z planu" /></div>
+    </div>
+    <div class="field"><label>Kontakt IT (widoczny dla radiologów)</label><input name="contact" value="${esc(o?.contact || '')}" placeholder="np. it@firma.pl, tel. 22 000 00 00" /></div>
+    <div class="field"><label>Notatka (tylko dla Ciebie)</label><textarea name="note">${esc(o?.note || '')}</textarea></div>`;
+}
+const orgBody = (f) => ({
+  name: f.name.value, nip: f.nip.value, seats: Number(f.seats.value), pricePerSeat: Number(f.pricePerSeat.value), devices: Number(f.devices.value),
+  status: f.status.value, plan: f.plan.value, quotaPerUser: f.quotaPerUser.value === '' ? null : Number(f.quotaPerUser.value), contact: f.contact.value, note: f.note.value,
+});
+
+$('#addOrg').addEventListener('click', async () => {
+  if (!orgPlans.length) await loadOrgs();
+  const m = $('#modal');
+  m.innerHTML = `<div class="drawer-head"><h2>Nowa organizacja</h2><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
+    <form id="orgNew">${orgForm()}
+      <h3>Pierwszy administrator IT <span class="faint small">(opcjonalnie)</span></h3>
+      <div class="row"><div class="field"><label>E-mail</label><input name="itEmail" type="email" /></div><div class="field"><label>Imię i nazwisko</label><input name="itName" /></div></div>
+      <button class="btn btn-primary" type="submit">Utwórz</button>
+    </form><div id="orgOut" style="margin-top:12px"></div>`;
+  $('#overlay').hidden = false;
+  m.hidden = false;
+  m.querySelector('[data-close]').addEventListener('click', closeLayers);
+  $('#orgNew').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      const d = await api('/api/admin/orgs', { method: 'POST', body: { ...orgBody(f), days: Number(f.days.value), itEmail: f.itEmail.value, itName: f.itName.value } });
+      orgsList = null;
+      f.hidden = true;
+      $('#orgOut').innerHTML = `<div class="msg ok">Utworzono: <b>${esc(d.org.name)}</b> (${d.org.seats} miejsc, do ${fmtDate(d.org.subUntil)}).</div>${d.it ? `<p>Dane logowania administratora IT — <b>pokazywane tylko teraz</b>:</p><pre class="cred mono">Adres: ${esc(location.origin)}/login
+E-mail: ${esc(d.it.email)}
+Hasło tymczasowe: ${esc(d.it.tempPassword)}</pre>` : ''}<div class="actions"><a class="btn btn-sm btn-primary" href="/it?org=${d.org.id}">Otwórz konsolę IT</a><button class="btn btn-sm" data-close>Zamknij</button></div>`;
+      $('#orgOut').querySelector('[data-close]').addEventListener('click', closeLayers);
+      loadOrgs();
+    } catch (err) { toast(err.message, 'err', 6000); }
+  });
+});
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-org]');
+  if (!b) return;
+  const o = (orgsList || []).find((x) => x.id === Number(b.dataset.org));
+  if (!o) return;
+  const m = $('#modal');
+  m.innerHTML = `<div class="drawer-head"><div><h2>${esc(o.name)}</h2><div class="dim small">${o.seatsUsed} / ${o.seats} miejsc · ${fmtNum(o.reports)} opisów w tym miesiącu</div></div><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
+    <div class="actions" style="margin-bottom:14px">
+      <button class="btn btn-sm btn-primary" data-ext="1">Przedłuż o 1 miesiąc</button>
+      <button class="btn btn-sm" data-ext="12">o 12 miesięcy</button>
+      <a class="btn btn-sm" href="/it?org=${o.id}">Konsola IT</a>
+    </div>
+    <form id="orgEdit">${orgForm(o)}<div class="actions"><button class="btn btn-primary" type="submit">Zapisz</button><span class="grow"></span><button class="btn btn-sm btn-danger" type="button" id="orgDel">Usuń organizację</button></div></form>`;
+  $('#overlay').hidden = false;
+  m.hidden = false;
+  m.querySelector('[data-close]').addEventListener('click', closeLayers);
+  for (const x of m.querySelectorAll('[data-ext]')) {
+    x.addEventListener('click', async () => {
+      try {
+        const d = await api(`/api/admin/orgs/${o.id}/extend`, { method: 'POST', body: { months: Number(x.dataset.ext) } });
+        toast(`Licencja aktywna do ${fmtDate(d.org.subUntil)}`, 'ok');
+        closeLayers(); loadOrgs();
+      } catch (err) { toast(err.message, 'err'); }
+    });
+  }
+  $('#orgEdit').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    const body = orgBody(f);
+    if (f.until.value) body.subUntil = Date.parse(`${f.until.value}T23:59:59`);
+    try {
+      await api(`/api/admin/orgs/${o.id}`, { method: 'PATCH', body });
+      toast('Zapisano', 'ok');
+      closeLayers(); loadOrgs();
+    } catch (err) { toast(err.message, 'err', 6000); }
+  });
+  $('#orgDel').addEventListener('click', async () => {
+    if (!window.confirm(`Usunąć organizację ${o.name}? (Możliwe tylko, gdy nie ma kont.)`)) return;
+    try {
+      await api(`/api/admin/orgs/${o.id}`, { method: 'DELETE' });
+      toast('Usunięto', 'ok');
+      closeLayers(); loadOrgs();
+    } catch (err) { toast(err.message, 'err', 6000); }
+  });
 });
 
 // ---------------------------------------------------------------- log

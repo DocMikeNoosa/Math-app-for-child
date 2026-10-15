@@ -63,7 +63,22 @@ export function monthUsage(userId, month = monthOf()) {
   return { reports: r?.reports || 0, calls: r?.calls || 0, costUsd: r?.cost || 0 };
 }
 
-export const quotaOf = (user) => (user.quota_override ?? planById(user.plan).quota);
+const orgOf = (user) => (user?.org_id ? one('SELECT * FROM orgs WHERE id = ?', user.org_id) : null);
+
+/** Monthly report limit: the user's own override, else the organisation's limit, else the plan's. */
+export function quotaOf(user) {
+  if (user.quota_override != null) return user.quota_override;
+  const org = orgOf(user);
+  if (org) return org.quota_per_user ?? planById(org.plan).quota;
+  return planById(user.plan).quota;
+}
+
+/** Devices logged in at the same time. */
+export function devicesOf(user) {
+  if (user.role === 'admin') return 10;
+  const org = orgOf(user);
+  return Math.max(1, org ? org.devices : planById(user.plan).devices || 2);
+}
 
 /**
  * Can this user use the app now? Returns { ok, reason, code } — code is used by the browser:
@@ -73,6 +88,17 @@ export function access(user, now = Date.now()) {
   if (!user) return { ok: false, code: 'login', reason: 'Zaloguj się.' };
   if (user.role === 'admin') return { ok: true };
   if (user.blocked) return { ok: false, code: 'blocked', reason: 'Konto zablokowane — skontaktuj się z administratorem.' };
+  if (user.must_change_pwd) return { ok: false, code: 'pwd', reason: 'Ustaw własne hasło, aby rozpocząć pracę.' };
+  const org = orgOf(user);
+  if (org) {
+    // members of an organisation: the organisation's licence decides (no personal subscription, no payments)
+    const contact = org.contact ? ` (${org.contact})` : '';
+    if (org.status === 'suspended') return { ok: false, code: 'org', reason: `Dostęp organizacji ${org.name} jest wstrzymany — skontaktuj się z działem IT${contact}.` };
+    if (!org.sub_until || now > org.sub_until) {
+      return { ok: false, code: 'org', reason: org.status === 'trial' ? `Okres próbny organizacji ${org.name} zakończył się — skontaktuj się z działem IT${contact}.` : `Licencja organizacji ${org.name} wygasła — skontaktuj się z działem IT${contact}.` };
+    }
+    return { ok: true, org: org.name };
+  }
   const grace = user.sub_status === 'past_due' ? settings().graceDaysPastDue * 86400000 : 0;
   if (!user.sub_until || now > user.sub_until + grace) {
     return { ok: false, code: 'expired', reason: user.sub_status === 'trial' ? 'Okres próbny zakończył się — wybierz plan.' : 'Subskrypcja wygasła — odnów ją, aby dalej pracować.' };

@@ -14,6 +14,7 @@
       <a class="brand" href="/app/"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span data-brand>Radiopis</span></a>
       <span class="grow"></span>
       <a class="btn btn-sm" href="/admin" id="adminLink" hidden>Panel administratora</a>
+      <a class="btn btn-sm" href="/it" id="itLink" hidden>Konsola IT</a>
       <a class="btn btn-sm btn-primary" href="/app/" id="appLink">Otwórz aplikację</a>
       <a class="btn btn-sm btn-ghost" href="/logout">Wyloguj</a>
     </div>
@@ -51,7 +52,7 @@
             <p class="dim small" style="margin-top:12px">Ceny netto + 23% VAT. Fakturę wystawiamy na dane podane niżej.</p>
           </div>
 
-          <div class="card">
+          <div class="card" id="paymentsCard">
             <div class="card-head"><h2>Historia płatności</h2></div>
             <div class="table-wrap"><table><thead><tr><th>Data</th><th>Plan</th><th>Okres do</th><th>Sposób</th><th class="num">Kwota</th></tr></thead><tbody id="payments"></tbody></table></div>
           </div>

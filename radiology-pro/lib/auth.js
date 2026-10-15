@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { one, all, run, audit } from './db.js';
-import { planById, settings } from './plans.js';
+import { settings, devicesOf } from './plans.js';
 
 const scrypt = promisify(crypto.scrypt);
 const SESSION_DAYS = 30;
@@ -37,20 +37,23 @@ export function passwordProblem(p) {
   return '';
 }
 
-export async function createUser({ email, password, name = '', role = 'user', plan = null, npwz = '', company = '', nip = '', phone = '' }, actorId = null) {
+export async function createUser({ email, password, name = '', role = 'user', plan = null, npwz = '', company = '', nip = '', phone = '', orgId = null, mustChangePwd = false }, actorId = null) {
   const now = Date.now();
   const trialDays = settings().trialDays;
-  const p = plan || 'trial';
+  // members of an organisation have no personal subscription: the organisation's licence applies
+  const p = orgId ? 'org' : plan || 'trial';
   const until = p === 'trial' ? now + trialDays * 86400000 : 0;
+  const status = orgId ? 'org' : p === 'trial' ? 'trial' : 'expired';
+  const pwd = await hashPassword(password);
   const info = run(
-    `INSERT INTO users(email, name, pwd, role, plan, sub_status, sub_until, npwz, company, nip, phone, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    String(email).trim().toLowerCase(), String(name).trim().slice(0, 120), await hashPassword(password), role, p,
-    p === 'trial' ? 'trial' : 'expired', until, String(npwz).trim().slice(0, 20), String(company).trim().slice(0, 200),
-    String(nip).replace(/[^\d]/g, '').slice(0, 10), String(phone).trim().slice(0, 30), now,
+    `INSERT INTO users(email, name, pwd, role, plan, sub_status, sub_until, npwz, company, nip, phone, created_at, org_id, must_change_pwd)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    String(email).trim().toLowerCase(), String(name).trim().slice(0, 120), pwd, role, p,
+    status, until, String(npwz).trim().slice(0, 20), String(company).trim().slice(0, 200),
+    String(nip).replace(/[^\d]/g, '').slice(0, 10), String(phone).trim().slice(0, 30), now, orgId, mustChangePwd ? 1 : 0,
   );
   const id = Number(info.lastInsertRowid);
-  audit(actorId ?? id, 'user.create', id, `${email} (${role}, ${p})`);
+  audit(actorId ?? id, 'user.create', id, `${email} (${role}, ${orgId ? `org ${orgId}` : p})`);
   return getUser(id);
 }
 
@@ -63,12 +66,15 @@ export function publicUser(u) {
   return {
     id: u.id, email: u.email, name: u.name, role: u.role, plan: u.plan, subStatus: u.sub_status, subUntil: u.sub_until,
     npwz: u.npwz, company: u.company, nip: u.nip, phone: u.phone, createdAt: u.created_at, hasStripe: Boolean(u.stripe_customer),
+    orgId: u.org_id || null, mustChangePwd: Boolean(u.must_change_pwd),
   };
 }
 
-// ---- login rate limiting (in memory): 8 failures per 15 min per e-mail and 30 per IP
+// ---- login rate limiting (in memory): 8 failures per 15 min per e-mail and LOGIN_IP_LIMIT (default 100) per IP.
+// The IP limit is generous on purpose: a whole company often reaches the server from one office IP address.
 const fails = new Map();
 const WINDOW = 15 * 60_000;
+const IP_LIMIT = Number(process.env.LOGIN_IP_LIMIT) || 100;
 function failCount(key) {
   const now = Date.now();
   const list = (fails.get(key) || []).filter((t) => now - t < WINDOW);
@@ -76,12 +82,14 @@ function failCount(key) {
   return list.length;
 }
 export function loginBlocked(email, ip) {
-  return failCount(`e:${String(email).toLowerCase()}`) >= 8 || failCount(`i:${ip}`) >= 30;
+  return failCount(`e:${String(email).toLowerCase()}`) >= 8 || failCount(`i:${ip}`) >= IP_LIMIT;
 }
 export function noteFailure(email, ip) {
   for (const k of [`e:${String(email).toLowerCase()}`, `i:${ip}`]) fails.set(k, [...(fails.get(k) || []), Date.now()]);
 }
 export function clearFailures(email) { fails.delete(`e:${String(email).toLowerCase()}`); }
+// forget old entries (otherwise the map grows with every e-mail / IP ever seen)
+setInterval(() => { for (const k of [...fails.keys()]) failCount(k) || fails.delete(k); }, WINDOW).unref();
 export function resetRateLimits() { fails.clear(); }
 
 // ---- sessions
@@ -90,8 +98,9 @@ export function createSession(user, { ip = '', ua = '' } = {}) {
   const now = Date.now();
   run('INSERT INTO sessions(id, user_id, created_at, last_seen, expires_at, ip, ua) VALUES (?, ?, ?, ?, ?, ?, ?)',
     sha256(token), user.id, now, now, now + SESSION_DAYS * 86400000, String(ip).slice(0, 64), String(ua).slice(0, 300));
-  // Device limit: the plan allows N devices at once; the oldest sessions are logged out (prevents account sharing).
-  const max = user.role === 'admin' ? 10 : Math.max(1, planById(user.plan).devices || 2);
+  // Device limit: the plan (or organisation) allows N devices at once; the oldest sessions are logged out
+  // (prevents account sharing).
+  const max = devicesOf(user);
   const extra = all('SELECT id FROM sessions WHERE user_id = ? ORDER BY last_seen DESC LIMIT -1 OFFSET ?', user.id, max);
   for (const s of extra) run('DELETE FROM sessions WHERE id = ?', s.id);
   run('UPDATE users SET last_login = ? WHERE id = ?', now, user.id);
@@ -140,8 +149,13 @@ export function peekOneTimeToken(token, purpose) {
   return row && Date.now() <= row.expires_at ? getUser(row.user_id) : null;
 }
 
+/** The user's own password (clears a "must change" flag). */
 export async function setPassword(userId, password) {
-  run('UPDATE users SET pwd = ? WHERE id = ?', await hashPassword(password), userId);
+  run('UPDATE users SET pwd = ?, must_change_pwd = 0 WHERE id = ?', await hashPassword(password), userId);
+}
+/** A temporary password set by an administrator: the user must choose an own one at the next login. */
+export async function setTempPassword(userId, password) {
+  run('UPDATE users SET pwd = ?, must_change_pwd = 1 WHERE id = ?', await hashPassword(password), userId);
 }
 
 // ---- cookies

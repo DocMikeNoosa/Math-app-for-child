@@ -22,6 +22,7 @@
       <div class="admin-tabs" role="tablist">
         <button role="tab" data-tab="dash" aria-selected="true">Pulpit</button>
         <button role="tab" data-tab="users" aria-selected="false">Użytkownicy</button>
+        <button role="tab" data-tab="orgs" aria-selected="false">Organizacje</button>
         <button role="tab" data-tab="usage" aria-selected="false">Zużycie i koszty AI</button>
         <button role="tab" data-tab="payments" aria-selected="false">Płatności</button>
         <button role="tab" data-tab="plans" aria-selected="false">Plany i ceny</button>
@@ -59,6 +60,10 @@
               <ul class="config-list" id="byLang"></ul>
             </div>
             <div class="card">
+              <div class="card-head"><h3>Serwer teraz</h3><button class="btn btn-sm" id="backupNow">Zrób kopię bazy</button></div>
+              <ul class="config-list" id="server"></ul>
+            </div>
+            <div class="card">
               <div class="card-head"><h3>Konfiguracja serwera</h3><button class="btn btn-sm" id="runJobs">Uruchom zadania</button></div>
               <ul class="config-list" id="config"></ul>
             </div>
@@ -74,6 +79,7 @@
             <option value="all">Wszyscy</option><option value="active">Aktywni (płatni)</option><option value="trial">Okres próbny</option>
             <option value="expiring">Wygasają w 7 dni</option><option value="expired">Wygaśli</option><option value="past_due">Zaległa płatność</option>
             <option value="blocked">Zablokowani</option><option value="admins">Administratorzy</option>
+            <option value="org">W organizacjach</option><option value="orgadmins">Administratorzy IT</option>
           </select>
           <span class="grow"></span>
           <a class="btn btn-sm" href="/api/admin/export/users.csv">CSV</a>
@@ -84,6 +90,19 @@
           <tbody id="users"></tbody>
         </table></div>
         <p class="dim small" id="usersNote" style="margin-top:10px"></p>
+      </section>
+
+      <!-- organisations -->
+      <section data-panel="orgs" style="padding:0" hidden>
+        <div class="toolbar">
+          <span class="dim small">Firmy (np. teleradiologia) z jedną licencją na wiele miejsc. Użytkownikami zarządza dział IT firmy w konsoli IT.</span>
+          <span class="grow"></span>
+          <button class="btn btn-sm btn-primary" id="addOrg">+ Nowa organizacja</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Organizacja</th><th>Status</th><th>Licencja do</th><th class="num">Miejsca</th><th class="num">Pracujący (mies.)</th><th class="num">Opisy (mies.)</th><th class="num">Koszt AI</th><th class="num">Przychód / mies.</th><th class="num">Marża</th><th></th></tr></thead>
+          <tbody id="orgs"></tbody>
+        </table></div>
       </section>
 
       <!-- usage -->
@@ -145,6 +164,7 @@
               <div class="field"><label for="sBankName">Odbiorca przelewu (nazwa firmy)</label><input id="sBankName" name="bankName" /></div>
               <div class="field"><label for="sBank">Numer konta do przelewów</label><input id="sBank" name="bankAccount" placeholder="PL00 0000 0000 0000 0000 0000 0000" /></div>
               <div class="field"><label class="check"><input type="checkbox" name="registrationOpen" /> Rejestracja otwarta (nowi użytkownicy mogą sami założyć konto próbne)</label></div>
+              <div class="field"><label for="sAnn">Komunikat dla wszystkich użytkowników <span class="faint">(pasek w aplikacji, np. „Dziś 22:00–22:15 prace serwisowe”; puste = brak)</span></label><input id="sAnn" name="announcement" maxlength="300" /></div>
               <button class="btn btn-primary" type="submit">Zapisz ustawienia</button>
             </form>
           </div>

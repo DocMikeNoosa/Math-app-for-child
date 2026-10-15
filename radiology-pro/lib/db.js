@@ -97,6 +97,22 @@ CREATE TABLE IF NOT EXISTS tokens (                         -- password-reset / 
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, ts INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS orgs (                           -- organisations (e.g. a teleradiology company): one licence, many seats
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  nip TEXT NOT NULL DEFAULT '',
+  seats INTEGER NOT NULL DEFAULT 10,                        -- active (not blocked) user accounts allowed
+  status TEXT NOT NULL DEFAULT 'trial',                     -- trial | active | suspended
+  sub_until INTEGER NOT NULL DEFAULT 0,                     -- ms; the whole organisation's access ends after this moment
+  plan TEXT NOT NULL DEFAULT 'pro',                         -- plan whose monthly report limit applies to each user
+  quota_per_user INTEGER,                                   -- reports / user / month, overrides the plan
+  devices INTEGER NOT NULL DEFAULT 2,                       -- logged-in devices per user
+  price_per_seat REAL NOT NULL DEFAULT 0,                   -- PLN net / seat / month (for the owner's revenue view)
+  contact TEXT NOT NULL DEFAULT '',                         -- IT contact shown to the users
+  note TEXT NOT NULL DEFAULT '',
+  reminded INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS outbox (                         -- e-mails (sent or, without a mail provider, only logged)
   id INTEGER PRIMARY KEY,
   ts INTEGER NOT NULL,
@@ -113,7 +129,19 @@ export function openDb(file = process.env.DB_FILE || path.join(process.env.DATA_
   db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 3000;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+/** Columns added after 1.0 — existing databases are upgraded in place on start. */
+function migrate(d) {
+  const cols = new Set(d.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
+  const add = (col, def) => { if (!cols.has(col)) d.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`); };
+  add('org_id', 'INTEGER REFERENCES orgs(id) ON DELETE SET NULL');   // member of an organisation (licence from the organisation)
+  add('must_change_pwd', 'INTEGER NOT NULL DEFAULT 0');               // temporary password: set an own one before working
+  d.exec('CREATE INDEX IF NOT EXISTS users_org ON users(org_id)');
+  d.exec('CREATE INDEX IF NOT EXISTS audit_target ON audit(target_id)');
+  d.exec('CREATE INDEX IF NOT EXISTS usage_user_report ON usage(user_id, report_id)');
 }
 
 export function getDb() {

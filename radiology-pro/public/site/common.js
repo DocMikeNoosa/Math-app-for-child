@@ -50,6 +50,7 @@ export const STATUS_LABEL = { trial: 'okres próbny', active: 'aktywna', past_du
 export function statusPill(u) {
   if (u.blocked) return '<span class="pill err">zablokowany</span>';
   const st = u.subStatus;
+  if (st === 'org') return u.subUntil > Date.now() ? '<span class="pill info">organizacja</span>' : '<span class="pill err">licencja org. wygasła</span>';
   const live = u.subUntil > Date.now();
   const kind = !live || st === 'expired' ? 'err' : st === 'past_due' ? 'warn' : st === 'trial' ? 'info' : st === 'canceled' ? 'warn' : 'ok';
   return `<span class="pill ${kind}">${esc(!live && st !== 'past_due' ? 'wygasła' : STATUS_LABEL[st] || st)}</span>`;

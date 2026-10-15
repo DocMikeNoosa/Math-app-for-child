@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Konsola IT — Radiopis</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="it">
+  <nav class="nav">
+    <div class="wrap">
+      <a class="brand" href="/it"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span><span data-brand>Radiopis</span> <span class="dim" style="font-weight:500">· konsola IT</span></span></a>
+      <span class="grow"></span>
+      <a class="btn btn-sm" href="/admin" id="ownerLink" hidden>← Panel właściciela</a>
+      <a class="btn btn-sm" href="/app/">Aplikacja</a>
+      <a class="btn btn-sm" href="/account">Moje konto</a>
+      <a class="btn btn-sm btn-ghost" href="/logout">Wyloguj</a>
+    </div>
+  </nav>
+  <main class="shell">
+    <div class="wrap">
+      <div class="page-head it-head">
+        <div>
+          <h1 id="orgName">…</h1>
+          <div class="dim" id="orgLine"></div>
+        </div>
+        <div class="seat-box" id="seatBox" aria-live="polite"></div>
+      </div>
+      <div id="notice" class="msg" hidden></div>
+
+      <div class="admin-tabs" role="tablist">
+        <button role="tab" data-tab="people" aria-selected="true">Użytkownicy</button>
+        <button role="tab" data-tab="log" aria-selected="false">Dziennik zmian</button>
+        <button role="tab" data-tab="help" aria-selected="false">Pomoc</button>
+      </div>
+
+      <section data-panel="people" style="padding:0">
+        <div class="kpis" id="kpis"></div>
+        <div class="toolbar">
+          <input id="q" type="search" placeholder="Szukaj: nazwisko, e-mail, PWZ…" aria-label="Szukaj" />
+          <select id="filter" aria-label="Filtr">
+            <option value="all">Wszyscy</option>
+            <option value="active">Aktywni</option>
+            <option value="pending">Czekają na pierwsze logowanie</option>
+            <option value="idle">Bez opisów w tym miesiącu</option>
+            <option value="blocked">Zablokowani</option>
+            <option value="it">Administratorzy IT</option>
+          </select>
+          <span class="grow"></span>
+          <a class="btn btn-sm" id="csvLink" href="/api/it/export/users.csv">Pobierz listę (CSV)</a>
+          <button class="btn btn-sm" id="importBtn">Import listy osób</button>
+          <button class="btn btn-sm btn-primary" id="addBtn">+ Dodaj osobę</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Osoba</th><th>PWZ</th><th>Rola</th><th>Status</th><th class="num">Opisy (mies.)</th><th>Ostatnia aktywność</th><th class="num">Urządz.</th><th></th></tr></thead>
+          <tbody id="people"></tbody>
+        </table></div>
+        <p class="dim small" id="peopleNote" style="margin-top:10px"></p>
+      </section>
+
+      <section data-panel="log" style="padding:0" hidden>
+        <div class="card"><div class="card-head"><h3>Dziennik zmian w organizacji</h3><span class="dim small">ostatnie 300 zdarzeń</span></div><div id="audit" class="small"></div></div>
+      </section>
+
+      <section data-panel="help" style="padding:0" hidden>
+        <div class="card help-card">
+          <h3>Jak to działa — w skrócie</h3>
+          <ol>
+            <li><b>Dodaj radiologów</b>: pojedynczo („+ Dodaj osobę”) albo całą listę naraz („Import listy osób” — wklej kolumny z Excela: e-mail, imię i nazwisko, PWZ).</li>
+            <li>Każda osoba dostaje <b>hasło tymczasowe</b> (pokazywane tylko raz — pobierz plik CSV albo zaznacz wysyłkę e-mailem). Przy pierwszym logowaniu ustawia własne hasło.</li>
+            <li><b>Ktoś zapomniał hasła?</b> Kliknij „⋯” przy osobie → „Nowe hasło tymczasowe” i przekaż je tej osobie. Może też sama użyć „Nie pamiętam hasła” na stronie logowania.</li>
+            <li><b>Ktoś odchodzi?</b> „Zablokuj” — konto przestaje działać od razu i zwalnia miejsce w licencji. „Usuń” kasuje dane osobowe (statystyki zostają anonimowe).</li>
+            <li><b>Zgubiony / cudzy komputer?</b> „Wyloguj ze wszystkich urządzeń”.</li>
+            <li>Każde konto może być zalogowane na <b id="helpDevices">2</b> urządzeniach naraz; zalogowanie na kolejnym wylogowuje najstarsze.</li>
+            <li>Konto IT także zajmuje miejsce w licencji (może też dyktować opisy).</li>
+          </ol>
+          <h3>Bezpieczeństwo</h3>
+          <ul>
+            <li>Hasła są przechowywane wyłącznie jako skrót (scrypt) — nikt, także administrator, nie może ich odczytać.</li>
+            <li>Po 8 błędnych próbach logowania konto jest blokowane na 15 minut (ochrona przed zgadywaniem hasła).</li>
+            <li>Bieżący opis i lista dzisiejszych opisów zostają w przeglądarce radiologa. Serwer przechowuje szablony radiologa i to, czego AI nauczyło się z jego poprawek (numery PESEL są usuwane), oraz liczbę opisów (rozliczenia).</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="overlay" id="overlay" hidden></div>
+  <div class="modal" id="modal" hidden role="dialog" aria-modal="true"></div>
+  <script type="module" src="/site/it.js"></script>
+</body>
+</html>

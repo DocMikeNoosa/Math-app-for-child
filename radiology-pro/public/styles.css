@@ -501,9 +501,30 @@ select:focus { border-color: rgba(89, 212, 255, 0.5); }
 .tpl-current.empty .tpl-current-title { color: var(--accent); }
 .no-template .report-foot { visibility: hidden; }
 
-/* learning module */
-.learn-btn { position: relative; }
-.learn-dot { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+/* learning module — the "Uczenie AI" button with a graduation cap and an explaining bubble on hover / focus */
+.learn-btn {
+  position: relative; display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px 0 9px; border-radius: 999px;
+  border: 1px solid rgba(139, 125, 255, 0.45); background: linear-gradient(135deg, rgba(89, 212, 255, 0.10), rgba(139, 125, 255, 0.14));
+  color: var(--text-strong); font: 600 12.5px/1 var(--font); cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.learn-btn > svg { width: 21px; height: 21px; stroke: #c3bbff; stroke-width: 1.7; fill: none; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.learn-btn:hover, .learn-btn:focus-visible { border-color: rgba(139, 125, 255, 0.85); box-shadow: 0 0 0 3px rgba(139, 125, 255, 0.16); outline: none; }
+.learn-label { white-space: nowrap; }
+.learn-dot { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 8px var(--warn); border: 2px solid var(--bg, #0b0f14); }
+.learn-tip {
+  position: absolute; top: calc(100% + 10px); right: -40px; z-index: 60; width: 300px; padding: 12px 14px; border-radius: 12px;
+  background: rgba(16, 22, 30, 0.98); border: 1px solid rgba(139, 125, 255, 0.55); box-shadow: 0 18px 44px -10px rgba(0, 0, 0, 0.9);
+  display: flex; flex-direction: column; gap: 7px; text-align: left; font: 400 12.5px/1.45 var(--font); color: var(--text); white-space: normal;
+  opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity 0.15s 0.25s, transform 0.15s 0.25s, visibility 0s 0.4s; pointer-events: none;
+}
+.learn-tip::before { content: ''; position: absolute; top: -6px; right: 58px; width: 10px; height: 10px; background: inherit; border-left: 1px solid rgba(139, 125, 255, 0.55); border-top: 1px solid rgba(139, 125, 255, 0.55); transform: rotate(45deg); }
+.learn-btn:hover .learn-tip, .learn-btn:focus-visible .learn-tip { opacity: 1; visibility: visible; transform: none; transition-delay: 0.25s, 0.25s, 0s; }
+.learn-tip-title { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: #d6d0ff; }
+.learn-tip-title svg { width: 18px; height: 18px; stroke: #c3bbff; stroke-width: 1.7; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.learn-tip-state { color: var(--text-dim); font-size: 12px; border-top: 1px solid var(--line); padding-top: 7px; }
+.learn-tip-state:empty { display: none; }
+@media (max-width: 1100px) { .learn-label { display: none; } .learn-btn { padding: 0 8px; } }
+@media (hover: none) { .learn-tip { display: none; } }
 .learn-card { width: min(760px, calc(100vw - 16px)); max-height: min(90vh, 920px); display: flex; flex-direction: column; }
 .learn-card .drawer-head { gap: 10px; }
 .learn-card .grow, .btn-row .grow { flex: 1; }

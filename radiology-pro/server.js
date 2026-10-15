@@ -5,7 +5,7 @@
 import './lib/env.js';
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,12 +13,15 @@ import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
 import { analyzeStyle, cleanLearnInput, cleanProfile, cleanTranslations } from './lib/learn.js';
 import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
 import { scrubIdentifiers } from './public/js/polish-text.js';
-import { openDb, one, all, run, audit, monthOf, getSetting, setSetting } from './lib/db.js';
+import { openDb, closeDb, one, all, run, tx, audit, monthOf, getSetting, setSetting } from './lib/db.js';
 import {
   COOKIE, parseCookies, sessionCookie, sessionUser, createSession, deleteSession, deleteUserSessions, userSessions,
   createUser, getUser, getUserByEmail, verifyPassword, passwordProblem, setPassword, publicUser, EMAIL_RE,
-  loginBlocked, noteFailure, clearFailures, createOneTimeToken, useOneTimeToken, peekOneTimeToken,
+  loginBlocked, noteFailure, clearFailures, createOneTimeToken, useOneTimeToken, peekOneTimeToken, setTempPassword,
 } from './lib/auth.js';
+import { getOrg, listOrgs, seatsUsed, orgUsers, createOrg, updateOrg, tempPassword, parseUserList, ORG_STATUS } from './lib/orgs.js';
+import { aiLimiter, BusyError } from './lib/limiter.js';
+import { lastBackup, backupNow } from './lib/backup.js';
 import { plans, planById, settings, access, quotaCheck, quotaOf, monthUsage, costUsd, DEFAULT_PLANS, DEFAULT_SETTINGS } from './lib/plans.js';
 import { extendSubscription, stripeEnabled, createCheckout, createPortal, verifyStripeSignature, handleStripeEvent } from './lib/billing.js';
 import { sendMail, adminEmail, mailConfigured } from './lib/mail.js';
@@ -94,7 +97,9 @@ async function readJson(req, limit) {
   const raw = await readRaw(req, limit);
   try { return raw ? JSON.parse(raw) : {}; } catch { throw new ClaudeError('Nieprawidłowy JSON.', 400); }
 }
-const clientIp = (req) => (process.env.TRUST_PROXY ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '') || req.socket.remoteAddress || '';
+// Behind the reverse proxy (Caddy) the real address is the LAST entry of X-Forwarded-For (the one the proxy added);
+// earlier entries can be forged by the client. TRUST_PROXY=1 only when the app is reachable through the proxy alone.
+const clientIp = (req) => (process.env.TRUST_PROXY ? String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() : '') || req.socket.remoteAddress || '';
 const isSecure = (req) => PROD || req.headers['x-forwarded-proto'] === 'https';
 function baseUrl(req) {
   if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, '');
@@ -109,7 +114,7 @@ function currentUser(req) {
 }
 
 // ---------------------------------------------------------------- static files
-async function serveFile(res, root, rel, { cache = 'no-cache', status = 200 } = {}) {
+async function serveFile(res, root, rel, { cache = 'no-cache', status = 200, req = null } = {}) {
   const file = path.normalize(path.join(root, rel));
   if (!file.startsWith(root + path.sep) && file !== root) {
     res.writeHead(403, headers());
@@ -120,15 +125,22 @@ async function serveFile(res, root, rel, { cache = 'no-cache', status = 200 } = 
     if (/\.(map|md|mjs)$/i.test(file)) { res.writeHead(404, headers()); return res.end(); }
   }
   try {
+    const st = await stat(file);
+    if (!st.isFile()) throw new Error('not a file');
+    const etag = `W/"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+    if (req && req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers({ ETag: etag, 'Cache-Control': cache }));
+      return res.end();
+    }
     const data = await readFile(file);
-    res.writeHead(status, headers({ 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': cache }));
-    res.end(data);
+    res.writeHead(status, headers({ 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': cache, ETag: etag }));
+    res.end(req?.method === 'HEAD' ? undefined : data);
   } catch {
     res.writeHead(404, headers({ 'Content-Type': 'text/plain; charset=utf-8' }));
     res.end('Nie znaleziono');
   }
 }
-const sitePage = (res, name) => serveFile(res, SITE_ROOT(), `${name}.html`);
+const sitePage = (res, name, req = null) => serveFile(res, SITE_ROOT(), `${name}.html`, { req });
 
 // ---------------------------------------------------------------- AI usage metering
 function recordUsage(user, { kind, reportId = '', model = '', usage = null, ms = 0, ok = true, lang = '' }) {
@@ -168,6 +180,8 @@ function sendAiError(res, err) {
     console.error('AI: authentication failed — check the API key / AWS credentials');
     return sendJson(res, 503, { error: 'Usługa AI chwilowo niedostępna — administrator został powiadomiony.' });
   }
+  if (err instanceof BusyError) return sendJson(res, err.status, { error: err.message, code: err.code }, { 'Retry-After': String(err.retryAfter) });
+  if (err.status === 429) return sendJson(res, 429, { error: err.message, code: 'ai_rate' }, { 'Retry-After': '10' });
   return sendJson(res, err.status, { error: err.message });
 }
 
@@ -207,7 +221,7 @@ async function handleFormat(req, res, ctx) {
   const started = Date.now();
   const langTag = `${lang(body.inputLang)}>${lang(body.outputLang)}`;
   try {
-    const result = await formatWithClaude({
+    const result = await aiLimiter.run(ctx.user.id, () => formatWithClaude({
       template, report: body.report, dictation, instruction,
       style: String(body.style || '').slice(0, 4000),
       styleExamples: cleanStyleExamples(body.styleExamples),
@@ -219,11 +233,12 @@ async function handleFormat(req, res, ctx) {
       translations: cleanTranslations(body.translations, 6),
       inputLang: lang(body.inputLang), outputLang: lang(body.outputLang), translate,
       mode: ['fast', 'accurate', 'turbo'].includes(body.mode) ? body.mode : 'fast',
-    });
+    }), { background: body.background === true });
     const { usage, ...out } = result;
     recordUsage(ctx.user, { kind: 'format', reportId, model: result.model, usage, ms: Date.now() - started, lang: langTag });
     sendJson(res, 200, { ...out, quota: { used: q.used ?? null, limit: q.quota ?? null, warn: Boolean(q.warn) } });
   } catch (err) {
+    if (err instanceof BusyError) return sendAiError(res, err); // refused before calling the AI: nothing to meter
     recordUsage(ctx.user, { kind: 'format', reportId: '', ms: Date.now() - started, ok: false, lang: langTag });
     if (err instanceof ClaudeError) return sendAiError(res, err);
     console.error(err);
@@ -242,10 +257,11 @@ async function handleLearn(req, res, ctx) {
   if (ctx.user.role !== 'admin' && learns >= 20) return sendJson(res, 429, { error: 'Limit analiz stylu w tym miesiącu (20) został wykorzystany.' });
   const started = Date.now();
   try {
-    const { usage, model, ...out } = await analyzeStyle(input);
+    const { usage, model, ...out } = await aiLimiter.run(ctx.user.id, () => analyzeStyle(input));
     recordUsage(ctx.user, { kind: 'learn', model, usage, ms: Date.now() - started });
     sendJson(res, 200, out);
   } catch (err) {
+    if (err instanceof BusyError) return sendAiError(res, err);
     recordUsage(ctx.user, { kind: 'learn', ms: Date.now() - started, ok: false });
     if (err instanceof ClaudeError) return sendAiError(res, err);
     console.error(err);
@@ -259,13 +275,23 @@ function bankDetails() {
   return b.bankAccount ? { account: b.bankAccount, name: b.bankName || BRAND.company || BRAND.name, title: `${BRAND.name} — {email}` } : null;
 }
 
+/** Where to go after logging in. */
+function homeFor(user) {
+  if (user.must_change_pwd) return '/change-password';
+  if (user.role === 'admin') return '/admin';
+  if (user.role === 'orgadmin') return '/it';
+  return access(user).ok ? '/app/' : '/account';
+}
+
 function mePayload(ctx) {
   const u = ctx.user;
   const p = planById(u.plan);
   const used = monthUsage(u.id);
+  const org = getOrg(u.org_id);
   return {
     user: publicUser(u),
-    plan: { id: p.id, name: p.name, pricePln: p.pricePln, quota: quotaOf(u), devices: p.devices },
+    org: org ? { name: org.name, status: org.status, subUntil: org.sub_until, contact: org.contact, devices: org.devices } : null,
+    plan: org ? { id: 'org', name: `Licencja: ${org.name}`, pricePln: 0, quota: quotaOf(u), devices: org.devices } : { id: p.id, name: p.name, pricePln: p.pricePln, quota: quotaOf(u), devices: p.devices },
     usage: { month: monthOf(), reports: used.reports },
     access: access(u),
     sessions: userSessions(u.id).map((s) => ({ ...s, current: s.id === ctx.sessionId, id: undefined })),
@@ -295,7 +321,7 @@ async function handleAuth(req, res, route) {
     clearFailures(email);
     const token = createSession(user, { ip, ua });
     audit(user.id, 'login', user.id, ip);
-    return sendJson(res, 200, { ok: true, next: user.role === 'admin' ? '/admin' : access(user).ok ? '/app/' : '/account' }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    return sendJson(res, 200, { ok: true, next: homeFor(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
   }
 
   if (route === 'register') {
@@ -346,7 +372,7 @@ async function handleAuth(req, res, route) {
     deleteUserSessions(user.id);
     audit(user.id, 'password.reset', user.id);
     const token = createSession(user, { ip, ua });
-    return sendJson(res, 200, { ok: true, next: user.role === 'admin' ? '/admin' : '/app/' }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    return sendJson(res, 200, { ok: true, next: homeFor(getUser(user.id)) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
   }
   return sendJson(res, 404, { error: 'Nie znaleziono.' });
 }
@@ -370,10 +396,22 @@ async function handleMe(req, res, ctx, route) {
     audit(u.id, 'password.change', u.id);
     return sendJson(res, 200, { ok: true });
   }
+  if (route === 'first-password') {
+    // first login with a temporary password from the IT administrator: choose an own password
+    if (!u.must_change_pwd) return sendJson(res, 400, { error: 'Hasło jest już ustawione — zmień je na stronie konta.' });
+    const problem = passwordProblem(body.next);
+    if (problem) return sendJson(res, 400, { error: problem });
+    if (await verifyPassword(String(body.next), u.pwd)) return sendJson(res, 400, { error: 'Nowe hasło musi być inne niż tymczasowe.' });
+    await setPassword(u.id, body.next);
+    deleteUserSessions(u.id, ctx.sessionId);
+    audit(u.id, 'password.first', u.id);
+    return sendJson(res, 200, { ok: true, next: homeFor(getUser(u.id)) });
+  }
   if (route === 'logout-others') {
     deleteUserSessions(u.id, ctx.sessionId);
     return sendJson(res, 200, { ok: true });
   }
+  if ((route === 'checkout' || route === 'portal') && u.org_id) return sendJson(res, 400, { error: 'Licencję opłaca Twoja organizacja — skontaktuj się z działem IT.' });
   if (route === 'checkout') {
     try {
       return sendJson(res, 200, { url: await createCheckout(u, str(body.plan, 40), body.interval === 'year' ? 'year' : 'month', baseUrl(req)) });
@@ -416,22 +454,35 @@ const usdPln = () => settings().usdPln;
 function adminUserRow(u, month = monthOf()) {
   const used = monthUsage(u.id, month);
   const p = planById(u.plan);
+  const org = getOrg(u.org_id);
   return {
-    id: u.id, email: u.email, name: u.name, role: u.role, blocked: Boolean(u.blocked), plan: u.plan, planName: p.name,
-    subStatus: u.sub_status, subUntil: u.sub_until, quota: quotaOf(u), quotaOverride: u.quota_override,
-    reports: used.reports, calls: used.calls, costUsd: used.costUsd, costPln: used.costUsd * usdPln(), pricePln: p.pricePln,
+    id: u.id, email: u.email, name: u.name, role: u.role, blocked: Boolean(u.blocked), plan: u.plan, planName: org ? org.name : p.name,
+    subStatus: org ? 'org' : u.sub_status, subUntil: org ? org.sub_until : u.sub_until, quota: quotaOf(u), quotaOverride: u.quota_override,
+    orgId: org?.id || null, orgName: org?.name || '', mustChangePwd: Boolean(u.must_change_pwd),
+    reports: used.reports, calls: used.calls, costUsd: used.costUsd, costPln: used.costUsd * usdPln(), pricePln: org ? org.price_per_seat : p.pricePln,
     lastLogin: u.last_login, createdAt: u.created_at, npwz: u.npwz, company: u.company, nip: u.nip, phone: u.phone, note: u.note,
     stripe: Boolean(u.stripe_sub), access: access(u).ok,
+  };
+}
+
+function serverHealth() {
+  const mem = process.memoryUsage();
+  return {
+    uptimeS: Math.round(process.uptime()), rssMb: Math.round(mem.rss / 1048576), heapMb: Math.round(mem.heapUsed / 1048576),
+    sessions: one('SELECT COUNT(*) AS n FROM sessions WHERE last_seen > ?', Date.now() - 15 * 60_000).n,
+    ai: aiLimiter.snapshot(), backup: lastBackup(), node: process.version,
   };
 }
 
 function overview() {
   const now = Date.now();
   const month = monthOf();
-  const users = all("SELECT * FROM users WHERE role = 'user'");
+  const users = all("SELECT * FROM users WHERE role <> 'admin' AND org_id IS NULL");
   const activePaid = users.filter((u) => u.sub_status === 'active' && u.sub_until > now && !u.blocked);
   const trials = users.filter((u) => u.sub_status === 'trial' && u.sub_until > now);
-  const mrr = activePaid.reduce((s, u) => s + (planById(u.plan).pricePln || 0), 0);
+  const orgs = orgRows(month);
+  const orgMrr = orgs.reduce((s, o) => s + o.revenuePln, 0);
+  const mrr = activePaid.reduce((s, u) => s + (planById(u.plan).pricePln || 0), 0) + orgMrr;
   const m = one("SELECT COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN user_id || ':' || report_id END) AS reports, COUNT(*) AS calls, COALESCE(SUM(cost_usd),0) AS cost, SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) AS errors, COALESCE(AVG(CASE WHEN ok=1 AND kind='format' THEN ms END),0) AS avgMs FROM usage WHERE month = ?", month);
   const paidThisMonth = one('SELECT COALESCE(SUM(amount_pln),0) AS s FROM payments WHERE ts >= ?', Date.parse(`${month}-01T00:00:00Z`)).s;
   const costPln = m.cost * usdPln();
@@ -452,7 +503,10 @@ function overview() {
     mrrPln: mrr, paidThisMonthPln: paidThisMonth,
     ai: { reports: m.reports, calls: m.calls, costUsd: m.cost, costPln, errors: m.errors || 0, avgMs: Math.round(m.avgMs || 0), costPerReportPln: m.reports ? costPln / m.reports : 0, callsPerReport: m.reports ? m.calls / m.reports : 0 },
     marginPln: mrr - costPln,
+    orgs: { count: orgs.length, seats: orgs.reduce((s, o) => s + o.seats, 0), seatsUsed: orgs.reduce((s, o) => s + o.seatsUsed, 0), mrrPln: orgMrr,
+      expiring: orgs.filter((o) => o.subUntil > now && o.subUntil - now < 7 * 86400000) },
     byLang, expiring, pastDue, topCost, daily,
+    server: serverHealth(),
     config: { ai: aiAvailable(), model: MODEL, provider: PROVIDER, stripe: stripeEnabled(), stripeWebhook: Boolean(process.env.STRIPE_WEBHOOK_SECRET), mail: mailConfigured(), adminEmail: adminEmail(), version: VERSION, prod: PROD },
   };
 }
@@ -479,6 +533,10 @@ async function handleAdmin(req, res, ctx, parts) {
   const method = req.method;
 
   if (section === 'overview' && method === 'GET') return sendJson(res, 200, overview());
+  if (section === 'orgs') return handleAdminOrgs(req, res, me, idStr, action);
+  if (section === 'backup' && method === 'POST') {
+    try { return sendJson(res, 200, await backupNow()); } catch (err) { return sendJson(res, 500, { error: `Kopia nie powiodła się: ${err.message}` }); }
+  }
 
   if (section === 'users' && !idStr && method === 'GET') {
     const q = (url.searchParams.get('q') || '').toLowerCase();
@@ -495,6 +553,8 @@ async function handleAdmin(req, res, ctx, parts) {
       past_due: (u) => u.sub_status === 'past_due',
       blocked: (u) => u.blocked,
       admins: (u) => u.role === 'admin',
+      orgadmins: (u) => u.role === 'orgadmin',
+      org: (u) => Boolean(u.org_id),
     }[filter];
     if (f) users = users.filter(f);
     return sendJson(res, 200, { users: users.map((u) => adminUserRow(u, month)), month });
@@ -547,8 +607,18 @@ async function handleAdmin(req, res, ctx, parts) {
       if (typeof b.note === 'string') set('note', b.note.slice(0, 2000), 'notatka');
       if (typeof b.subUntil === 'number') set('sub_until', b.subUntil, `dostęp do ${iso(b.subUntil).slice(0, 10)}`);
       if (['trial', 'active', 'past_due', 'canceled', 'expired'].includes(b.subStatus)) set('sub_status', b.subStatus, `status ${b.subStatus}`);
-      if (b.role === 'admin' || b.role === 'user') {
+      if ('orgId' in b) {
+        const orgId = b.orgId ? Number(b.orgId) : null;
+        if (orgId && !getOrg(orgId)) return sendJson(res, 400, { error: 'Nie ma takiej organizacji.' });
+        if (orgId !== (u.org_id || null)) {
+          set('org_id', orgId, orgId ? `organizacja ${orgId}` : 'bez organizacji');
+          if (orgId) { set('plan', 'org', 'plan organizacji'); set('sub_status', 'org', 'status org'); }
+          else { set('plan', 'trial', 'plan trial'); set('sub_status', 'expired', 'status expired'); if (u.role === 'orgadmin') set('role', 'user', 'rola user'); }
+        }
+      }
+      if (['admin', 'user', 'orgadmin'].includes(b.role) && b.role !== u.role) {
         if (u.id === me && b.role !== 'admin') return sendJson(res, 400, { error: 'Nie możesz odebrać sobie uprawnień administratora.' });
+        if (b.role === 'orgadmin' && !getUser(u.id).org_id) return sendJson(res, 400, { error: 'Administrator IT musi należeć do organizacji.' });
         set('role', b.role, `rola ${b.role}`);
       }
       for (const k of ['npwz', 'company', 'nip', 'phone']) if (typeof b[k] === 'string') set(k, str(b[k], 200), k);
@@ -618,6 +688,7 @@ async function handleAdmin(req, res, ctx, parts) {
         maxBackgroundCalls: Math.round(num(b.maxBackgroundCalls, cur.maxBackgroundCalls, 0, 20)),
         bankAccount: typeof b.bankAccount === 'string' ? str(b.bankAccount, 60) : cur.bankAccount || '',
         bankName: typeof b.bankName === 'string' ? str(b.bankName, 120) : cur.bankName || '',
+        announcement: typeof b.announcement === 'string' ? str(b.announcement, 300) : cur.announcement || '',
       };
       setSetting('appSettings', next);
       audit(me, 'settings.update', null, JSON.stringify(next));
@@ -663,13 +734,279 @@ async function handleAdmin(req, res, ctx, parts) {
   return sendJson(res, 404, { error: 'Nie znaleziono.' });
 }
 
+// ---------------------------------------------------------------- organisations: IT console (/it) and owner's view
+const DELETED_DOMAIN = '@usuniety.invalid';
+
+/** The organisation an IT request may manage: an IT administrator → their own; the owner → ?org=ID. Sends the error itself. */
+function itScope(res, ctx, url) {
+  if (!ctx) { sendJson(res, 401, { error: 'Zaloguj się.', code: 'login' }); return null; }
+  if (ctx.user.must_change_pwd) { sendJson(res, 403, { error: 'Najpierw ustaw własne hasło.', code: 'pwd' }); return null; }
+  let org = null;
+  if (ctx.user.role === 'admin') org = getOrg(Number(url.searchParams.get('org')));
+  else if (ctx.user.role === 'orgadmin') org = getOrg(ctx.user.org_id);
+  else { sendJson(res, 403, { error: 'Brak uprawnień.' }); return null; }
+  if (!org) { sendJson(res, 404, { error: 'Nie znaleziono organizacji.' }); return null; }
+  return org;
+}
+
+function orgPublic(org) {
+  const used = seatsUsed(org.id);
+  return {
+    id: org.id, name: org.name, nip: org.nip, seats: org.seats, seatsUsed: used, seatsFree: Math.max(0, org.seats - used),
+    status: org.status, subUntil: org.sub_until, plan: org.plan, planName: planById(org.plan).name,
+    quotaPerUser: org.quota_per_user ?? planById(org.plan).quota, quotaOverride: org.quota_per_user, devices: org.devices,
+    pricePerSeat: org.price_per_seat, contact: org.contact, note: org.note, createdAt: org.created_at,
+    access: org.status !== 'suspended' && org.sub_until > Date.now(),
+  };
+}
+
+/** All users of an organisation with this month's reports and devices — 3 queries, whatever the number of users. */
+function orgUserRows(orgId, month = monthOf()) {
+  const reports = new Map(all(`SELECT g.user_id, COUNT(DISTINCT CASE WHEN g.kind='format' AND g.ok=1 AND g.report_id<>'' THEN g.report_id END) AS reports
+      FROM usage g JOIN users u ON u.id = g.user_id WHERE u.org_id = ? AND g.month = ? GROUP BY g.user_id`, orgId, month).map((r) => [r.user_id, r.reports]));
+  const sess = new Map(all(`SELECT s.user_id, COUNT(*) AS n, MAX(s.last_seen) AS seen FROM sessions s JOIN users u ON u.id = s.user_id
+      WHERE u.org_id = ? AND s.expires_at > ? GROUP BY s.user_id`, orgId, Date.now()).map((r) => [r.user_id, r]));
+  return orgUsers(orgId).filter((u) => !u.email.endsWith(DELETED_DOMAIN)).map((u) => ({
+    id: u.id, email: u.email, name: u.name, npwz: u.npwz, role: u.role, blocked: Boolean(u.blocked), mustChangePwd: Boolean(u.must_change_pwd),
+    createdAt: u.created_at, lastLogin: u.last_login, lastSeen: sess.get(u.id)?.seen || null, devices: sess.get(u.id)?.n || 0,
+    reports: reports.get(u.id) || 0,
+  }));
+}
+
+/** Create one member of an organisation. Returns { user, tempPassword } or { error }. */
+async function addOrgUser(org, b, actorId, { checkSeats = true } = {}) {
+  const email = str(b.email, 254).toLowerCase();
+  if (!EMAIL_RE.test(email)) return { error: 'nieprawidłowy e-mail' };
+  if (getUserByEmail(email)) return { error: 'konto z tym adresem już istnieje' };
+  if (checkSeats && seatsUsed(org.id) >= org.seats) return { error: 'brak wolnych miejsc w licencji' };
+  const pass = tempPassword();
+  try {
+    const user = await createUser({ email, password: pass, name: str(b.name, 120), npwz: str(b.npwz, 20), company: org.name, nip: org.nip, role: b.role === 'orgadmin' ? 'orgadmin' : 'user', orgId: org.id, mustChangePwd: true }, actorId);
+    return { user, tempPassword: pass };
+  } catch (err) {
+    if (/UNIQUE/i.test(String(err.message))) return { error: 'konto z tym adresem już istnieje' };
+    throw err;
+  }
+}
+
+function welcomeText(req, org, user, pass) {
+  return `Dzień dobry,\n\n${org.name} założył(a) dla Ciebie konto w ${BRAND.name} — aplikacji do dyktowania opisów radiologicznych.\n\nAdres: ${baseUrl(req)}/login\nE-mail: ${user.email}\nHasło tymczasowe: ${pass}\n\nPrzy pierwszym logowaniu ustawisz własne hasło. W razie problemów skontaktuj się z działem IT${org.contact ? ` (${org.contact})` : ''}.`;
+}
+
+async function handleIt(req, res, ctx, parts) {
+  const url = new URL(req.url, 'http://x');
+  const org = itScope(res, ctx, url);
+  if (!org) return;
+  const me = ctx.user.id;
+  const method = req.method;
+  const [section, idStr, action] = parts;
+
+  if (section === 'overview' && method === 'GET') {
+    return sendJson(res, 200, { org: orgPublic(org), users: orgUserRows(org.id), month: monthOf(), me, owner: ctx.user.role === 'admin', mail: mailConfigured() });
+  }
+
+  if (section === 'users' && !idStr && method === 'POST') {
+    const b = await readJson(req, 20_000);
+    const r = await addOrgUser(org, b, me);
+    if (r.error) return sendJson(res, r.error.includes('istnieje') ? 409 : 400, { error: `Nie dodano: ${r.error}.` });
+    let mailed = false;
+    if (b.sendEmail === true && mailConfigured()) { await sendMail(r.user.email, `Twoje konto w ${BRAND.name}`, welcomeText(req, org, r.user, r.tempPassword)); mailed = true; }
+    return sendJson(res, 200, { user: { id: r.user.id, email: r.user.email, name: r.user.name }, tempPassword: r.tempPassword, mailed });
+  }
+
+  if (section === 'import' && method === 'POST') {
+    const b = await readJson(req, 300_000);
+    const rows = Array.isArray(b.rows) ? b.rows : parseUserList(b.text);
+    if (!rows.length) return sendJson(res, 400, { error: 'Brak adresów e-mail na liście.' });
+    if (rows.length > 1000) return sendJson(res, 400, { error: 'Najwięcej 1000 osób naraz.' });
+    const created = [];
+    const skipped = [];
+    const seen = new Set();
+    let free = org.seats - seatsUsed(org.id);
+    const todo = [];
+    for (const row of rows) {
+      const email = str(row.email, 254).toLowerCase();
+      if (seen.has(email)) { skipped.push({ email, reason: 'powtórzony na liście' }); continue; }
+      seen.add(email);
+      if (!EMAIL_RE.test(email)) { skipped.push({ email, reason: 'nieprawidłowy e-mail' }); continue; }
+      if (getUserByEmail(email)) { skipped.push({ email, reason: 'konto już istnieje' }); continue; }
+      if (free <= 0) { skipped.push({ email, reason: 'brak wolnych miejsc w licencji' }); continue; }
+      free--;
+      todo.push({ ...row, email });
+    }
+    // password hashing is deliberately slow: 8 at a time keeps the server responsive for everybody else
+    for (let i = 0; i < todo.length; i += 8) {
+      const batch = await Promise.all(todo.slice(i, i + 8).map((row) => addOrgUser(org, row, me, { checkSeats: false })));
+      batch.forEach((r, j) => (r.error ? skipped.push({ email: todo[i + j].email, reason: r.error }) : created.push({ email: r.user.email, name: r.user.name, npwz: r.user.npwz, role: r.user.role, tempPassword: r.tempPassword })));
+    }
+    let mailed = 0;
+    if (b.sendEmail === true && mailConfigured()) {
+      for (const c of created) { await sendMail(c.email, `Twoje konto w ${BRAND.name}`, welcomeText(req, org, c, c.tempPassword)); mailed++; }
+    }
+    audit(me, 'org.import', null, `${org.id}: dodano ${created.length}, pominięto ${skipped.length}`);
+    return sendJson(res, 200, { created, skipped, mailed, org: orgPublic(org) });
+  }
+
+  if (section === 'users' && idStr) {
+    const u = getUser(Number(idStr));
+    if (!u || u.org_id !== org.id || u.email.endsWith(DELETED_DOMAIN)) return sendJson(res, 404, { error: 'Nie ma takiego użytkownika w organizacji.' });
+    const self = u.id === me;
+    if (!action && method === 'PATCH') {
+      const b = await readJson(req, 20_000);
+      const changes = [];
+      if (typeof b.name === 'string') { run('UPDATE users SET name = ? WHERE id = ?', str(b.name, 120), u.id); changes.push('nazwa'); }
+      if (typeof b.npwz === 'string') { run('UPDATE users SET npwz = ? WHERE id = ?', str(b.npwz, 20), u.id); changes.push('PWZ'); }
+      if (typeof b.email === 'string' && str(b.email, 254).toLowerCase() !== u.email) {
+        const e = str(b.email, 254).toLowerCase();
+        if (!EMAIL_RE.test(e)) return sendJson(res, 400, { error: 'Nieprawidłowy e-mail.' });
+        if (getUserByEmail(e)) return sendJson(res, 409, { error: 'Ten e-mail jest już używany.' });
+        run('UPDATE users SET email = ? WHERE id = ?', e, u.id); changes.push(`e-mail ${e}`);
+      }
+      if (b.role === 'user' || b.role === 'orgadmin') {
+        if (self && b.role !== u.role) return sendJson(res, 400, { error: 'Nie możesz zmienić własnej roli.' });
+        if (u.role !== b.role) { run('UPDATE users SET role = ? WHERE id = ?', b.role, u.id); changes.push(`rola ${b.role}`); }
+      }
+      if (typeof b.blocked === 'boolean' && b.blocked !== Boolean(u.blocked)) {
+        if (self) return sendJson(res, 400, { error: 'Nie możesz zablokować własnego konta.' });
+        if (!b.blocked && seatsUsed(org.id) >= org.seats) return sendJson(res, 400, { error: 'Brak wolnych miejsc w licencji — zablokuj inne konto albo poproś o więcej miejsc.' });
+        run('UPDATE users SET blocked = ? WHERE id = ?', b.blocked ? 1 : 0, u.id);
+        if (b.blocked) deleteUserSessions(u.id);
+        changes.push(b.blocked ? 'zablokowano' : 'odblokowano');
+      }
+      audit(me, 'it.user.update', u.id, changes.join(', '));
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === 'temp-password' && method === 'POST') {
+      const pass = tempPassword();
+      await setTempPassword(u.id, pass);
+      deleteUserSessions(u.id);
+      clearFailures(u.email);
+      audit(me, 'it.user.temp_password', u.id);
+      return sendJson(res, 200, { tempPassword: pass, email: u.email });
+    }
+    if (action === 'logout' && method === 'POST') {
+      deleteUserSessions(u.id);
+      audit(me, 'it.user.logout_all', u.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (!action && method === 'DELETE') {
+      if (self) return sendJson(res, 400, { error: 'Nie możesz usunąć własnego konta.' });
+      // personal data removed; the anonymous usage history stays for the organisation's statistics and billing
+      tx(() => {
+        run(`UPDATE users SET email = ?, name = 'Usunięty użytkownik', npwz = '', phone = '', note = '', pwd = '!', blocked = 1, must_change_pwd = 0 WHERE id = ?`, `u${u.id}${DELETED_DOMAIN}`, u.id);
+        run('DELETE FROM sessions WHERE user_id = ?', u.id);
+        run('DELETE FROM user_data WHERE user_id = ?', u.id);
+        run('DELETE FROM tokens WHERE user_id = ?', u.id);
+      });
+      audit(me, 'it.user.delete', u.id, u.email);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+
+  if (section === 'audit' && method === 'GET') {
+    return sendJson(res, 200, {
+      audit: all(`SELECT a.ts, a.action, a.detail, x.email AS actor, t.email AS target FROM audit a
+          LEFT JOIN users x ON x.id = a.actor_id LEFT JOIN users t ON t.id = a.target_id
+          WHERE (t.org_id = ? OR x.org_id = ?) AND a.action NOT IN ('login') ORDER BY a.ts DESC LIMIT 300`, org.id, org.id),
+    });
+  }
+
+  if (section === 'export' && idStr === 'users.csv' && method === 'GET') {
+    const rows = orgUserRows(org.id).map((u) => ({
+      email: u.email, imie_nazwisko: u.name, pwz: u.npwz, rola: u.role === 'orgadmin' ? 'IT' : 'radiolog', zablokowany: u.blocked ? 'tak' : 'nie',
+      haslo_tymczasowe: u.mustChangePwd ? 'tak' : 'nie', opisy_w_miesiacu: u.reports, ostatnie_logowanie: iso(u.lastLogin), utworzono: iso(u.createdAt),
+    }));
+    audit(me, 'it.export', null, `${org.id}`);
+    res.writeHead(200, headers({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="uzytkownicy.csv"', 'Cache-Control': 'no-store' }));
+    return res.end(csv(rows) || '﻿brak\n');
+  }
+  return sendJson(res, 404, { error: 'Nie znaleziono.' });
+}
+
+/** Owner: organisations with seats, this month's usage, AI cost and margin. */
+function orgRows(month = monthOf()) {
+  const usage = new Map(all(`SELECT u.org_id, COUNT(DISTINCT CASE WHEN g.kind='format' AND g.ok=1 AND g.report_id<>'' THEN g.user_id || ':' || g.report_id END) AS reports,
+      COUNT(*) AS calls, COALESCE(SUM(g.cost_usd),0) AS cost, COUNT(DISTINCT g.user_id) AS activeUsers
+      FROM usage g JOIN users u ON u.id = g.user_id WHERE g.month = ? AND u.org_id IS NOT NULL GROUP BY u.org_id`, month).map((r) => [r.org_id, r]));
+  return listOrgs().map((o) => {
+    const x = usage.get(o.id) || { reports: 0, calls: 0, cost: 0, activeUsers: 0 };
+    const p = orgPublic(o);
+    const revenue = p.access && o.status === 'active' ? o.seats * o.price_per_seat : 0;
+    const costPln = x.cost * usdPln();
+    return { ...p, reports: x.reports, calls: x.calls, activeUsers: x.activeUsers, costUsd: x.cost, costPln, revenuePln: revenue, marginPln: revenue - costPln };
+  });
+}
+
+async function handleAdminOrgs(req, res, me, idStr, action) {
+  const method = req.method;
+  if (!idStr && method === 'GET') return sendJson(res, 200, { orgs: orgRows(), plans: plans().map((p) => ({ id: p.id, name: p.name, quota: p.quota })) });
+  if (!idStr && method === 'POST') {
+    const b = await readJson(req, 20_000);
+    if (!str(b.name)) return sendJson(res, 400, { error: 'Podaj nazwę organizacji.' });
+    const itEmail = str(b.itEmail, 254).toLowerCase();
+    if (itEmail && (!EMAIL_RE.test(itEmail) || getUserByEmail(itEmail))) return sendJson(res, 400, { error: EMAIL_RE.test(itEmail) ? 'Konto z adresem administratora IT już istnieje.' : 'Nieprawidłowy e-mail administratora IT.' });
+    const org = createOrg(b, me);
+    let it = null;
+    if (itEmail) {
+      const r = await addOrgUser(org, { email: itEmail, name: b.itName, role: 'orgadmin' }, me, { checkSeats: false });
+      if (r.error) return sendJson(res, 400, { error: r.error, org: orgPublic(org) });
+      it = { email: r.user.email, tempPassword: r.tempPassword };
+    }
+    return sendJson(res, 200, { org: orgPublic(getOrg(org.id)), it });
+  }
+  const org = getOrg(Number(idStr));
+  if (!org) return sendJson(res, 404, { error: 'Nie znaleziono organizacji.' });
+  if (!action && method === 'PATCH') {
+    const b = await readJson(req, 20_000);
+    if (b.status !== undefined && !ORG_STATUS.includes(b.status)) return sendJson(res, 400, { error: 'Nieznany status.' });
+    return sendJson(res, 200, { org: orgPublic(updateOrg(org, b, me)) });
+  }
+  if (action === 'extend' && method === 'POST') {
+    const b = await readJson(req, 20_000);
+    const months = Math.min(36, Math.max(1, Number(b.months) || 1));
+    const from = Math.max(Date.now(), org.sub_until);
+    const d = new Date(from);
+    d.setMonth(d.getMonth() + months);
+    const until = typeof b.until === 'number' ? b.until : d.getTime();
+    return sendJson(res, 200, { org: orgPublic(updateOrg(org, { subUntil: until, status: b.status === 'trial' ? 'trial' : 'active' }, me)) });
+  }
+  if (!action && method === 'DELETE') {
+    const n = one('SELECT COUNT(*) AS n FROM users WHERE org_id = ? AND email NOT LIKE ?', org.id, `%${DELETED_DOMAIN}`).n;
+    if (n) return sendJson(res, 400, { error: `Organizacja ma ${n} kont — najpierw je usuń lub przenieś.` });
+    run('DELETE FROM orgs WHERE id = ?', org.id);
+    audit(me, 'org.delete', null, `${org.id}: ${org.name}`);
+    return sendJson(res, 200, { ok: true });
+  }
+  return sendJson(res, 404, { error: 'Nie znaleziono.' });
+}
+
 // ---------------------------------------------------------------- router
+// One JSON line per API call (no request bodies, no report text — never patient data). LOG_REQUESTS=0 turns it off.
+const LOG_REQUESTS = process.env.LOG_REQUESTS ? process.env.LOG_REQUESTS === '1' : PROD;
+function logRequest(req, res, started, p) {
+  if (!LOG_REQUESTS || (!p.startsWith('/api/') && res.statusCode < 500) || p === '/api/status') return;
+  console.log(JSON.stringify({ t: new Date().toISOString(), m: req.method, p: p.replace(/\/\d+(?=\/|$)/g, '/:id'), s: res.statusCode, ms: Date.now() - started, u: res.uid ?? null }));
+}
+
+let shuttingDown = false;
+
 export function createServer() {
   return http.createServer(async (req, res) => {
+    const started = Date.now();
+    let p = '';
+    res.on('finish', () => logRequest(req, res, started, p));
     try {
       const url = new URL(req.url, 'http://localhost');
-      const p = url.pathname;
+      p = url.pathname;
       const method = req.method;
+
+      // health check for the proxy / uptime monitor: database answers and the server is not shutting down
+      if (p === '/healthz') {
+        let db = false;
+        try { db = one('SELECT 1 AS ok')?.ok === 1; } catch { /* reported below */ }
+        const ok = db && !shuttingDown;
+        return sendJson(res, ok ? 200 : 503, { ok, db, shuttingDown, version: VERSION, uptimeS: Math.round(process.uptime()) });
+      }
 
       // Stripe webhook: raw body, its own signature — before the CSRF check
       if (p === '/api/stripe/webhook' && method === 'POST') {
@@ -688,9 +1025,10 @@ export function createServer() {
           }
         }
         const ctx = currentUser(req);
+        res.uid = ctx?.user.id;
         if (p === '/api/status') {
           const a = ctx ? access(ctx.user) : { ok: false, code: 'login' };
-          return sendJson(res, 200, { ai: aiAvailable() && a.ok, model: aiAvailable() ? MODEL : null, version: VERSION, hosted: true, user: ctx ? publicUser(ctx.user) : null, access: a, brand: BRAND });
+          return sendJson(res, 200, { ai: aiAvailable() && a.ok, model: aiAvailable() ? MODEL : null, version: VERSION, hosted: true, user: ctx ? publicUser(ctx.user) : null, access: a, brand: BRAND, announcement: settings().announcement || '' });
         }
         if (p === '/api/plans' && method === 'GET') {
           return sendJson(res, 200, { plans: plans().filter((x) => x.public).map(({ stripePrice, stripePriceYear, ...x }) => x), trialDays: settings().trialDays, annualMonths: settings().annualMonths, registrationOpen: settings().registrationOpen, brand: BRAND });
@@ -701,28 +1039,43 @@ export function createServer() {
         if (p === '/api/format' && method === 'POST') return await handleFormat(req, res, ctx);
         if (p === '/api/learn' && method === 'POST') return await handleLearn(req, res, ctx);
         if (p.startsWith('/api/admin/')) return await handleAdmin(req, res, ctx, p.slice('/api/admin/'.length).split('/').filter(Boolean));
+        if (p.startsWith('/api/it/')) return await handleIt(req, res, ctx, p.slice('/api/it/'.length).split('/').filter(Boolean));
         return sendJson(res, 404, { error: 'Nie znaleziono.' });
       }
 
       if (!['GET', 'HEAD'].includes(method)) { res.writeHead(405, headers()); return res.end(); }
 
       // public pages
-      if (p === '/' ) return sitePage(res, 'index');
+      if (p === '/' ) return sitePage(res, 'index', req);
       if (['/login', '/register', '/reset', '/forgot', '/privacy', '/terms'].includes(p)) {
-        if ((p === '/login' || p === '/register') && currentUser(req)) return redirect(res, '/app/');
-        return sitePage(res, p.slice(1));
+        if (p === '/login' || p === '/register') {
+          const c = currentUser(req);
+          if (c) return redirect(res, homeFor(c.user));
+        }
+        return sitePage(res, p.slice(1), req);
       }
-      if (p.startsWith('/site/')) return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'public, max-age=3600' });
-      if (p.startsWith('/fonts/') || p.startsWith('/icons/')) return serveFile(res, PUBLIC, p.slice(1), { cache: 'public, max-age=604800' });
-      if (p === '/favicon.ico') return serveFile(res, PUBLIC, 'icons/radvox.ico', { cache: 'public, max-age=604800' });
+      if (p.startsWith('/site/')) return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'public, max-age=3600', req });
+      if (p.startsWith('/fonts/') || p.startsWith('/icons/')) return serveFile(res, PUBLIC, p.slice(1), { cache: 'public, max-age=604800', req });
+      if (p === '/favicon.ico') return serveFile(res, PUBLIC, 'icons/radvox.ico', { cache: 'public, max-age=604800', req });
 
       // logged-in pages
       const ctx = currentUser(req);
-      if (p === '/account') return ctx ? sitePage(res, 'account') : redirect(res, '/login?next=/account');
+      if (p === '/change-password') {
+        if (!ctx) return redirect(res, '/login');
+        if (!ctx.user.must_change_pwd) return redirect(res, homeFor(ctx.user));
+        return sitePage(res, 'change-password', req);
+      }
+      if (ctx?.user.must_change_pwd && ['/account', '/admin', '/it'].includes(p)) return redirect(res, '/change-password');
+      if (p === '/account') return ctx ? sitePage(res, 'account', req) : redirect(res, '/login?next=/account');
       if (p === '/admin') {
         if (!ctx) return redirect(res, '/login?next=/admin');
         if (ctx.user.role !== 'admin') return redirect(res, '/app/');
-        return sitePage(res, 'admin');
+        return sitePage(res, 'admin', req);
+      }
+      if (p === '/it') {
+        if (!ctx) return redirect(res, '/login?next=/it');
+        if (ctx.user.role !== 'orgadmin' && ctx.user.role !== 'admin') return redirect(res, '/app/');
+        return sitePage(res, 'it', req);
       }
       if (p === '/logout') {
         if (ctx) deleteSession(ctx.token);
@@ -734,11 +1087,11 @@ export function createServer() {
       if (p.startsWith('/app/')) {
         if (!ctx) return redirect(res, `/login?next=${encodeURIComponent(p)}`);
         const a = access(ctx.user);
-        if (!a.ok) return redirect(res, '/account?need=1');
+        if (!a.ok) return redirect(res, a.code === 'pwd' ? '/change-password' : '/account?need=1');
         let rel = p.slice('/app/'.length) || 'index.html';
         if (rel === 'index.html' || rel === '') rel = 'index.html';
         if (rel.startsWith('site/') || rel.startsWith('js/templates-pro/BRIEF') || rel.includes('check.mjs')) { res.writeHead(404, headers()); return res.end(); }
-        return serveFile(res, APP_ROOT(), rel, { cache: 'private, no-cache' });
+        return serveFile(res, APP_ROOT(), rel, { cache: 'private, no-cache', req });
       }
       res.writeHead(404, headers({ 'Content-Type': 'text/plain; charset=utf-8' }));
       res.end('Nie znaleziono');
@@ -769,9 +1122,28 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const PORT = Number(process.env.PORT) || 3000;
   const HOST = process.env.HOST || (PROD ? '0.0.0.0' : '127.0.0.1');
   startJobs();
-  createServer().listen(PORT, HOST, () => {
+  const server = createServer();
+  // behind a reverse proxy: keep idle connections a little longer than the proxy does
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+  server.listen(PORT, HOST, () => {
     console.log(`${BRAND.name} ${VERSION} działa: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-    console.log(aiAvailable() ? `AI: ${MODEL} (${PROVIDER})` : 'UWAGA: brak ANTHROPIC_API_KEY — AI niedostępne.');
+    console.log(aiAvailable() ? `AI: ${MODEL} (${PROVIDER}), maks. ${aiLimiter.max} zapytań naraz` : 'UWAGA: brak ANTHROPIC_API_KEY — AI niedostępne.');
     if (!one("SELECT id FROM users WHERE role = 'admin' LIMIT 1")) console.log('UWAGA: brak administratora — ustaw ADMIN_EMAIL i ADMIN_PASSWORD i uruchom ponownie.');
   });
+  // Graceful stop (update / restart): no new connections, AI answers already in progress are finished (up to 30 s).
+  const stop = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal}: zatrzymywanie — kończę rozpoczęte zapytania AI…`);
+    server.close();
+    server.closeIdleConnections?.();
+    const clean = await aiLimiter.idle(30_000);
+    closeDb();
+    console.log(clean ? 'Zatrzymano.' : 'Zatrzymano (niektóre zapytania AI przerwane po 30 s).');
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => stop('SIGTERM'));
+  process.on('SIGINT', () => stop('SIGINT'));
+  process.on('unhandledRejection', (err) => console.error('unhandledRejection', err));
 }
