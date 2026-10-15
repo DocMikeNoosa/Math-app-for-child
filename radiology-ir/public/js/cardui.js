@@ -12,7 +12,7 @@ import { procLabel, proceduresFor, suggestTemplates } from './anatomy.js';
 import {
   FINDINGS, findingDef, ACCESS_SITES, GUIDANCE, ANAESTHESIA, URGENCY, OUTCOME, SIDES,
   emptyCard, newLesion, deviceText, lesionBadge, cardToText, cardGaps, cardProcedures,
-  builtinLetter, fillLetter, pseudonymiseLetter, greeting, figureCaption, figureCallout,
+  builtinLetter, fillLetter, pseudonymiseLetter, greeting, figureCaption, figureCallout, PH,
 } from './card.js';
 import { renderFigure } from './figure.js';
 import { Dictation, speechSupported } from './speech.js';
@@ -22,6 +22,7 @@ const CARD_KEY = 'radvox.card.v1';
 const PATIENT_KEY = 'radvox.patient.v1'; // sessionStorage only — never kept after the browser closes
 const REFERRERS_KEY = 'radvox.referrers.v1';
 const SENDER_KEY = 'radvox.sender.v1';
+const ASSETS_KEY = 'radvox.letterAssets.v1'; // { logo, sign } — images, this computer only
 const CUSTOM_DEV_KEY = 'radvox.devices.custom.v1';
 const BRANCHES = [['Vascular', 'Naczyniowe', 'Vascular'], ['Neuro', 'Neuro', 'Neuro'], ['NonVascular', 'Nienaczyniowe', 'Non-vascular']];
 
@@ -68,7 +69,8 @@ function save() {
 }
 function patient() { return store.get(PATIENT_KEY, {}, sessionStorage); }
 function savePatient() {
-  store.set(PATIENT_KEY, { name: $('lfPatient').value.trim(), dob: $('lfDob').value.trim(), sex: segValue('lfSex', 'sex'), date: $('lfDate').value, referrer: $('lfReferrer').value.trim(), unit: $('lfUnit').value.trim(), title: segValue('lfTitle', 'title') }, sessionStorage);
+  store.set(PATIENT_KEY, { name: $('lfPatient').value.trim(), dob: $('lfDob').value.trim(), sex: segValue('lfSex', 'sex'), date: $('lfDate').value, referrer: $('lfReferrer').value.trim(), unit: $('lfUnit').value.trim(), title: segValue('lfTitle', 'title'),
+    addr: $('lfRefAddr').value.trim(), city: $('lfRefCity').value.trim(), rcontact: $('lfRefContact').value.trim(), pwz: $('lfRefPwz').value.trim() }, sessionStorage);
 }
 
 /** Start a new card (new patient). */
@@ -77,7 +79,7 @@ export function resetCard() {
   ui.active = null;
   ui.letter = { ...ui.letter, text: '', subject: '', warnings: [], source: '' };
   try { sessionStorage.removeItem(PATIENT_KEY); } catch { /* ignore */ }
-  for (const id of ['lfPatient', 'lfDob', 'lfReferrer', 'lfUnit']) $(id).value = '';
+  for (const id of ['lfPatient', 'lfDob', 'lfReferrer', 'lfUnit', 'lfRefAddr', 'lfRefCity', 'lfRefContact', 'lfRefPwz']) $(id).value = '';
   $('lfDate').value = today();
   setSeg('lfSex', 'sex', '');
   setSeg('lfTitle', 'title', 'team');
@@ -715,7 +717,7 @@ function letterCtx() {
   return {
     patient: p.name || '', dob: p.dob || '', date: y ? `${dd}.${m}.${y}` : '', referrer: p.referrer || '', referrerTitle: p.title || 'team', sex: p.sex || '',
     signature: [sender.name, sender.unit, sender.contact].filter(Boolean).join('\n'),
-    unit: p.unit || '',
+    unit: p.unit || '', addr: p.addr || '', city: p.city || '', rcontact: p.rcontact || '', pwz: p.pwz || '',
   };
 }
 // ---------------------------------------------------------------- letter figures (3D schematic of each treated lesion)
@@ -733,12 +735,12 @@ function letterFigures(lg) {
     const index = ui.card.lesions.filter((x) => x.diagram === l.diagram).indexOf(l);
     const key = JSON.stringify([l.diagram, lesions, index, ui.card.variants, lg]);
     let src = figCache.get(key);
-    if (src === undefined) { src = renderFigure(d, lesions, index, { lang: lg, callout: figureCallout(l, lg) }); figCache.set(key, src); }
+    if (src === undefined) { src = renderFigure(d, lesions, index, { lang: lg, callout: figureCallout(l, lg), compact: true }); figCache.set(key, src); }
     if (!src) return null;
     return { src, caption: figureCaption(l, partOf(l.diagram, l.part), lg, { label: labelOf(l, lg), n: i + 1, vascular: ui.card.branch !== 'Neuro' }) };
   }).filter(Boolean);
 }
-const figuresHtml = (figs) => figs.map((f) => `<figure class="lp-fig"><img src="${f.src}" alt="${esc(f.caption)}" /><figcaption>${esc(f.caption)}</figcaption></figure>`).join('');
+const figuresHtml = (figs) => (figs.length ? `${figs.map((f) => `<figure class="lp-fig"><img src="${f.src}" alt="${esc(f.caption)}" /><figcaption>${esc(f.caption)}</figcaption></figure>`).join('')}<div class="lp-fig-note">${esc(t2('Schemat poglądowy — nie odwzorowuje dokładnie anatomii pacjenta.', 'Schematic — not the exact anatomy of the patient.'))}</div>` : '');
 function renderLetterFigures() {
   const L = ui.letter;
   const on = Boolean(L.text) && L.figures !== false;
@@ -746,6 +748,26 @@ function renderLetterFigures() {
   if (!on) { $('lpFigures').innerHTML = ''; return; }
   $('lpFigures').innerHTML = figuresHtml(letterFigures(L.lang));
 }
+
+// ---------------------------------------------------------------- letter layout: logo, sender, recipient, signature
+const assets = () => store.get(ASSETS_KEY, {});
+function letterHeadHtml(ctx, { print = false } = {}) {
+  const sender = store.get(SENDER_KEY, {});
+  const a = assets();
+  const unit = sender.unit || (print ? '' : t2('Pracownia Radiologii Zabiegowej', 'Interventional Radiology'));
+  const from = `<div class="lp-from">${a.logo ? `<img class="lp-logo" src="${a.logo}" alt="logo" />` : ''}<div class="lp-from-txt">${esc(unit)}${sender.contact ? `<br><span>${esc(sender.contact)}</span>` : ''}</div></div>`;
+  const date = `<div class="lp-date">${esc(ctx.date ? `${t2('Data', 'Date')}: ${ctx.date}` : '')}</div>`;
+  const to = [ctx.referrer ? `<b>${esc(ctx.referrer)}</b>${ctx.pwz ? `<span class="lp-pwz"> · ${esc(t2('nr PWZ', 'licence no.'))} ${esc(ctx.pwz)}</span>` : ''}` : '', ...[ctx.unit, ctx.addr, ctx.city, ctx.rcontact].filter(Boolean).map(esc)].filter(Boolean);
+  return `${from}${date}<div class="lp-to">${to.length ? `${esc(t2('Do', 'To'))}:<br>${to.join('<br>')}` : ''}</div>`;
+}
+function signHtml(ctx) {
+  const a = assets();
+  const lines = String(ctx.signature || '').split('\n').filter(Boolean);
+  if (!a.sign && !lines.length) return '';
+  return `${a.sign ? `<img class="lp-sign-img" src="${a.sign}" alt="${esc(t2('podpis', 'signature'))}" />` : ''}${lines.length ? `<div class="lp-sign-txt">${lines.map(esc).join('<br>')}</div>` : ''}`;
+}
+/** The letter text without the signature placeholder (the signature block is drawn separately, with the image). */
+const bodyWithoutSignature = (text) => String(text || '').split(PH.signature).join('').replace(/\s+$/, '');
 
 function renderLetter() {
   if (!api) return;
@@ -756,16 +778,15 @@ function renderLetter() {
   $('lfWarn').checked = L.warn !== false;
   $('lfFigures').checked = L.figures !== false;
   const ctx = letterCtx();
-  const sender = store.get(SENDER_KEY, {});
-  $('lpHead').innerHTML = `<div class="lp-from">${esc(sender.unit || t2('Pracownia Radiologii Zabiegowej', 'Interventional Radiology'))}${sender.contact ? `<br><span>${esc(sender.contact)}</span>` : ''}</div>
-    <div class="lp-date">${esc(ctx.date ? `${t2('Data', 'Date')}: ${ctx.date}` : '')}</div>
-    <div class="lp-to">${ctx.referrer || ctx.unit ? `${esc(t2('Do', 'To'))}: <b>${esc(ctx.referrer)}</b>${ctx.unit ? `<br>${esc(ctx.unit)}` : ''}` : ''}</div>`;
-  const filled = fillLetter(L.text, ctx, L.lang);
+  $('lpHead').innerHTML = letterHeadHtml(ctx);
+  const filled = fillLetter(bodyWithoutSignature(L.text), ctx, L.lang);
   $('lpSubject').textContent = L.subject || '';
   $('lpSubject').hidden = !L.subject;
   $('lpBody').innerText = filled;
   $('lpEmpty').hidden = Boolean(L.text);
   $('lpBody').hidden = !L.text;
+  $('lpSign').innerHTML = L.text ? signHtml(ctx) : '';
+  $('lpSign').hidden = !L.text || !$('lpSign').innerHTML;
   if (ui.view === 'letter') renderLetterFigures();
   $('lfWarningsList').innerHTML = (L.warnings || []).map((w) => `<li>${esc(w)}</li>`).join('');
   $('lfWarnings').hidden = !(L.warnings || []).length;
@@ -777,7 +798,8 @@ function renderLetter() {
 function captureLetter() {
   if (!ui.letter.text) return;
   const ctx = letterCtx();
-  ui.letter.text = pseudonymiseLetter($('lpBody').innerText.replace(/ /g, ' '), ctx, ui.letter.lang);
+  const body = pseudonymiseLetter($('lpBody').innerText.replace(/\u00a0/g, ' '), ctx, ui.letter.lang).replace(/\s+$/, '');
+  ui.letter.text = body.includes(PH.signature) ? body : `${body}\n${PH.signature}`;
   ui.letter.subject = $('lpSubject').innerText.trim();
   save();
 }
@@ -837,31 +859,37 @@ function printLetter() {
   captureLetter();
   const ctx = letterCtx();
   const L = ui.letter;
-  const sender = store.get(SENDER_KEY, {});
-  const body = esc(fillLetter(L.text, ctx, L.lang)).replace(/\n/g, '<br>');
+  const body = esc(fillLetter(bodyWithoutSignature(L.text), ctx, L.lang)).replace(/\n/g, '<br>');
   const figs = L.figures !== false ? figuresHtml(letterFigures(L.lang)) : '';
   const html = `<!doctype html><html lang="${L.lang}"><head><meta charset="utf-8"><title>${esc(L.subject || 'List')}</title>
-    <style>@page{size:A4;margin:22mm 20mm}body{font:11.5pt/1.55 Georgia,'Times New Roman',serif;color:#111}
-    .h{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #999;padding-bottom:10px;margin-bottom:22px;font:10pt/1.4 Arial,sans-serif}
-    .to{margin:0 0 18px auto;width:55%;font:10.5pt/1.4 Arial,sans-serif}.s{font-weight:bold;margin:0 0 16px}
-    .lp-fig{margin:18px 0 0;break-inside:avoid;page-break-inside:avoid}.lp-fig img{display:block;width:100%;max-width:150mm;border:1px solid #ddd;border-radius:4px}
-    .lp-fig figcaption{font:8.5pt/1.35 Arial,sans-serif;color:#333;margin-top:4px;max-width:150mm}</style></head><body>
-    <div class="h"><div>${esc(sender.unit || '')}${sender.contact ? `<br>${esc(sender.contact)}` : ''}</div><div>${esc(ctx.date)}</div></div>
-    ${ctx.referrer || ctx.unit ? `<div class="to">${esc(ctx.referrer)}${ctx.unit ? `<br>${esc(ctx.unit)}` : ''}</div>` : ''}
-    ${L.subject ? `<p class="s">${esc(L.lang === 'en' ? 'Subject' : 'Dotyczy')}: ${esc(L.subject)}</p>` : ''}<div>${body}</div>${figs}</body></html>`;
+    <style>@page{size:A4;margin:16mm 18mm 18mm}body{font:11pt/1.5 Georgia,'Times New Roman',serif;color:#111;margin:0}
+    .lp-head{display:grid;grid-template-columns:1fr auto;gap:4px 20px;border-bottom:1px solid #999;padding-bottom:8px;margin-bottom:14px;font:9.5pt/1.4 Arial,sans-serif}
+    .lp-from{display:flex;gap:12px;align-items:center}.lp-logo{max-height:20mm;max-width:60mm;object-fit:contain}.lp-from span{color:#555}
+    .lp-date{text-align:right}.lp-to{grid-column:1/-1;justify-self:end;min-width:45%;margin-top:8px;font:10pt/1.4 Arial,sans-serif}.lp-pwz{color:#555}
+    .s{font-weight:bold;margin:0 0 12px}
+    .lp-figs{float:right;width:58mm;margin:0 0 3mm 6mm}.lp-fig{margin:0 0 3mm;break-inside:avoid;page-break-inside:avoid}
+    .lp-fig img{display:block;width:100%;border:1px solid #ddd;border-radius:3px}.lp-fig figcaption{font:7.2pt/1.3 Arial,sans-serif;color:#333;margin-top:2px}
+    .lp-fig-note{font:italic 6.5pt/1.2 Arial,sans-serif;color:#777}
+    .lp-sign{margin-top:8mm;break-inside:avoid;page-break-inside:avoid}.lp-sign-img{display:block;max-height:22mm;max-width:65mm;object-fit:contain;margin-bottom:1mm}
+    .lp-sign-txt{font:10pt/1.4 Arial,sans-serif}</style></head><body>
+    <div class="lp-head">${letterHeadHtml(ctx, { print: true })}</div>
+    ${L.subject ? `<p class="s">${esc(L.lang === 'en' ? 'Subject' : 'Dotyczy')}: ${esc(L.subject)}</p>` : ''}
+    ${figs ? `<div class="lp-figs">${figs}</div>` : ''}<div>${body}</div>
+    <div class="lp-sign">${signHtml(ctx)}</div></body></html>`;
   const frame = document.createElement('iframe');
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
   document.body.append(frame);
   frame.contentDocument.open();
   frame.contentDocument.write(html);
   frame.contentDocument.close();
-  setTimeout(() => { frame.contentWindow.focus(); frame.contentWindow.print(); setTimeout(() => frame.remove(), 2000); }, 150);
+  window.radvoxLastPrint = html; // for automated tests
+  setTimeout(() => { frame.contentWindow.focus(); frame.contentWindow.print(); setTimeout(() => frame.remove(), 2000); }, 300);
 }
 function rememberReferrer() {
   const name = $('lfReferrer').value.trim();
   if (!name) return;
   const list = store.get(REFERRERS_KEY, []).filter((r) => r.name !== name);
-  list.push({ name, unit: $('lfUnit').value.trim(), title: segValue('lfTitle', 'title') });
+  list.push({ name, unit: $('lfUnit').value.trim(), title: segValue('lfTitle', 'title'), addr: $('lfRefAddr').value.trim(), city: $('lfRefCity').value.trim(), rcontact: $('lfRefContact').value.trim(), pwz: $('lfRefPwz').value.trim() });
   store.set(REFERRERS_KEY, list.slice(-60));
   renderReferrers();
 }
@@ -955,6 +983,7 @@ export async function initCard(appApi) {
   $('lfDob').value = p.dob || '';
   $('lfReferrer').value = p.referrer || '';
   $('lfUnit').value = p.unit || '';
+  $('lfRefAddr').value = p.addr || ''; $('lfRefCity').value = p.city || ''; $('lfRefContact').value = p.rcontact || ''; $('lfRefPwz').value = p.pwz || '';
   $('lfDate').value = p.date || today();
   setSeg('lfSex', 'sex', p.sex || '');
   setSeg('lfTitle', 'title', p.title || 'team');
@@ -1013,12 +1042,17 @@ export async function initCard(appApi) {
     else if (b.dataset.sex !== undefined && b.closest('#lfSex')) { setSeg('lfSex', 'sex', b.dataset.sex); savePatient(); }
     else if (b.dataset.title) { captureLetter(); setSeg('lfTitle', 'title', b.dataset.title); savePatient(); renderLetter(); }
   });
-  for (const id of ['lfPatient', 'lfDob', 'lfDate', 'lfReferrer', 'lfUnit']) {
+  for (const id of ['lfPatient', 'lfDob', 'lfDate', 'lfReferrer', 'lfUnit', 'lfRefAddr', 'lfRefCity', 'lfRefContact', 'lfRefPwz']) {
     $(id).addEventListener('focus', captureLetter);
     $(id).addEventListener('change', () => {
+      if (/^lfRef(Addr|City|Contact|Pwz)$|^lfUnit$/.test(id)) rememberReferrer();
       if (id === 'lfReferrer') {
         const r = store.get(REFERRERS_KEY, []).find((x) => x.name === $('lfReferrer').value.trim());
-        if (r) { if (!$('lfUnit').value.trim()) $('lfUnit').value = r.unit || ''; setSeg('lfTitle', 'title', r.title || 'team'); }
+        if (r) {
+          if (!$('lfUnit').value.trim()) $('lfUnit').value = r.unit || '';
+          for (const [id, k] of [['lfRefAddr', 'addr'], ['lfRefCity', 'city'], ['lfRefContact', 'rcontact'], ['lfRefPwz', 'pwz']]) if (!$(id).value.trim()) $(id).value = r[k] || '';
+          setSeg('lfTitle', 'title', r.title || 'team');
+        }
         rememberReferrer();
       }
       savePatient();
@@ -1029,6 +1063,85 @@ export async function initCard(appApi) {
     $(id).addEventListener('focus', captureLetter);
     $(id).addEventListener('change', () => { store.set(SENDER_KEY, { name: $('lfSenderName').value.trim(), unit: $('lfSenderUnit').value.trim(), contact: $('lfSenderContact').value.trim() }); renderLetter(); });
   }
+  // logo and signature (images, this computer only)
+  const imgToDataUrl = (src, maxW, maxH) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, maxW / (img.naturalWidth || maxW), maxH / (img.naturalHeight || maxH));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round((img.naturalWidth || maxW) * k)); cv.height = Math.max(1, Math.round((img.naturalHeight || maxH) * k));
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      resolve(cv.toDataURL('image/png'));
+    };
+    img.onerror = () => reject(new Error('image'));
+    img.src = src;
+  });
+  const renderAssets = () => {
+    const a = assets();
+    $('lfLogoPrev').innerHTML = a.logo ? `<img src="${a.logo}" alt="logo" />` : `<span>${t2('brak', 'none')}</span>`;
+    $('lfSignPrev').innerHTML = a.sign ? `<img src="${a.sign}" alt="${t2('podpis', 'signature')}" />` : `<span>${t2('brak', 'none')}</span>`;
+    $('lfLogoDel').hidden = !a.logo; $('lfSignDel').hidden = !a.sign;
+  };
+  const setAsset = (k, v) => {
+    const a = assets();
+    if (v) a[k] = v; else delete a[k];
+    try { localStorage.setItem(ASSETS_KEY, JSON.stringify(a)); } catch { api.toast(t2('Obraz jest za duży, aby go zapisać.', 'The image is too large to save.'), 'err'); return; }
+    renderAssets(); renderLetter();
+  };
+  const readFile = (input, k, maxW, maxH) => {
+    const f = input.files?.[0];
+    input.value = '';
+    if (!f) return;
+    if (f.size > 8 * 1024 * 1024) { api.toast(t2('Plik jest za duży (maks. 8 MB).', 'File too large (max 8 MB).'), 'err'); return; }
+    const r = new FileReader();
+    r.onload = async () => {
+      try { setAsset(k, await imgToDataUrl(r.result, maxW, maxH)); api.toast(k === 'logo' ? t2('Logo zapisane', 'Logo saved') : t2('Podpis zapisany', 'Signature saved'), 'ok', 1600); } catch { api.toast(t2('Nie udało się odczytać obrazu.', 'Could not read the image.'), 'err'); }
+    };
+    r.readAsDataURL(f);
+  };
+  $('lfLogoPick').addEventListener('click', () => $('lfLogoFile').click());
+  $('lfSignPick').addEventListener('click', () => $('lfSignFile').click());
+  $('lfLogoFile').addEventListener('change', () => readFile($('lfLogoFile'), 'logo', 720, 240));
+  $('lfSignFile').addEventListener('change', () => readFile($('lfSignFile'), 'sign', 720, 240));
+  $('lfLogoDel').addEventListener('click', () => setAsset('logo', null));
+  $('lfSignDel').addEventListener('click', () => setAsset('sign', null));
+  // signature pad: mouse, finger or stylus
+  const pad = $('lfSignCanvas');
+  const pctx = pad.getContext('2d');
+  let drawing = false; let inked = false;
+  const padPoint = (e) => { const r = pad.getBoundingClientRect(); return [(e.clientX - r.left) * (pad.width / r.width), (e.clientY - r.top) * (pad.height / r.height)]; };
+  const clearPad = () => { pctx.clearRect(0, 0, pad.width, pad.height); inked = false; };
+  pad.style.touchAction = 'none';
+  pad.addEventListener('pointerdown', (e) => { drawing = true; pad.setPointerCapture(e.pointerId); const [x, y] = padPoint(e); pctx.beginPath(); pctx.moveTo(x, y); });
+  pad.addEventListener('pointermove', (e) => {
+    if (!drawing) return;
+    const [x, y] = padPoint(e);
+    pctx.lineTo(x, y);
+    pctx.strokeStyle = '#1a2a6c'; pctx.lineCap = 'round'; pctx.lineJoin = 'round';
+    pctx.lineWidth = e.pointerType === 'pen' && e.pressure > 0 ? 1.4 + e.pressure * 2.6 : 2.6;
+    pctx.stroke();
+    inked = true;
+  });
+  const endStroke = () => { drawing = false; };
+  pad.addEventListener('pointerup', endStroke);
+  pad.addEventListener('pointercancel', endStroke);
+  $('lfSignDraw').addEventListener('click', () => { clearPad(); $('lfSignPad').hidden = false; });
+  $('lfSignClear').addEventListener('click', clearPad);
+  $('lfSignCancel').addEventListener('click', () => { $('lfSignPad').hidden = true; });
+  $('lfSignSave').addEventListener('click', () => {
+    if (!inked) { api.toast(t2('Podpisz się w polu powyżej.', 'Sign in the box above.'), 'warn'); return; }
+    // crop to the ink
+    const { data } = pctx.getImageData(0, 0, pad.width, pad.height);
+    let x0 = pad.width; let y0 = pad.height; let x1 = 0; let y1 = 0;
+    for (let y = 0; y < pad.height; y++) for (let x = 0; x < pad.width; x++) if (data[(y * pad.width + x) * 4 + 3] > 10) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    const m = 8; x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(pad.width - 1, x1 + m); y1 = Math.min(pad.height - 1, y1 + m);
+    const out = document.createElement('canvas'); out.width = x1 - x0 + 1; out.height = y1 - y0 + 1;
+    out.getContext('2d').drawImage(pad, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+    setAsset('sign', out.toDataURL('image/png'));
+    $('lfSignPad').hidden = true;
+    api.toast(t2('Podpis zapisany', 'Signature saved'), 'ok', 1600);
+  });
+  renderAssets();
   $('lfWarn').addEventListener('change', () => { ui.letter.warn = $('lfWarn').checked; save(); });
   $('lfFigures').addEventListener('change', () => { ui.letter.figures = $('lfFigures').checked; save(); renderLetterFigures(); });
   $('lfWrite').addEventListener('click', () => writeLetter());
@@ -1041,7 +1154,8 @@ export async function initCard(appApi) {
       const figs = ui.letter.figures !== false ? letterFigures(ui.letter.lang) : [];
       if (figs.length && window.ClipboardItem && navigator.clipboard.write) {
         const plainAll = `${plain}\n\n${figs.map((f) => f.caption).join('\n')}`;
-        const html = `<div style="font-family:Georgia,serif">${esc(plain).replace(/\n/g, '<br>')}</div>${figs.map((f) => `<p><img src="${f.src}" width="560" /><br><small style="font-family:Arial,sans-serif">${esc(f.caption)}</small></p>`).join('')}`;
+        const a = assets();
+        const html = `${a.logo ? `<p><img src="${a.logo}" height="60" alt="logo" /></p>` : ''}${figs.map((f) => `<table align="right" style="margin:0 0 8px 12px;width:230px"><tr><td><img src="${f.src}" width="230" /><br><small style="font-family:Arial,sans-serif;font-size:8pt">${esc(f.caption)}</small></td></tr></table>`).join('')}<div style="font-family:Georgia,serif">${esc(plain).replace(/\n/g, '<br>')}</div>${a.sign ? `<p><img src="${a.sign}" height="70" alt="podpis" /></p>` : ''}`;
         await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([plainAll], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]);
       } else await navigator.clipboard.writeText(plain);
       api.toast(t2('List skopiowany', 'Letter copied'), 'ok', 1800); } catch { api.toast(t2('Nie udało się skopiować', 'Copy failed'), 'err'); }

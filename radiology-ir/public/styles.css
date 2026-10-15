@@ -986,10 +986,30 @@ body.target-clinical.recording .rec-state::after { content: ' · dane kliniczne'
 .lp-to { grid-column: 1 / -1; justify-self: end; text-align: left; min-width: 45%; margin-top: 10px; color: #222; }
 .lp-subject { font-weight: 700; margin-bottom: 14px; outline: none; }
 .lp-body { white-space: pre-wrap; outline: none; min-height: 200px; }
-.lp-figures { display: grid; gap: 18px; margin-top: 22px; }
+/* small schematic in the upper right corner of the letter body; the text flows around it */
+.letter-paper { display: flow-root; }
+.lp-figures { float: right; width: 230px; margin: 2px 0 12px 22px; display: grid; gap: 10px; }
 .lp-fig { margin: 0; }
-.lp-fig img { display: block; width: 100%; max-width: 640px; border: 1px solid #e3e0d8; border-radius: 6px; background: #fff; }
-.lp-fig figcaption { margin-top: 6px; max-width: 640px; font: 12px/1.45 Inter, system-ui, sans-serif; color: #4b5060; }
+.lp-fig img { display: block; width: 100%; border: 1px solid #e3e0d8; border-radius: 5px; background: #fff; }
+.lp-fig figcaption { margin-top: 4px; font: 10.5px/1.35 Inter, system-ui, sans-serif; color: #4b5060; }
+.lp-fig-note { font: italic 9.5px/1.3 Inter, system-ui, sans-serif; color: #8a8f99; }
+.lp-from { display: flex; align-items: center; gap: 14px; }
+.lp-logo { max-height: 64px; max-width: 220px; object-fit: contain; }
+.lp-pwz { color: #666; }
+.lp-sign { margin-top: 22px; font: 13.5px/1.5 Inter, system-ui, sans-serif; color: #222; }
+.lp-sign-img { display: block; max-height: 72px; max-width: 240px; object-fit: contain; margin-bottom: 2px; }
+@media (max-width: 700px) { .lp-figures { float: none; width: 100%; margin: 0 0 12px; } }
+/* logo / signature settings */
+.lf-assets { align-items: flex-start; }
+.asset { display: grid; gap: 6px; min-width: 220px; flex: 1; }
+.asset label small { color: var(--text-dim); font-weight: 400; }
+.asset-prev { height: 64px; border-radius: 10px; border: 1px dashed var(--line-2); background: #fbfaf7; display: grid; place-items: center; overflow: hidden; }
+.asset-prev img { max-height: 56px; max-width: 92%; object-fit: contain; }
+.asset-prev span { color: #999; font-size: 12px; }
+.asset-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sign-pad { margin-top: 10px; display: grid; gap: 8px; }
+.sign-pad canvas { width: 100%; max-width: 640px; aspect-ratio: 640 / 200; background: #fff; border-radius: 10px; border: 1px solid var(--line-2); cursor: crosshair; touch-action: none; }
+.sign-pad-btns { display: flex; gap: 8px; align-items: center; max-width: 640px; }
 .lp-subject:focus, .lp-body:focus { background: rgba(232, 62, 92, 0.04); }
 .lp-empty { color: #8a8a8a; font: 14px/1.6 Inter, system-ui, sans-serif; padding: 60px 20px; text-align: center; }
 .letter-paper .processing { border-radius: 6px; }

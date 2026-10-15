@@ -808,7 +808,7 @@ export function createModel3D(host, model, opts = {}) {
     view.pitch = Math.asin(Math.max(-1, Math.min(1, w.y)));
     view.yaw = Math.atan2(-w.x, w.z);
     view.target.copy(f.at);
-    view.size = Math.max(18, f.extent);
+    view.size = Math.max(18, f.extent) * (forFigure ? (opts.figureZoom || 1) : 1);
     view.zoom = 1; view.clip = null; view.hide = opts.figureHide || null;
     if (forFigure) {
       view.depth = view.size * 1.6;

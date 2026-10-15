@@ -4,6 +4,21 @@ RadVox IR is the interventional-radiology sister of **RadVox** (`../radiology-di
 layout and the same dictation / AI / learning features, a **crimson** colour scheme (RadVox is teal) and an amber
 recording button. It runs on its own port (**3300**), so RadVox (3000) and RadVox IR can be open at the same time.
 
+## Version 1.5 — letter layout: small schematic, logo, signature, referrer details
+
+- The **schematic is small**: it sits in the upper right corner of the letter body (about 6 cm wide in print), and the
+  text flows around it. It is redrawn for that size: larger lettering, only the treated vessel and the callout are
+  labelled, and it is zoomed on the lesion. The small print underneath (coils, devices, result) stays.
+- **Logo** of the hospital / clinic in the upper left corner. Upload it under *Nadawca i podpis* → *Wybierz plik…*
+  (PNG / JPG).
+- **Operator's signature** above the sender block. Either upload a scan (*Wgraj skan…*) or sign with the mouse, a
+  finger or a stylus (*Narysuj*). The logo and the signature are stored only on this computer and never go to the AI.
+- **Referrer details** (*Dane lekarza kierującego*): street, postcode and town, phone / e-mail and licence number
+  (PWZ). They appear in the „Do:" block and are remembered with the doctor's name. The next time you pick that doctor,
+  they are filled in.
+- **Drukuj / PDF** uses the same layout (A4). **Kopiuj list** pastes the logo, the small picture on the right and the
+  signature into e-mail / Word (when the browser allows images on the clipboard).
+
 ## Version 1.4 — „Powiedz, co zrobiłeś": say it, check it, done
 
 The procedure card is now built around one box at the top: **Powiedz, co zrobiłeś** (say what you did).

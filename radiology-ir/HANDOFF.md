@@ -25,6 +25,18 @@ RadVox IR only changes the colours (crimson accent, amber recording) and adds th
   `template-data.js` and the diagnostic tests were removed.
 - Tests: 58 (`npm test`): `ir.test.js`, `server.test.js` (mock API), plus the shared voice / style / text tests.
 
+## Version 1.5 (letter layout)
+- `cardui.js` letter:
+  - `letterHeadHtml(ctx)`: logo, sender, date, and the recipient with address / town / contact / PWZ;
+  - `signHtml(ctx)`: signature image + sender lines;
+  - `bodyWithoutSignature`: the body is shown without `[[PODPIS]]`, and `captureLetter` adds it back at the end;
+  - one layout for the preview, `printLetter` (A4) and the rich copy.
+- `ASSETS_KEY` (`radvox.letterAssets.v1`) holds `{ logo, sign }` as PNG data URLs (scaled to at most 720×240) in
+  localStorage. The signature pad (pointer events, pen pressure) crops to the ink.
+- Referrer details go in the patient session (sessionStorage) and in `REFERRERS_KEY` (per doctor, localStorage).
+- `figure.js` `renderFigure(…, { compact: true })`: 500×420 canvas, fonts ×1.55, one label, `figureZoom` 0.8.
+  `.lp-figures` floats right, 230 px wide (58 mm in print).
+
 ## Version 1.4 (dictation → card)
 - `public/js/parse.js`:
   - `localParse(text, { categories })` is the rule-based parser (Polish / English, Unicode-aware). It handles the vessel

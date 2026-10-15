@@ -194,6 +194,15 @@
               <div class="field"><label>Zwrot</label><div class="seg" id="lfTitle" role="group"><button type="button" data-title="female">Pani</button><button type="button" data-title="male">Pan</button><button type="button" data-title="team" aria-pressed="true">Zespół</button></div></div>
               <div class="field grow"><label for="lfUnit">Jednostka</label><input id="lfUnit" type="text" autocomplete="off" placeholder="np. Oddział Chirurgii Naczyniowej, Szpital …" /></div>
             </div>
+            <details class="lf-sender" id="lfRefBox">
+              <summary>Dane lekarza kierującego (adres, kontakt) <small class="lf-private">zapamiętywane przy nazwisku lekarza</small></summary>
+              <div class="lf-row">
+                <div class="field grow"><label for="lfRefAddr">Adres (ulica)</label><input id="lfRefAddr" type="text" autocomplete="off" placeholder="np. ul. Szpitalna 1" /></div>
+                <div class="field"><label for="lfRefCity">Kod i miejscowość</label><input id="lfRefCity" type="text" autocomplete="off" placeholder="00-000 Miasto" /></div>
+                <div class="field"><label for="lfRefContact">Telefon / e-mail</label><input id="lfRefContact" type="text" autocomplete="off" placeholder="tel. …" /></div>
+                <div class="field"><label for="lfRefPwz">Nr PWZ</label><input id="lfRefPwz" type="text" inputmode="numeric" autocomplete="off" placeholder="opcjonalnie" /></div>
+              </div>
+            </details>
             <div class="lf-row">
               <div class="field grow"><label for="lfPatient">Pacjent <small class="lf-private">tylko na tym komputerze — nie trafia do AI</small></label><input id="lfPatient" type="text" autocomplete="off" placeholder="Imię i nazwisko" /></div>
               <div class="field"><label for="lfDob">Data urodzenia</label><input id="lfDob" type="text" autocomplete="off" placeholder="dd.mm.rrrr" /></div>
@@ -205,7 +214,7 @@
               <div class="seg" id="lfLength" role="group" aria-label="Długość"><button type="button" data-len="short">Krótki</button><button type="button" data-len="standard" aria-pressed="true">Standard</button><button type="button" data-len="detailed">Szczegółowy</button></div>
               <div class="seg" id="lfRecipient" role="group" aria-label="Odbiorca"><button type="button" data-rec="referring_doctor" aria-pressed="true">Specjalista</button><button type="button" data-rec="gp">Lekarz POZ</button></div>
               <label class="lf-check"><input type="checkbox" id="lfWarn" checked /> objawy alarmowe</label>
-              <label class="lf-check" title="Schemat 3D leczonej zmiany z opisem użytego sprzętu, pod treścią listu"><input type="checkbox" id="lfFigures" checked /> schematy zabiegu</label>
+              <label class="lf-check" title="Mały schemat 3D leczonej zmiany z opisem sprzętu — w prawym górnym rogu listu"><input type="checkbox" id="lfFigures" checked /> schemat zabiegu</label>
               <span class="grow"></span>
               <button class="btn" id="lfBuiltin" title="List z gotowego wzoru, bez AI">Bez AI</button>
               <button class="btn btn-primary" id="lfWrite"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/></svg><span>Napisz list</span></button>
@@ -217,6 +226,23 @@
                 <div class="field grow"><label for="lfSenderUnit">Pracownia / szpital</label><input id="lfSenderUnit" type="text" autocomplete="off" placeholder="Pracownia Radiologii Zabiegowej, …" /></div>
                 <div class="field grow"><label for="lfSenderContact">Kontakt</label><input id="lfSenderContact" type="text" autocomplete="off" placeholder="tel. …, e-mail …" /></div>
               </div>
+              <div class="lf-row lf-assets">
+                <div class="asset">
+                  <label>Logo szpitala / pracowni <small>(lewy górny róg listu)</small></label>
+                  <div class="asset-prev" id="lfLogoPrev"></div>
+                  <div class="asset-btns"><input type="file" id="lfLogoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden /><button type="button" class="btn btn-small" id="lfLogoPick">Wybierz plik…</button><button type="button" class="link-btn" id="lfLogoDel" hidden>Usuń</button></div>
+                </div>
+                <div class="asset">
+                  <label>Podpis operatora <small>(nad danymi nadawcy)</small></label>
+                  <div class="asset-prev sign" id="lfSignPrev"></div>
+                  <div class="asset-btns"><input type="file" id="lfSignFile" accept="image/png,image/jpeg,image/webp" hidden /><button type="button" class="btn btn-small" id="lfSignPick">Wgraj skan…</button><button type="button" class="btn btn-small" id="lfSignDraw">Narysuj</button><button type="button" class="link-btn" id="lfSignDel" hidden>Usuń</button></div>
+                </div>
+              </div>
+              <div class="sign-pad" id="lfSignPad" hidden>
+                <canvas id="lfSignCanvas" width="640" height="200" aria-label="Pole podpisu — podpisz myszą, palcem lub rysikiem"></canvas>
+                <div class="sign-pad-btns"><span class="sec-note">Podpisz myszą, palcem lub rysikiem</span><span class="grow"></span><button type="button" class="link-btn" id="lfSignClear">Wyczyść</button><button type="button" class="btn btn-small" id="lfSignCancel">Anuluj</button><button type="button" class="btn btn-primary btn-small" id="lfSignSave">Zapisz podpis</button></div>
+              </div>
+              <p class="sec-note">Logo i podpis są zapisane tylko na tym komputerze i nigdy nie trafiają do AI.</p>
             </details>
           </div>
 
@@ -225,8 +251,9 @@
           <article class="letter-paper" id="letterPaper">
             <div class="lp-head" id="lpHead"></div>
             <div class="lp-subject" id="lpSubject" contenteditable="true" spellcheck="true"></div>
-            <div class="lp-body" id="lpBody" contenteditable="true" spellcheck="true"></div>
             <div class="lp-figures" id="lpFigures" hidden></div>
+            <div class="lp-body" id="lpBody" contenteditable="true" spellcheck="true"></div>
+            <div class="lp-sign" id="lpSign" hidden></div>
             <div class="lp-empty" id="lpEmpty">Uzupełnij kartę zabiegu (lub opis) i kliknij „Napisz list”. AI napisze list do lekarza kierującego — imię i nazwisko pacjenta zostaną wstawione dopiero tutaj, na tym komputerze.</div>
             <div class="processing" id="lfProcessing" hidden><div class="scan"></div><div class="processing-label"><span class="spinner"></span><span>Claude pisze list…</span></div></div>
           </article>
