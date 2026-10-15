@@ -12,8 +12,9 @@ import { procLabel, proceduresFor, suggestTemplates } from './anatomy.js';
 import {
   FINDINGS, findingDef, ACCESS_SITES, GUIDANCE, ANAESTHESIA, URGENCY, OUTCOME, SIDES,
   emptyCard, newLesion, deviceText, lesionBadge, cardToText, cardGaps, cardProcedures,
-  builtinLetter, fillLetter, pseudonymiseLetter, greeting,
+  builtinLetter, fillLetter, pseudonymiseLetter, greeting, figureCaption, figureCallout,
 } from './card.js';
+import { renderFigure } from './figure.js';
 
 const CARD_KEY = 'radvox.card.v1';
 const PATIENT_KEY = 'radvox.patient.v1'; // sessionStorage only — never kept after the browser closes
@@ -150,13 +151,15 @@ function renderDiagramArea() {
   for (const l of c.lesions) if (l.diagram === d.id) marks[l.part] = lesionBadge(l);
   const activeLes = c.lesions.find((l) => l.id === ui.active);
   const active = activeLes?.diagram === d.id ? activeLes.part : null;
-  const key = `${d.id}|${JSON.stringify((c.variants || []).filter((v) => variantById(v.id)?.diagrams.includes(d.id)))}`;
+  const key = `${d.id}|${c.branch}|${JSON.stringify((c.variants || []).filter((v) => variantById(v.id)?.diagrams.includes(d.id)))}`;
   if (viewer && viewer.key === key && host.firstChild) viewer.ctrl.update({ marks, active, lang: lang(), lesions: lesionsFor(d.id) });
   else {
     dropViewer();
     const lesions = lesionsFor(d.id);
     let ctrl = null;
-    if (d.kind === 'model3d') ctrl = createModel3D(host, d, { marks, active, lang: lang(), onPick: pickPart, lesions });
+    // carotid work in the vascular branch: open the brain/neck model on the neck
+    const view = d.id === 'neuro3d' && c.branch === 'Vascular' ? 'neck' : undefined;
+    if (d.kind === 'model3d') ctrl = createModel3D(host, d, { marks, active, lang: lang(), onPick: pickPart, lesions, view });
     if (!ctrl && d.kind === 'list') ctrl = organList(host, d, { marks, active });
     if (!ctrl) ctrl = showDiagram(host, d, { marks, active, lang: lang(), onPick: pickPart });
     viewer = { key, ctrl };
@@ -168,10 +171,10 @@ function renderDiagramArea() {
 
 /** What the 3D model draws for each lesion (narrowing, clot, sac, devices). */
 function lesionsFor(diagramId) {
-  return ui.card.lesions.filter((l) => l.diagram === diagramId).map((l) => ({
-    part: l.part, t: l.t, finding: l.finding, pre: l.pre, post: l.post, size: l.size, extra: l.extra, length: l.length, dir: l.dir,
-    devices: l.devices.map((d) => ({ cat: d.cat, name: d.name, size: d.size })),
-  }));
+  return ui.card.lesions.filter((l) => l.diagram === diagramId).map((l) => {
+    const { notes, id, ...rest } = l; void notes; void id;
+    return { ...rest, devices: (l.devices || []).map((d) => ({ cat: d.cat, name: d.name, size: d.size, qty: d.qty })) };
+  });
 }
 /** Non-vascular regions: a clean list of organs instead of a drawing. */
 function organList(host, d, { marks }) {
@@ -499,16 +502,19 @@ function renderDevPicker() {
   let rows = [];
   const pool = q ? cats : cats.filter((x) => x.id === ui.dev.cat);
   for (const x of pool) {
-    for (const g of x.generic || []) rows.push({ cat: x.id, name: g, maker: '', generic: true });
-    for (const it of x.items || []) rows.push({ cat: x.id, name: it.name, maker: it.maker || '' });
+    // own entries, then the products most used in Poland, then generic descriptions, then the rest
     for (const cu of custom.filter((y) => y.cat === x.id)) rows.push({ ...cu, custom: true });
+    for (const it of (x.items || []).filter((i) => i.common)) rows.push({ cat: x.id, name: it.name, maker: it.maker || '', common: true });
+    for (const g of x.generic || []) rows.push({ cat: x.id, name: g, maker: '', generic: true });
+    for (const it of (x.items || []).filter((i) => !i.common)) rows.push({ cat: x.id, name: it.name, maker: it.maker || '' });
   }
   if (q) {
     const words = q.split(/\s+/);
     rows = rows.filter((r) => { const h = `${r.name} ${r.maker} ${lbl(categories.find((x) => x.id === r.cat)?.label || '')}`.toLowerCase(); return words.every((w) => h.includes(w)); });
+    rows.sort((a, b) => (Boolean(b.custom) - Boolean(a.custom)) || (Boolean(b.common) - Boolean(a.common)));
   }
   const catName = (id) => lbl(categories.find((x) => x.id === id)?.label || '');
-  $('devItems').innerHTML = (rows.length ? rows.slice(0, 250).map((r, i) => `<button type="button" class="dev-item${ui.dev.item && ui.dev.item.name === r.name && ui.dev.item.cat === r.cat ? ' on' : ''}" data-dev="${i}"><span class="dn">${esc(r.name)}</span>${r.maker ? `<span class="dm">${esc(r.maker)}</span>` : r.generic ? `<span class="dm gen">${t2('ogólnie', 'generic')}</span>` : ''}${q ? `<span class="dc">${esc(catName(r.cat))}</span>` : ''}${r.custom ? `<span class="dm gen">${t2('własny', 'own')}</span>` : ''}</button>`).join('') : '')
+  $('devItems').innerHTML = (rows.length ? rows.slice(0, 250).map((r, i) => `<button type="button" class="dev-item${ui.dev.item && ui.dev.item.name === r.name && ui.dev.item.cat === r.cat ? ' on' : ''}" data-dev="${i}"><span class="dn">${r.common ? `<span class="pl-star" title="${t2('Często stosowane w Polsce (publikacje z polskich ośrodków)', 'Commonly used in Poland (Polish centre publications)')}">★</span>` : ''}${esc(r.name)}</span>${r.maker ? `<span class="dm">${esc(r.maker)}</span>` : r.generic ? `<span class="dm gen">${t2('ogólnie', 'generic')}</span>` : ''}${q ? `<span class="dc">${esc(catName(r.cat))}</span>` : ''}${r.custom ? `<span class="dm gen">${t2('własny', 'own')}</span>` : ''}</button>`).join('') : '')
     + (q ? `<button type="button" class="dev-item dev-own" data-own="1">+ ${t2('Dodaj własny', 'Add own')}: <b>${esc($('devSearch').value.trim())}</b></button>` : '');
   ui.dev.rows = rows;
   const cat = categories.find((x) => x.id === (ui.dev.item?.cat || ui.dev.cat));
@@ -587,6 +593,35 @@ function letterCtx() {
     unit: p.unit || '',
   };
 }
+// ---------------------------------------------------------------- letter figures (3D schematic of each treated lesion)
+const figCache = new Map();
+function letterFigureLesions() {
+  const all = ui.card.lesions.filter((l) => diagramOf(l.diagram)?.kind === 'model3d' && l.finding !== 'normal');
+  const treated = all.filter((l) => l.procs?.length || l.devices?.length);
+  return (treated.length ? treated : all).slice(0, 4);
+}
+function letterFigures(lg) {
+  if (figCache.size > 24) figCache.clear();
+  return letterFigureLesions().map((l, i) => {
+    const d = diagramOf(l.diagram);
+    const lesions = lesionsFor(l.diagram);
+    const index = ui.card.lesions.filter((x) => x.diagram === l.diagram).indexOf(l);
+    const key = JSON.stringify([l.diagram, lesions, index, ui.card.variants, lg]);
+    let src = figCache.get(key);
+    if (src === undefined) { src = renderFigure(d, lesions, index, { lang: lg, callout: figureCallout(l, lg) }); figCache.set(key, src); }
+    if (!src) return null;
+    return { src, caption: figureCaption(l, partOf(l.diagram, l.part), lg, { label: labelOf(l, lg), n: i + 1, vascular: ui.card.branch !== 'Neuro' }) };
+  }).filter(Boolean);
+}
+const figuresHtml = (figs) => figs.map((f) => `<figure class="lp-fig"><img src="${f.src}" alt="${esc(f.caption)}" /><figcaption>${esc(f.caption)}</figcaption></figure>`).join('');
+function renderLetterFigures() {
+  const L = ui.letter;
+  const on = Boolean(L.text) && L.figures !== false;
+  $('lpFigures').hidden = !on;
+  if (!on) { $('lpFigures').innerHTML = ''; return; }
+  $('lpFigures').innerHTML = figuresHtml(letterFigures(L.lang));
+}
+
 function renderLetter() {
   if (!api) return;
   const L = ui.letter;
@@ -594,6 +629,7 @@ function renderLetter() {
   setSeg('lfLength', 'len', L.length);
   setSeg('lfRecipient', 'rec', L.recipient);
   $('lfWarn').checked = L.warn !== false;
+  $('lfFigures').checked = L.figures !== false;
   const ctx = letterCtx();
   const sender = store.get(SENDER_KEY, {});
   $('lpHead').innerHTML = `<div class="lp-from">${esc(sender.unit || t2('Pracownia Radiologii Zabiegowej', 'Interventional Radiology'))}${sender.contact ? `<br><span>${esc(sender.contact)}</span>` : ''}</div>
@@ -605,6 +641,7 @@ function renderLetter() {
   $('lpBody').innerText = filled;
   $('lpEmpty').hidden = Boolean(L.text);
   $('lpBody').hidden = !L.text;
+  if (ui.view === 'letter') renderLetterFigures();
   $('lfWarningsList').innerHTML = (L.warnings || []).map((w) => `<li>${esc(w)}</li>`).join('');
   $('lfWarnings').hidden = !(L.warnings || []).length;
   for (const id of ['lfRevise', 'lfPrint', 'lfCopy']) $(id).disabled = !L.text;
@@ -677,13 +714,16 @@ function printLetter() {
   const L = ui.letter;
   const sender = store.get(SENDER_KEY, {});
   const body = esc(fillLetter(L.text, ctx, L.lang)).replace(/\n/g, '<br>');
+  const figs = L.figures !== false ? figuresHtml(letterFigures(L.lang)) : '';
   const html = `<!doctype html><html lang="${L.lang}"><head><meta charset="utf-8"><title>${esc(L.subject || 'List')}</title>
     <style>@page{size:A4;margin:22mm 20mm}body{font:11.5pt/1.55 Georgia,'Times New Roman',serif;color:#111}
     .h{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #999;padding-bottom:10px;margin-bottom:22px;font:10pt/1.4 Arial,sans-serif}
-    .to{margin:0 0 18px auto;width:55%;font:10.5pt/1.4 Arial,sans-serif}.s{font-weight:bold;margin:0 0 16px}</style></head><body>
+    .to{margin:0 0 18px auto;width:55%;font:10.5pt/1.4 Arial,sans-serif}.s{font-weight:bold;margin:0 0 16px}
+    .lp-fig{margin:18px 0 0;break-inside:avoid;page-break-inside:avoid}.lp-fig img{display:block;width:100%;max-width:150mm;border:1px solid #ddd;border-radius:4px}
+    .lp-fig figcaption{font:8.5pt/1.35 Arial,sans-serif;color:#333;margin-top:4px;max-width:150mm}</style></head><body>
     <div class="h"><div>${esc(sender.unit || '')}${sender.contact ? `<br>${esc(sender.contact)}` : ''}</div><div>${esc(ctx.date)}</div></div>
     ${ctx.referrer || ctx.unit ? `<div class="to">${esc(ctx.referrer)}${ctx.unit ? `<br>${esc(ctx.unit)}` : ''}</div>` : ''}
-    ${L.subject ? `<p class="s">${esc(L.lang === 'en' ? 'Subject' : 'Dotyczy')}: ${esc(L.subject)}</p>` : ''}<div>${body}</div></body></html>`;
+    ${L.subject ? `<p class="s">${esc(L.lang === 'en' ? 'Subject' : 'Dotyczy')}: ${esc(L.subject)}</p>` : ''}<div>${body}</div>${figs}</body></html>`;
   const frame = document.createElement('iframe');
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
   document.body.append(frame);
@@ -781,12 +821,21 @@ export async function initCard(appApi) {
     $(id).addEventListener('change', () => { store.set(SENDER_KEY, { name: $('lfSenderName').value.trim(), unit: $('lfSenderUnit').value.trim(), contact: $('lfSenderContact').value.trim() }); renderLetter(); });
   }
   $('lfWarn').addEventListener('change', () => { ui.letter.warn = $('lfWarn').checked; save(); });
+  $('lfFigures').addEventListener('change', () => { ui.letter.figures = $('lfFigures').checked; save(); renderLetterFigures(); });
   $('lfWrite').addEventListener('click', () => writeLetter());
   $('lfRevise').addEventListener('click', () => writeLetter({ revise: true }));
   $('lfInstruction').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); writeLetter({ revise: true }); } });
   $('lfBuiltin').addEventListener('click', builtin);
   $('lfCopy').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(letterPlain()); api.toast(t2('List skopiowany', 'Letter copied'), 'ok', 1800); } catch { api.toast(t2('Nie udało się skopiować', 'Copy failed'), 'err'); }
+    try {
+      const plain = letterPlain();
+      const figs = ui.letter.figures !== false ? letterFigures(ui.letter.lang) : [];
+      if (figs.length && window.ClipboardItem && navigator.clipboard.write) {
+        const plainAll = `${plain}\n\n${figs.map((f) => f.caption).join('\n')}`;
+        const html = `<div style="font-family:Georgia,serif">${esc(plain).replace(/\n/g, '<br>')}</div>${figs.map((f) => `<p><img src="${f.src}" width="560" /><br><small style="font-family:Arial,sans-serif">${esc(f.caption)}</small></p>`).join('')}`;
+        await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([plainAll], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]);
+      } else await navigator.clipboard.writeText(plain);
+      api.toast(t2('List skopiowany', 'Letter copied'), 'ok', 1800); } catch { api.toast(t2('Nie udało się skopiować', 'Copy failed'), 'err'); }
   });
   $('lfPrint').addEventListener('click', printLetter);
   $('lpBody').addEventListener('blur', captureLetter);

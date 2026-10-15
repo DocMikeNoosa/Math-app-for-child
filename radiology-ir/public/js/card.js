@@ -88,6 +88,45 @@ export function lesionText(l, part, lang = 'pl', { label, vascular = true } = {}
   return s;
 }
 
+const isCoil = (d) => /coil|spiral/i.test(`${d.cat || ''} ${d.name || ''}`) && !/stent_coil/.test(d.cat || '');
+/** Number of coils used in a lesion (sum of quantities). */
+export function coilCount(l) {
+  return (l.devices || []).filter(isCoil).reduce((a, d) => a + Math.max(1, Number(d.qty) || 1), 0);
+}
+/** Short label drawn on the letter figure next to the lesion ("Tętniak 7 × 5 mm · 5 spiral"). */
+export function figureCallout(l, lang = 'pl') {
+  const en = lang === 'en';
+  const def = lesionDef(l.kind, l.finding);
+  const name = def ? def.label[en ? 1 : 0].replace(/\s*\(.*\)\s*$/, '').replace(/\s*\/.*$/, '') : '';
+  const bits = [];
+  if ((l.finding === 'stenosis' || l.finding === 'occlusion') && has(l.pre)) bits.push(`${String(l.pre).replace(/%$/, '')}%${has(l.post) ? ` → ${String(l.post).replace(/%$/, '')}%` : ''}`);
+  else if (has(l.size)) bits.push(`${num(l.size, lang).replace(/\s*[x×]\s*/gi, ' × ')} mm`);
+  if (l.finding === 'thrombus' && has(l.post)) bits.push(`eTICI ${l.post}`);
+  const coils = coilCount(l);
+  if (coils) bits.push(en ? `${coils} coil${coils > 1 ? 's' : ''}` : `${coils} ${coils === 1 ? 'spirala' : coils < 5 ? 'spirale' : 'spiral'}`);
+  const other = (l.devices || []).filter((d) => !isCoil(d) && !/drug|lek/i.test(d.cat || ''));
+  if (other.length) bits.push(other.map((d) => d.name).slice(0, 2).join(' + '));
+  return [name, ...bits].filter(Boolean).join(' · ');
+}
+/** Small print under a letter figure: where, what, how many coils / which devices, the result. */
+export function figureCaption(l, part, lang = 'pl', { label, n = 1, vascular = true } = {}) {
+  const en = lang === 'en';
+  const where = label || (part ? part.label[en ? 1 : 0] : l.part);
+  const def = lesionDef(l.kind, l.finding);
+  const facts = lesionFacts(l, lang, { vascular });
+  const head = def && l.finding !== 'other' ? def.label[en ? 1 : 0].toLowerCase() : '';
+  const pre = [...facts.pre, ...facts.computed];
+  let s = `${en ? 'Fig.' : 'Ryc.'} ${n}. ${where}${head ? ` — ${head}` : ''}${pre.length ? ` (${pre.join(', ')})` : ''}.`;
+  if (l.procs?.length) s += ` ${en ? 'Treatment' : 'Leczenie'}: ${l.procs.map((p) => procLabel(p, lang).replace(/\s*\(.*?\)\s*/g, ' ').trim().toLowerCase()).join(', ')}.`;
+  const coils = coilCount(l);
+  const devs = (l.devices || []).filter((d) => !/drug|lek/i.test(d.cat || ''));
+  if (coils) s += ` ${en ? 'Coils' : 'Spirale'}: ${coils} ${en ? 'in total' : 'szt. łącznie'} — ${devs.filter(isCoil).map((d) => deviceText(d, lang)).join('; ')}.`;
+  const rest = devs.filter((d) => !isCoil(d));
+  if (rest.length) s += ` ${en ? 'Devices' : 'Sprzęt'}: ${rest.map((d) => deviceText(d, lang)).join('; ')}.`;
+  if (facts.post.length) s += ` ${en ? 'Result' : 'Wynik'}: ${facts.post.join(', ')}.`;
+  return s;
+}
+
 /** Procedures done on the card, most important first (for the template suggestion and the letter title). */
 export function cardProcedures(card) {
   const out = [];

@@ -25,6 +25,25 @@ RadVox IR only changes the colours (crimson accent, amber recording) and adds th
   `template-data.js` and the diagnostic tests were removed.
 - Tests: 58 (`npm test`): `ir.test.js`, `server.test.js` (mock API), plus the shared voice / style / text tests.
 
+## Version 1.3 (letter figures, realism, Polish equipment ranking)
+- `public/js/figure.js`: `renderFigure(model, lesions, index, { lang, callout })`. It renders the lesion off-screen
+  (`createModel3D(..., { figure: true })`, `frame(index)`, `figureLabels()`) and draws the labels, callout and scale bar
+  on a 2D canvas. Output is a PNG data URL (memory only).
+- `model3d.js`:
+  - custom tapered tubes (`tubeGeo`), joint smoothing and organic waviness;
+  - `model.decor` rules for fine branches (merged mesh, not clickable);
+  - studio PMREM environment;
+  - devices: `laserStent`, `braid`, `coilMass`, nidus `tangle`;
+  - `chainSpan` lets devices continue into neighbouring segments;
+  - per-view `hide` regex;
+  - figure camera: front-oblique, perpendicular to the vessel or dome, with vessels far from the lesion hidden.
+- `card.js`: `figureCallout`, `figureCaption`, `coilCount`. `cardui.js`: `letterFigures` (cached), `#lpFigures`, print
+  and copy (ClipboardItem with HTML).
+- `devices-pl.js` (generated from research notes): `PL_ORDER` with confidence, and `PL_ADD`. `devices.js` applies it;
+  items with confidence high/medium get `common: true` (★ in the picker).
+- Templates and regions can carry `also: ['Vascular']`. The carotid / vertebral section uses it.
+- Tests: 71.
+
 ## Version 1.2 (true 3D models)
 - `public/js/models/neuro3d.js`, `body3d.js`: segments `S(id, pl, en, r, pts)` in mm (x = patient left, y = up,
   z = anterior). `P(...)` = paired, written for the right side and mirrored to `_l` by `expandModel`.

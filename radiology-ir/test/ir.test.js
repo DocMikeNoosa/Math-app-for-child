@@ -68,7 +68,7 @@ test('menu: every section is shown under its group, templates sorted', () => {
     const regions = templatesByRegion(g.id);
     assert.ok(regions.length >= 3);
     for (const r of regions) {
-      assert.ok(REGIONS.some((x) => x.id === r.id && (x.group === g.id || x.group === '*')), `${r.id} not in ${g.id}`);
+      assert.ok(REGIONS.some((x) => x.id === r.id && (x.group === g.id || x.group === '*' || x.also?.includes(g.id))), `${r.id} not in ${g.id}`);
       assert.ok(r.label, r.id);
     }
   }

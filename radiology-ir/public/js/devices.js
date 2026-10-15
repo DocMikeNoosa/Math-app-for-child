@@ -13,9 +13,11 @@
 // Zasada: tylko produkty o pewnej nazwie i producencie (rynek europejski/polski).
 // Nie podajemy numerów katalogowych ani rozmiarów — rozmiar wpisuje lekarz.
 
+import { PL_ORDER, PL_ADD } from './devices-pl.js';
+
 const P = (maker, ...names) => names.map((name) => ({ name, maker }));
 
-export const DEVICE_CATEGORIES = [
+const RAW_CATEGORIES = [
   // ───────────────────────── NACZYNIOWE / OGÓLNE ─────────────────────────
   {
     id: 'sheath',
@@ -1460,3 +1462,29 @@ export const DEVICE_CATEGORIES = [
     ],
   },
 ];
+
+const key = (name, maker) => `${name}|${maker}`.toLowerCase();
+/** Most used in Poland first (see devices-pl.js), then Polish-market additions, then the rest A–Z by maker. */
+function rankForPoland(cats) {
+  return cats.map((c) => {
+    const order = PL_ORDER[c.id] || [];
+    const items = [...c.items];
+    for (const [name, maker] of PL_ADD[c.id] || []) if (!items.some((i) => key(i.name, i.maker) === key(name, maker))) items.push({ name, maker });
+    const rank = new Map(order.map(([name, maker, conf], i) => [key(name, maker), { i, conf }]));
+    const out = items.map((it) => {
+      const r = rank.get(key(it.name, it.maker));
+      return r && r.conf !== 'low' ? { ...it, common: true } : { ...it };
+    });
+    out.sort((a, b) => {
+      if (Boolean(a.common) !== Boolean(b.common)) return a.common ? -1 : 1;
+      const ra = rank.get(key(a.name, a.maker)); const rb = rank.get(key(b.name, b.maker));
+      if (ra && rb) return ra.i - rb.i;
+      if (ra) return -1;
+      if (rb) return 1;
+      return 0;
+    });
+    return { ...c, items: out };
+  });
+}
+
+export const DEVICE_CATEGORIES = rankForPoland(RAW_CATEGORIES);

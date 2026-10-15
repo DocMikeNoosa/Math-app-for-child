@@ -4,6 +4,43 @@ RadVox IR is the interventional-radiology sister of **RadVox** (`../radiology-di
 layout and the same dictation / AI / learning features, a **crimson** colour scheme (RadVox is teal) and an amber
 recording button. It runs on its own port (**3300**), so RadVox (3000) and RadVox IR can be open at the same time.
 
+## Version 1.3 — schematic figures in the letter, realistic 3D vessels, equipment used in Poland
+
+- **The letter has a figure for each treated lesion** (up to 4): a 3D schematic centred on the lesion, showing the
+  treatment. Examples:
+  - a coiled aneurysm with the coil pack;
+  - stent-assisted coiling;
+  - a flow diverter across the neck;
+  - an AVM with its Onyx / Squid cast and draining vein;
+  - a carotid stent with a protection filter;
+  - a peripheral stent.
+
+  The figure has the vessel names, a callout (e.g. „Tętniak · 6 × 5 mm · 5 spiral · LVIS EVO") and a scale bar. Below
+  it, small print lists the coils (total and each type with size and quantity), the other devices and the result
+  (Raymond-Roy, eTICI, residual stenosis…). The figures:
+  - are drawn on this computer only, and are never sent to the AI or stored;
+  - can be switched off with „schematy zabiegu";
+  - are included in **Drukuj / PDF**, and in **Kopiuj list** when the browser allows images on the clipboard.
+- **More realistic 3D vessels:**
+  - the vessels taper and the joints are smooth;
+  - small arteries have a natural wave;
+  - fine cortical and perforating branches are drawn on the brain surface;
+  - the walls are glossy;
+  - the circle-of-Willis view hides the neck.
+- **Devices are drawn as they look:** laser-cut stents with zig-zag rings, braided flow diverters, platinum coil packs
+  that fill the sac, the WEB, plugs and liquid embolic casts. Stents follow the vessel wall across neighbouring
+  segments (e.g. CCA → bulb → ICA).
+- **Carotid stenting is in both Neuro and Vascular.** The carotid templates show under both groups, and in Vascular the
+  carotid/brain model opens on the neck view.
+- **Equipment ordered by use in Poland.** In each category, the products used most often in Poland come first and are
+  marked ★. There are 41 new products (620 in total), e.g.:
+  - Balton (Warsaw): Mer, Robin, Jaguar, Neptun C, Nefro C, Lovix;
+  - CGuard Prime, Derivo 2heal, Accero, Comaneci 17, FemoSeal, and others.
+
+  **Source:** Polish peer-reviewed series (Szczecin, Bydgoszcz, WIM Warsaw, Bródno, Kraków, Katowice, Wrocław, Gdańsk) and
+  manufacturer pages. Polish tender documents could not be read, so **this is not a sales ranking**. Peripheral categories
+  rely more on the EU market position. Details are in `public/js/devices-pl.js`.
+
 ## Version 1.2 — true 3D neurovascular and vascular models, clinical scales
 
 What changed:

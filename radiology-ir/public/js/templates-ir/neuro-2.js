@@ -3,7 +3,7 @@
 export default [
   {
     id: 'neuro2_cas_epd', title: 'Stentowanie tętnicy szyjnej wewnętrznej z protekcją dystalną', titleEn: 'Carotid artery stenting with distal embolic protection',
-    group: 'Neuro', section: 'Carotid / Vertebral', priority: 10,
+    group: 'Neuro', also: ['Vascular'], section: 'Carotid / Vertebral', priority: 10,
     proc: ['carotid_stenting', 'stent', 'pta'], anat: ['neck'],
     text: `Badanie: Stentowanie tętnicy szyjnej wewnętrznej z użyciem filtra protekcyjnego (protekcja dystalna)
 
@@ -42,7 +42,7 @@ Conclusion:
   },
   {
     id: 'neuro2_cas_emergent', title: 'Stentowanie t. szyjnej w trybie pilnym (tandem / udar)', titleEn: 'Emergent carotid stenting (tandem lesion / stroke)',
-    group: 'Neuro', section: 'Carotid / Vertebral', priority: 20,
+    group: 'Neuro', also: ['Vascular'], section: 'Carotid / Vertebral', priority: 20,
     proc: ['carotid_stenting', 'stent', 'stroke_thrombectomy', 'thrombectomy'], anat: ['neck', 'brain'],
     text: `Badanie: Pilne stentowanie tętnicy szyjnej wewnętrznej w ostrym udarze niedokrwiennym (zmiana tandemowa)
 
@@ -81,7 +81,7 @@ Conclusion:
   },
   {
     id: 'neuro2_vert_origin_stent', title: 'Stentowanie ujścia tętnicy kręgowej', titleEn: 'Vertebral artery origin stenting',
-    group: 'Neuro', section: 'Carotid / Vertebral', priority: 30,
+    group: 'Neuro', also: ['Vascular'], section: 'Carotid / Vertebral', priority: 30,
     proc: ['stent', 'pta'], anat: ['neck'],
     text: `Badanie: Angioplastyka ze stentowaniem ujścia tętnicy kręgowej
 
@@ -120,7 +120,7 @@ Conclusion:
   },
   {
     id: 'neuro2_icas_stent', title: 'Angioplastyka / stentowanie zwężenia wewnątrzczaszkowego', titleEn: 'Intracranial stenosis angioplasty / stenting',
-    group: 'Neuro', section: 'Carotid / Vertebral', priority: 40,
+    group: 'Neuro', also: ['Vascular'], section: 'Carotid / Vertebral', priority: 40,
     proc: ['intracranial_stenting', 'pta', 'stent'], anat: ['brain'],
     text: `Badanie: Angioplastyka balonowa ± stentowanie miażdżycowego zwężenia tętnicy wewnątrzczaszkowej
 
@@ -159,7 +159,7 @@ Conclusion:
   },
   {
     id: 'neuro2_dissection_stent', title: 'Stentowanie rozwarstwienia tętnicy szyjnej wewnętrznej', titleEn: 'Stenting of internal carotid artery dissection',
-    group: 'Neuro', section: 'Carotid / Vertebral', priority: 50,
+    group: 'Neuro', also: ['Vascular'], section: 'Carotid / Vertebral', priority: 50,
     proc: ['carotid_stenting', 'stent'], anat: ['neck'],
     text: `Badanie: Stentowanie rozwarstwienia tętnicy szyjnej wewnętrznej
 

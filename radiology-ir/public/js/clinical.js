@@ -159,7 +159,7 @@ export function fieldValue(f, v, lang = 'pl') {
     const txt = opt ? opt[lang === 'en' ? 2 : 1] : String(v);
     return txt;
   }
-  const s = String(v).trim().replace(lang === 'en' ? /(\d),(\d)/g : /(\d)\.(\d)/g, lang === 'en' ? '$1.$2' : '$1,$2');
+  const s = String(v).trim().replace(lang === 'en' ? /(\d),(\d)/g : /(\d)\.(\d)/g, lang === 'en' ? '$1.$2' : '$1,$2').replace(/(\d)\s*[xX×]\s*(?=\d)/g, '$1 × ');
   if (f.unit === '%' && !s.includes('%')) return `${s}%`;
   if (f.unit && f.unit !== '%' && !/[a-wyz]/i.test(s)) return `${s} ${f.unit}`;
   return s;

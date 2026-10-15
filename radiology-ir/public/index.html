@@ -191,6 +191,7 @@
               <div class="seg" id="lfLength" role="group" aria-label="Długość"><button type="button" data-len="short">Krótki</button><button type="button" data-len="standard" aria-pressed="true">Standard</button><button type="button" data-len="detailed">Szczegółowy</button></div>
               <div class="seg" id="lfRecipient" role="group" aria-label="Odbiorca"><button type="button" data-rec="referring_doctor" aria-pressed="true">Specjalista</button><button type="button" data-rec="gp">Lekarz POZ</button></div>
               <label class="lf-check"><input type="checkbox" id="lfWarn" checked /> objawy alarmowe</label>
+              <label class="lf-check" title="Schemat 3D leczonej zmiany z opisem użytego sprzętu, pod treścią listu"><input type="checkbox" id="lfFigures" checked /> schematy zabiegu</label>
               <span class="grow"></span>
               <button class="btn" id="lfBuiltin" title="List z gotowego wzoru, bez AI">Bez AI</button>
               <button class="btn btn-primary" id="lfWrite"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/></svg><span>Napisz list</span></button>
@@ -211,6 +212,7 @@
             <div class="lp-head" id="lpHead"></div>
             <div class="lp-subject" id="lpSubject" contenteditable="true" spellcheck="true"></div>
             <div class="lp-body" id="lpBody" contenteditable="true" spellcheck="true"></div>
+            <div class="lp-figures" id="lpFigures" hidden></div>
             <div class="lp-empty" id="lpEmpty">Uzupełnij kartę zabiegu (lub opis) i kliknij „Napisz list”. AI napisze list do lekarza kierującego — imię i nazwisko pacjenta zostaną wstawione dopiero tutaj, na tym komputerze.</div>
             <div class="processing" id="lfProcessing" hidden><div class="scan"></div><div class="processing-label"><span class="spinner"></span><span>Claude pisze list…</span></div></div>
           </article>
@@ -410,6 +412,7 @@
         <div class="dev-cats" id="devCats"></div>
         <div class="dev-items" id="devItems"></div>
       </div>
+      <div class="dev-legend"><span class="pl-star">★</span> często stosowane w Polsce — wg publikacji polskich ośrodków (nie są to dane sprzedażowe); pozostałe pozycje bez rankingu</div>
       <div class="dev-foot">
         <div class="dev-chosen" id="devChosen">Wybierz urządzenie z listy</div>
         <div class="field"><label for="devSize" id="devSizeLabel">Rozmiar</label><input id="devSize" type="text" autocomplete="off" placeholder="np. 6 × 80 mm" /></div>

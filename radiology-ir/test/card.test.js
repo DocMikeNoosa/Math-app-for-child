@@ -213,3 +213,44 @@ test('letter request: cleaned input, cached instructions, placeholders kept', ()
   assert.match(LETTER_PROMPT, /universal English form/);
   assert.equal(normaliseLetter('Text'), '[[ZWROT]]\n\nText\n[[PODPIS]]');
 });
+
+test('letter figures: callout and caption with coil count, devices and result', async () => {
+  const { figureCallout, figureCaption, coilCount } = await import('../public/js/card.js');
+  const l = { kind: 'vessel', finding: 'aneurysm', size: '7 x 5', extra: '3', post: '1', procs: ['coiling'],
+    devices: [{ cat: 'neuro_coil', name: 'Target 360 Soft', maker: 'Stryker', size: '6 mm × 15 cm', qty: 2 }, { cat: 'neuro_coil', name: 'MicroPlex Cosmos', maker: 'MicroVention', size: '4 mm × 8 cm', qty: 3 }, { cat: 'neuro_stent_coil', name: 'LVIS EVO', maker: 'MicroVention', size: '3.5 × 18 mm' }] };
+  assert.equal(coilCount(l), 5);
+  assert.equal(figureCallout(l, 'pl'), 'Tętniak · 7 × 5 mm · 5 spiral · LVIS EVO');
+  assert.equal(figureCallout(l, 'en'), 'Aneurysm · 7 × 5 mm · 5 coils · LVIS EVO');
+  const cap = figureCaption(l, null, 'pl', { label: 'AComA', n: 1 });
+  assert.match(cap, /^Ryc\. 1\. AComA — tętniak \(/);
+  assert.match(cap, /Spirale: 5 szt\. łącznie — Target 360 Soft \(Stryker\) 6 mm × 15 cm ×2; MicroPlex Cosmos \(MicroVention\) 4 mm × 8 cm ×3\./);
+  assert.match(cap, /Sprzęt: LVIS EVO \(MicroVention\)/);
+  assert.match(cap, /Wynik: Raymond-Roy: klasa 1/);
+  assert.match(figureCaption(l, null, 'en', { label: 'AComA', n: 2 }), /^Fig\. 2\. AComA — aneurysm .*Coils: 5 in total/);
+});
+
+test('3D device kinds: stent-assisted coiling stents are stents, Mo.Ma is not a filter', async () => {
+  const { deviceKind } = await import('../public/js/model3d.js');
+  assert.equal(deviceKind({ cat: 'neuro_stent_coil', name: 'LVIS EVO' }), 'stent');
+  assert.equal(deviceKind({ cat: 'neuro_coil', name: 'HydroSoft' }), 'coil');
+  assert.equal(deviceKind({ cat: 'flow_diverter', name: 'Silk Vista' }), 'fd');
+  assert.equal(deviceKind({ cat: 'intrasaccular', name: 'WEB' }), 'web');
+  assert.equal(deviceKind({ cat: 'neuro_liquid_embolic', name: 'Onyx 18' }), 'liquid');
+  assert.equal(deviceKind({ cat: 'stent_carotid', name: 'CGuard' }), 'stent');
+  assert.equal(deviceKind({ cat: 'embolic_protection', name: 'SpiderFX' }), 'filter');
+  assert.equal(deviceKind({ cat: 'embolic_protection', name: 'Mo.Ma Ultra' }), null);
+});
+
+test('equipment: products most used in Poland come first and are marked; Polish additions present', async () => {
+  const { DEVICE_CATEGORIES } = await import('../public/js/devices.js');
+  const cat = (id) => DEVICE_CATEGORIES.find((c) => c.id === id);
+  for (const c of DEVICE_CATEGORIES) {
+    const firstPlain = c.items.findIndex((i) => !i.common);
+    if (firstPlain >= 0) assert.ok(c.items.slice(firstPlain).every((i) => !i.common), `${c.id}: common items must come first`);
+    assert.equal(new Set(c.items.map((i) => `${i.name}|${i.maker}`)).size, c.items.length, `${c.id}: duplicate product`);
+  }
+  assert.ok(cat('neuro_coil').items[0].common);
+  assert.ok(cat('stent_carotid').items.some((i) => i.name === 'Mer' && i.maker === 'Balton'));
+  assert.ok(cat('flow_diverter').items.slice(0, 3).some((i) => /Pipeline/.test(i.name)));
+  assert.ok(cat('neuro_liquid_embolic').items.slice(0, 3).some((i) => i.name === 'Onyx 18'));
+});

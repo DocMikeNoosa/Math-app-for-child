@@ -85,7 +85,7 @@ export function templatesByRegion(groupId) {
   return REGIONS.map((r) => ({
     id: r.id,
     label: r.label,
-    templates: TEMPLATES.filter((t) => t.group === groupId && t.section === r.id).sort(byPriority),
+    templates: TEMPLATES.filter((t) => (t.group === groupId || t.also?.includes(groupId)) && t.section === r.id).sort(byPriority),
   })).filter((r) => r.templates.length);
 }
 

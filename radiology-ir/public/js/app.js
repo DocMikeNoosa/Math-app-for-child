@@ -1146,7 +1146,7 @@ function itemButton(t, { tag = '' } = {}) {
 function renderPicker() {
   const q = fold(els.pickerSearch.value.trim());
   els.pickerTabs.innerHTML = GROUPS.map((g) => {
-    const n = TEMPLATES.filter((t) => t.group === g.id).length;
+    const n = TEMPLATES.filter((t) => t.group === g.id || t.also?.includes(g.id)).length;
     return `<button class="tab" role="tab" aria-selected="${!q && picker.group === g.id}" data-group="${g.id}"><span class="dotc"></span>${esc(g.label)}<span class="count">${n}</span></button>`;
   }).join('') + `<span class="tab-sep" aria-hidden="true"></span><button class="tab mod anat-tab" data-anat="1" title="Wybierz okolicę, naczynie i zabieg (A)">${state.outputLang === 'en' ? 'By anatomy…' : 'Wg anatomii…'}</button>`;
   const recent = state.recent.map(getTemplate).filter(Boolean);

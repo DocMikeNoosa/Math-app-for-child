@@ -34,7 +34,7 @@ export const REGIONS = [
   { id: 'Neuro diagnostic', group: 'Neuro', label: ['Angiografia diagnostyczna', 'Diagnostic angiography'] },
   { id: 'Acute stroke', group: 'Neuro', label: ['Udar – trombektomia', 'Acute stroke – thrombectomy'] },
   { id: 'Aneurysm', group: 'Neuro', label: ['Tętniaki wewnątrzczaszkowe', 'Intracranial aneurysms'] },
-  { id: 'Carotid / Vertebral', group: 'Neuro', label: ['Tętnice szyjne, kręgowe i wewnątrzczaszkowe', 'Carotid, vertebral and intracranial stenosis'] },
+  { id: 'Carotid / Vertebral', group: 'Neuro', also: ['Vascular'], label: ['Tętnice szyjne, kręgowe i wewnątrzczaszkowe', 'Carotid, vertebral and intracranial stenosis'] },
   { id: 'AVM / Fistula', group: 'Neuro', label: ['AVM i przetoki', 'AVM and fistulae'] },
   { id: 'Neuro tumour', group: 'Neuro', label: ['Embolizacja guzów', 'Tumour embolization'] },
   { id: 'Vasospasm', group: 'Neuro', label: ['Skurcz naczyń', 'Vasospasm'] },

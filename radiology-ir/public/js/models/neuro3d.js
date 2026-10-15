@@ -5,15 +5,24 @@
 
 const S = (id, pl, en, r, pts, o = {}) => ({ id, label: [pl, en], r, pts, ...o });
 const P = (id, pl, en, r, pts, o = {}) => S(id, pl, en, r, pts, { pair: true, ...o });
+// Cortical branches lie on the brain surface: points outside this ellipsoid are moved onto it.
+const BRAIN = { c: [0, 12, -6], r: [64, 56, 82] };
+const onBrain = (p) => {
+  const q = p.map((v, i) => (v - BRAIN.c[i]) / BRAIN.r[i]);
+  const e = Math.hypot(...q);
+  return e <= 1 ? p : q.map((v, i) => Math.round((BRAIN.c[i] + (v / e) * BRAIN.r[i]) * 10) / 10);
+};
+const CORTICAL = /^(mca_m3|mca_m4|ant_temporal|aca_a3|aca_a4|callosomarginal|frontopolar|pca_p3|pca_p4|pca_po)/;
+const intracranial = (list) => list.map((seg) => (CORTICAL.test(seg.id) ? { ...seg, pts: seg.pts.map(onBrain) } : seg));
 
 export default {
   id: 'neuro3d',
   kind: 'model3d',
   branches: ['Neuro', 'Vascular'],
   anat: 'brain',
-  label: ['Tętnice mózgowe i szyjne 3D (łuk aorty → kora)', 'Cerebral and neck arteries 3D (arch → cortex)'],
+  label: ['Tętnice szyjne i mózgowe 3D (łuk aorty → kora)', 'Carotid and cerebral arteries 3D (arch → cortex)'],
   views: [
-    { id: 'willis', label: ['Koło Willisa', 'Circle of Willis'], target: [0, 0, 4], size: 125, yaw: 0, pitch: -1.3 },
+    { id: 'willis', label: ['Koło Willisa', 'Circle of Willis'], target: [0, 0, 4], size: 125, yaw: 0, pitch: -1.3, hide: '^(ascending_aorta|arch|desc_aorta|bct|sca_prox|cca_|carotid_bif|tct|va_ost|va_v1|va_v2|va_v3|va_v4|pica|eca_|sup_thyr|lingual|facial_a|occipital|apa|sta|ima_max|spa|mma|ica_c1|ica_c2)' },
     { id: 'ap', label: ['AP', 'AP'], target: [0, 5, 0], size: 170, yaw: 0, pitch: 0.12 },
     { id: 'lat', label: ['Bok', 'Lateral'], target: [0, 5, 0], size: 170, yaw: -Math.PI / 2, pitch: 0.05 },
     { id: 'post', label: ['Tylne krążenie', 'Posterior circ.'], target: [0, -20, -20], size: 120, yaw: Math.PI, pitch: 0.25 },
@@ -21,6 +30,28 @@ export default {
     { id: 'all', label: ['Całość', 'Whole'], target: [0, -85, 0], size: 340, yaw: 0.3, pitch: 0.08 },
   ],
   defaultView: 'ap',
+  // fine cortical / perforating branches drawn for realism (not clickable), kept on the brain surface
+  decor: {
+    surface: { c: [0, 12, -6], r: [64, 56, 82] },
+    max: 1400,
+    rules: [
+      { match: '^mca_m4', end: 2, depth: 3, len: 13 },
+      { match: '^mca_m3', side: 2, depth: 2, len: 12 },
+      { match: '^mca_m2', side: 1, depth: 2, len: 12 },
+      { match: '^ant_temporal', end: 2, depth: 2, len: 12 },
+      { match: '^lsa', end: 3, depth: 1, len: 7, sideR: 0.8 },
+      { match: '^aca_a4', end: 2, depth: 3, len: 13, side: 1 },
+      { match: '^aca_a3', side: 1, depth: 2, len: 12 },
+      { match: '^callosomarginal', end: 2, depth: 3, len: 13, side: 2 },
+      { match: '^frontopolar', end: 2, depth: 2, len: 11 },
+      { match: '^pca_p4|^pca_po', end: 2, depth: 3, len: 12 },
+      { match: '^pca_p3|^pca_p2', side: 1, depth: 2, len: 11 },
+      { match: '^sca_[rl]$', end: 2, depth: 2, len: 11 },
+      { match: '^aica', end: 1, depth: 2, len: 10 },
+      { match: '^pica', end: 2, depth: 2, len: 11 },
+      { match: '^acha', end: 1, depth: 1, len: 8 },
+    ],
+  },
   context: [
     { shape: 'ellipsoid', c: [0, 12, -6], r: [70, 62, 88], label: ['czaszka', 'skull'] },
     ...[['C1', -47], ['C2', -58], ['C3', -70], ['C4', -82], ['C5', -94], ['C6', -106], ['C7', -118]].map(([n, y]) => ({ shape: 'box', c: [0, y, -24], size: [26, 8, 18], bone: true, tag: n })),
@@ -31,7 +62,7 @@ export default {
     { text: ['C2', 'C2'], at: [12, -58, -32] },
     { text: ['C6', 'C6'], at: [12, -106, -32] },
   ],
-  segments: [
+  segments: intracranial([
     // ---------------------------------------------------------------- aortic arch and great vessels
     S('ascending_aorta', 'Aorta wstępująca', 'Ascending aorta', 13, [[-12, -235, 22], [-14, -200, 18], [-10, -175, 12]], { anat: 'chest' }),
     S('arch', 'Łuk aorty', 'Aortic arch', 12.5, [[-10, -175, 12], [-4, -164, 6], [4, -162, -2], [12, -166, -12]], { anat: 'chest' }),
@@ -79,20 +110,20 @@ export default {
     P('aca_a2_r', 'ACA A2', 'ACA A2', 1.2, [[-3, 7, 22], [-3.5, 15, 27], [-4, 28, 31], [-4, 38, 31]]),
     P('aca_a3_r', 'ACA A3 (kolano)', 'ACA A3 (genu)', 1.1, [[-4, 38, 31], [-4, 50, 27], [-4, 58, 15], [-4, 61, 4]]),
     P('aca_a4_r', 'ACA A4–A5 (t. okołospoidłowa)', 'ACA A4–A5 (pericallosal)', 0.9, [[-4, 61, 4], [-4, 63, -12], [-4, 60, -30], [-4, 52, -45]]),
-    P('callosomarginal_r', 'Tętnica obrzeżna spoidłowa', 'Callosomarginal artery', 0.8, [[-4, 49, 27], [-5, 62, 30], [-6, 75, 18], [-6, 82, 0], [-6, 82, -20]]),
+    P('callosomarginal_r', 'Tętnica obrzeżna spoidłowa', 'Callosomarginal artery', 0.8, [[-4, 49, 27], [-5, 57, 32], [-6, 64, 24], [-6, 67, 8], [-6, 66, -10], [-6, 62, -26]]),
     P('frontopolar_r', 'Tętnica czołowo-biegunowa', 'Frontopolar artery', 0.6, [[-3.6, 20, 28.5], [-6, 25, 45], [-8, 30, 58]]),
     // ---------------------------------------------------------------- middle cerebral artery
     P('mca_m1_r', 'MCA M1', 'MCA M1', 1.6, [[-14, 4, 13], [-20, 5, 13], [-27, 5, 12], [-33, 4, 10]]),
     P('lsa_r', 'Tętnice soczewkowo-prążkowe', 'Lenticulostriate arteries', 0.35, [[-21, 5, 13], [-21, 12, 13], [-20, 21, 12]]),
     P('ant_temporal_r', 'Tętnica skroniowa przednia', 'Anterior temporal artery', 0.6, [[-27, 5, 12], [-36, -2, 17], [-48, -12, 15]]),
     P('mca_bif_r', 'Rozwidlenie MCA', 'MCA bifurcation', 1.5, [[-33, 4, 10], [-36, 4, 8]]),
-    P('mca_m2s_r', 'MCA M2 – pień górny', 'MCA M2 – superior trunk', 1.1, [[-36, 4, 8], [-39, 10, 11], [-40, 20, 10], [-40, 30, 6]]),
-    P('mca_m2i_r', 'MCA M2 – pień dolny', 'MCA M2 – inferior trunk', 1.1, [[-36, 4, 8], [-40, 2, 1], [-41, 6, -8], [-41, 12, -16]]),
-    P('mca_m3s_r', 'MCA M3 – górne gałęzie wieczkowe', 'MCA M3 – superior opercular', 0.8, [[-40, 30, 6], [-48, 36, 8], [-55, 40, 10]]),
-    P('mca_m3i_r', 'MCA M3 – dolne gałęzie wieczkowe', 'MCA M3 – inferior opercular', 0.8, [[-41, 12, -16], [-50, 16, -20], [-57, 18, -24]]),
-    P('mca_m4s_r', 'MCA M4 – gałęzie korowe (czołowe)', 'MCA M4 – cortical (frontal)', 0.6, [[-55, 40, 10], [-58, 52, 22], [-56, 64, 30]]),
-    P('mca_m4p_r', 'MCA M4 – gałęzie korowe (ciemieniowe)', 'MCA M4 – cortical (parietal)', 0.6, [[-55, 40, 10], [-60, 48, -4], [-60, 58, -16]]),
-    P('mca_m4i_r', 'MCA M4 – gałęzie korowe (skroniowe)', 'MCA M4 – cortical (temporal)', 0.6, [[-57, 18, -24], [-62, 25, -38], [-60, 30, -52]]),
+    P('mca_m2s_r', 'MCA M2 – pień górny', 'MCA M2 – superior trunk', 1.1, [[-36, 4, 8], [-38, 9, 8], [-39, 16, 5], [-39, 24, 0]]),
+    P('mca_m2i_r', 'MCA M2 – pień dolny', 'MCA M2 – inferior trunk', 1.1, [[-36, 4, 8], [-39, 3, 3], [-40, 5, -4], [-40, 9, -12]]),
+    P('mca_m3s_r', 'MCA M3 – górne gałęzie wieczkowe', 'MCA M3 – superior opercular', 0.8, [[-39, 24, 0], [-43, 30, 2], [-49, 32, 4], [-55, 30, 6]]),
+    P('mca_m3i_r', 'MCA M3 – dolne gałęzie wieczkowe', 'MCA M3 – inferior opercular', 0.8, [[-40, 9, -12], [-45, 13, -16], [-51, 14, -19], [-57, 12, -21]]),
+    P('mca_m4s_r', 'MCA M4 – gałęzie korowe (czołowe)', 'MCA M4 – cortical (frontal)', 0.6, [[-55, 30, 6], [-58, 37, 13], [-55, 45, 21], [-48, 52, 27]]),
+    P('mca_m4p_r', 'MCA M4 – gałęzie korowe (ciemieniowe)', 'MCA M4 – cortical (parietal)', 0.6, [[-55, 30, 6], [-60, 37, -2], [-58, 46, -12], [-52, 54, -22]]),
+    P('mca_m4i_r', 'MCA M4 – gałęzie korowe (skroniowe)', 'MCA M4 – cortical (temporal)', 0.6, [[-57, 12, -21], [-62, 16, -32], [-60, 20, -44], [-55, 24, -56]]),
     // ---------------------------------------------------------------- external carotid artery
     P('eca_prox_r', 'ECA – odcinek proksymalny', 'ECA – proximal', 2.2, [[-26, -82, 10], [-25, -76, 15], [-28, -66, 17]], { anat: 'neck' }),
     P('eca_dist_r', 'ECA – odcinek dystalny', 'ECA – distal', 1.8, [[-28, -66, 17], [-32, -56, 15], [-35, -46, 13]], { anat: 'neck' }),
@@ -105,5 +136,5 @@ export default {
     P('ima_max_r', 'Tętnica szczękowa', 'Internal maxillary artery', 1.1, [[-35, -46, 13], [-32, -42, 20], [-26, -40, 27], [-20, -38, 33]], { anat: 'neck' }),
     P('spa_r', 'Tętnica klinowo-podniebienna', 'Sphenopalatine artery', 0.6, [[-20, -38, 33], [-12, -34, 40], [-7, -30, 44]], { anat: 'neck' }),
     P('mma_r', 'Tętnica oponowa środkowa (MMA)', 'Middle meningeal artery (MMA)', 0.8, [[-30, -41.5, 23], [-31, -36, 18], [-38, -25, 16], [-50, -10, 18], [-56, 10, 15]]),
-  ],
+  ]),
 };
