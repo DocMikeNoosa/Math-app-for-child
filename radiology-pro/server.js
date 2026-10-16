@@ -1278,7 +1278,7 @@ async function handleAdminLearning(req, res, me, idStr, action) {
   }
   if (idStr === 'export' && method === 'GET') {
     audit(me, 'learning.export');
-    res.writeHead(200, headers({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Content-Disposition': `attachment; filename="radiopis-learning-${new Date().toISOString().slice(0, 10)}.jsonl"`, 'Cache-Control': 'no-store' }));
+    res.writeHead(200, headers({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Content-Disposition': `attachment; filename="radvoxpro-learning-${new Date().toISOString().slice(0, 10)}.jsonl"`, 'Cache-Control': 'no-store' }));
     for (const line of exportArchive()) res.write(`${line}\n`);
     return res.end();
   }
@@ -1463,11 +1463,20 @@ export function createServer() {
   });
 }
 
+// The local test install (Windows starter) used to create this administrator; it is moved to the new login once.
+const LEGACY_LOCAL_ADMIN = 'admin@radiopis.local';
+
 /** First start: create the administrator from ADMIN_EMAIL + ADMIN_PASSWORD when no administrator exists. */
 export async function ensureAdmin() {
-  if (one("SELECT id FROM users WHERE role = 'admin' LIMIT 1")) return null;
   const email = process.env.ADMIN_EMAIL;
   const password = process.env.ADMIN_PASSWORD;
+  const legacy = email && email.toLowerCase() !== LEGACY_LOCAL_ADMIN ? getUserByEmail(LEGACY_LOCAL_ADMIN) : null;
+  if (legacy && legacy.role === 'admin' && !getUserByEmail(email) && password && !passwordProblem(password)) {
+    run('UPDATE users SET email = ? WHERE id = ?', email.toLowerCase(), legacy.id);
+    await setPassword(legacy.id, password);
+    return getUser(legacy.id);
+  }
+  if (one("SELECT id FROM users WHERE role = 'admin' LIMIT 1")) return null;
   if (!email || !password) return null;
   if (passwordProblem(password)) throw new Error(`ADMIN_PASSWORD: ${passwordProblem(password)}`);
   if (/^change-me/i.test(password)) throw new Error('ADMIN_PASSWORD: zmień przykładowe hasło z .env.example na własne.');

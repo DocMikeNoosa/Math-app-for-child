@@ -34,8 +34,10 @@ Polish (or English) report built from their templates, with clinically ordered f
 
 Extract the ZIP, open `radiology-pro`, double-click **Start RadVox Pro (Windows).bat** (needs Node.js 22.5+).
 It reuses the API key saved by RadVox, starts RadVox Pro on http://127.0.0.1:3100 and opens the login page.
-Administrator: `admin@radiopis.local` / `Radiopis2026` (local test only — change it in
-`%USERPROFILE%\.radiopis\.env` before any real use). Data: `%USERPROFILE%\.radiopis\data`.
+Administrator: `admin@radvoxpro.local` / `RadVoxPro2026` (local test only — change it in
+`%USERPROFILE%\.radvoxpro\.env` before any real use). Data: `%USERPROFILE%\.radvoxpro\data`.
+An older install in `%USERPROFILE%\.radiopis` is moved there automatically, and its administrator
+`admin@radiopis.local` becomes `admin@radvoxpro.local`.
 
 ## Run locally (development)
 

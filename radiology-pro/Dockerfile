@@ -1,5 +1,5 @@
 # RadVox Pro — production image. Normally started with deploy/docker-compose.yml (app + HTTPS proxy), see DEPLOY.md.
-# Alone: docker build -t radiopis . && docker run -d -p 3000:3000 -v radiopis-data:/data --env-file .env radiopis
+# Alone: docker build -t radvox-pro . && docker run -d -p 3000:3000 -v radvoxpro-data:/data --env-file .env radvox-pro
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./

@@ -4,7 +4,7 @@
 services:
   app:
     build: ..
-    image: radiopis:latest
+    image: radvox-pro:latest
     restart: unless-stopped
     env_file: .env
     environment:

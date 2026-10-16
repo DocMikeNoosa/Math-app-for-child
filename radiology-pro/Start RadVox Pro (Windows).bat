@@ -28,8 +28,23 @@ if errorlevel 1 (
   exit /b 1
 )
 
-set "CFG=%USERPROFILE%\.radiopis"
+set "CFG=%USERPROFILE%\.radvoxpro"
+set "OLDCFG=%USERPROFILE%\.radiopis"
+rem older installs kept their settings and data in .radiopis: move them over once
+if not exist "%CFG%" if exist "%OLDCFG%" (
+  echo Moving your settings and data to the RadVox Pro folder...
+  move "%OLDCFG%" "%CFG%" >nul
+)
 if not exist "%CFG%" mkdir "%CFG%"
+rem older settings used the administrator admin@radiopis.local: switch to the RadVox Pro login
+if exist "%CFG%\.env" findstr /c:"admin@radiopis.local" "%CFG%\.env" >nul && (
+  findstr /b "ANTHROPIC_API_KEY=" "%CFG%\.env" > "%CFG%\.env.new"
+  >> "%CFG%\.env.new" echo ADMIN_EMAIL=admin@radvoxpro.local
+  >> "%CFG%\.env.new" echo ADMIN_PASSWORD=RadVoxPro2026
+  >> "%CFG%\.env.new" echo DATA_DIR=%CFG%\data
+  >> "%CFG%\.env.new" echo PORT=3100
+  move /y "%CFG%\.env.new" "%CFG%\.env" >nul
+)
 if not exist "%CFG%\.env" (
   echo.
   echo === First start: settings ===
@@ -42,8 +57,8 @@ if not exist "%CFG%\.env" (
   ) else (
     echo Using the API key you already saved for RadVox.
   )
-  >> "%CFG%\.env" echo ADMIN_EMAIL=admin@radiopis.local
-  >> "%CFG%\.env" echo ADMIN_PASSWORD=Radiopis2026
+  >> "%CFG%\.env" echo ADMIN_EMAIL=admin@radvoxpro.local
+  >> "%CFG%\.env" echo ADMIN_PASSWORD=RadVoxPro2026
   >> "%CFG%\.env" echo DATA_DIR=%CFG%\data
   >> "%CFG%\.env" echo PORT=3100
 )
@@ -61,8 +76,8 @@ if not exist "node_modules" (
 echo.
 echo ===============================================================
 echo  RadVox Pro is running:  http://127.0.0.1:3100
-echo  Administrator login:  admin@radiopis.local
-echo  Password:             Radiopis2026
+echo  Administrator login:  admin@radvoxpro.local
+echo  Password:             RadVoxPro2026
 echo  Keep this window open. Close it to stop RadVox Pro.
 echo ===============================================================
 echo.

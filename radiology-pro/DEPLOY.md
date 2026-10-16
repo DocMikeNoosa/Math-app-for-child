@@ -16,7 +16,7 @@ about 1–2 hours the first time, most of it waiting for DNS.
 
 ## 0. What you need before you start
 
-1. **A domain**, e.g. `radiopis.pl` or a subdomain such as `app.radiopis.pl`. Any Polish registrar is fine
+1. **A domain**, e.g. `radvox.pl` or a subdomain such as `app.radvox.pl`. Any Polish registrar is fine
    (e.g. OVHcloud, home.pl, nazwa.pl).
 2. **An AI account** — one of:
    - **Anthropic API**: [console.anthropic.com](https://console.anthropic.com).
@@ -74,7 +74,7 @@ It should show the server's IP.
 Log in (`ssh ubuntu@SERVER-IP`) and run:
 
 ```bash
-sudo mkdir -p /opt/radiopis && sudo chown $USER /opt/radiopis && cd /opt/radiopis
+sudo mkdir -p /opt/radvox-pro && sudo chown $USER /opt/radvox-pro && cd /opt/radvox-pro
 git clone https://github.com/DocMikeNoosa/Math-app-for-child.git .
 #   (private repository: use a GitHub token, or upload the ZIP with scp and unzip it here)
 cd radiology-pro/deploy
@@ -164,7 +164,7 @@ Seats can be changed at any time.
   3. Test it: `sudo bash offsite-backup.sh`.
   4. Make it nightly: `sudo crontab -e` and add:
      ```
-     30 3 * * * /opt/radiopis/radiology-pro/deploy/offsite-backup.sh >> /var/log/radiopis-offsite.log 2>&1
+     30 3 * * * /opt/radvox-pro/radiology-pro/deploy/offsite-backup.sh >> /var/log/radvoxpro-offsite.log 2>&1
      ```
 - **Restore** (only when something went wrong):
   - `sudo bash restore.sh data/backups/radiopis-YYYYMMDD-HHMM.db.enc` — accounts;
@@ -207,7 +207,7 @@ radiologists.
 ## 10. Updating to a new version
 
 ```bash
-cd /opt/radiopis && git pull && cd radiology-pro/deploy && sudo docker compose up -d --build
+cd /opt/radvox-pro && git pull && cd radiology-pro/deploy && sudo docker compose up -d --build
 ```
 
 The app finishes AI answers already in progress, and Caddy holds new requests for up to 30 s during the

@@ -385,5 +385,5 @@ function download(name, text) {
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
-$('#regChrome').addEventListener('click', () => download('radiopis-chrome.reg', regFile('chrome')));
-$('#regEdge').addEventListener('click', () => download('radiopis-edge.reg', regFile('edge')));
+$('#regChrome').addEventListener('click', () => download('radvoxpro-chrome.reg', regFile('chrome')));
+$('#regEdge').addEventListener('click', () => download('radvoxpro-edge.reg', regFile('edge')));
