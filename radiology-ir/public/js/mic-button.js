@@ -217,6 +217,13 @@ export class MicButton {
     this.handle = (e) => this.onReport(e);
   }
 
+  /** Timeline for the diagnostic report: every button message and light change, with what was done with it. */
+  logEvent(text) {
+    const t = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    this.t0 ??= t;
+    (this.events ||= []).push(`${((t - this.t0) / 1000).toFixed(3).padStart(8)} s  ${text}`);
+    if (this.events.length > 60) this.events.shift();
+  }
   get supported() { return typeof navigator !== 'undefined' && 'hid' in navigator; }
   get connected() { return Boolean(this.device?.opened); }
   get bound() { return Boolean(this.config?.binding); }
@@ -240,11 +247,13 @@ export class MicButton {
     const log = (ok, err = '') => {
       // last attempts, for the diagnostic report (what was sent, did the browser accept it)
       (this.ledLog ||= []).push(`${led.type} ${led.reportId} [${[...data].map((b) => b.toString(16).padStart(2, '0')).join(' ')}] ${ok ? 'OK' : `BŁĄD: ${err}`}`);
+      this.logEvent(`DIODA ${on ? 'wł.' : 'wył.'} → [${[...data].map((b) => b.toString(16).padStart(2, '0')).join(' ')}]${ok ? '' : ` BŁĄD: ${err}`}`);
       if (this.ledLog.length > 12) this.ledLog.shift();
     };
     try {
       // the microphone may answer a light change with a status message: no "press" is taken from it for a moment
       this.quietUntil = Date.now() + 500;
+      this.releasedSinceLed = false;
       if (led.type === 'feature') await this.device.sendFeatureReport(led.reportId, data);
       else await this.device.sendReport(led.reportId, data);
       log(true);
@@ -426,35 +435,44 @@ export class MicButton {
   onReport(e) {
     const bytes = new Uint8Array(e.data.buffer, e.data.byteOffset, e.data.byteLength);
     const copy = Uint8Array.from(bytes);
-    const prev = this.last.get(e.reportId);
     this.last.set(e.reportId, copy);
     this.reports++;
     this.onRaw?.(e.reportId, copy);
     if (this.learning) { this.learning(e.reportId, copy); return; }
     const b = this.config?.binding;
-    if (!b || b.reportId !== e.reportId) return;
-    // only genuine button messages count (see signatureOf); others (status, light echo) are ignored
-    if (b.sig && !b.sig.every(([j, v]) => copy[j] === v)) return;
+    const raw = `#${e.reportId} ${[...copy].map((x) => x.toString(16).padStart(2, '0')).join(' ')}`;
+    if (!b || b.reportId !== e.reportId) { this.logEvent(`${raw}  (przycisk nienauczony / inny raport)`); return; }
     const isDown = (copy[b.byte] & b.mask) !== 0;
-    // the button's state comes only from genuine button messages (never from a status message in between)
+    // the button's state comes only from the reports themselves, never assumed
     const wasDown = this.btnDown ?? false;
+    const genuine = !b.sig || b.sig.every(([j, v]) => copy[j] === v);
     const now = Date.now();
-    if (isDown && !wasDown) {
-      // right after switching the light, an apparent press is the device's echo, not the user: ignore it
-      // (releases are still taken, so the next real press is never missed)
-      if (now < (this.quietUntil || 0)) return;
-      this.btnDown = true;
-      if (now - this.lastPress < 250) return; // bounce
-      this.lastPress = now;
-      this.pressed = true;
-      this.onPress();
-    } else if (!isDown && wasDown) {
-      this.btnDown = false;
-      if (this.pressed) {
-        this.pressed = false;
-        if (this.mode === 'hold') this.onRelease();
-      }
+    if (!isDown) {
+      // a RELEASE is taken from any message (safe: it never starts or stops anything in toggle mode), so the
+      // next real press is never lost because a release came in another kind of message
+      if (wasDown) {
+        this.btnDown = false;
+        if (genuine) this.releasedSinceLed = true;
+        this.logEvent(`${raw}  puszczenie${genuine ? '' : ' (z wiadomości innego typu)'}`);
+        if (this.pressed) {
+          this.pressed = false;
+          if (this.mode === 'hold') this.onRelease();
+        }
+      } else this.logEvent(`${raw}  bez zmiany (puszczony)`);
+      return;
     }
+    // a PRESS counts only from a genuine button message (status messages, e.g. the light echo, carry the same bit)
+    if (!genuine) { this.logEvent(`${raw}  zignorowano: wiadomość innego typu (np. stan diody)`); return; }
+    if (wasDown) { this.logEvent(`${raw}  bez zmiany (wciśnięty)`); return; }
+    // right after switching the light, an apparent press without a release in between is the device's echo
+    // (with a known message signature, a press after a genuine release is always the user, even within that time)
+    if (now < (this.quietUntil || 0) && !(b.sig && this.releasedSinceLed)) { this.logEvent(`${raw}  zignorowano: echo diody (0,5 s)`); return; }
+    this.btnDown = true;
+    if (now - this.lastPress < 250) { this.logEvent(`${raw}  zignorowano: odbicie (<0,25 s)`); return; }
+    this.lastPress = now;
+    this.pressed = true;
+    this.logEvent(`${raw}  NACIŚNIĘCIE`);
+    this.onPress();
   }
 
   /** What the browser knows about the device — for the user, IT and support (no personal data). */
@@ -481,7 +499,7 @@ export class MicButton {
       }
     };
     walk(d?.collections);
-    return { layout, ledLog: this.ledLog || [], leds: leds.length, ledsStandard: leds.filter((c) => c.led).length, led: this.led, ledError: this.ledError || '', supported: this.supported, connected: this.connected, product: d?.productName || this.config?.productName || '', vendorId: hex(d?.vendorId ?? this.config?.vendorId), productId: hex(d?.productId ?? this.config?.productId), collections, reportsReceived: this.reports, binding: this.config?.binding || null, mode: this.mode, hint };
+    return { events: this.events || [], layout, ledLog: this.ledLog || [], leds: leds.length, ledsStandard: leds.filter((c) => c.led).length, led: this.led, ledError: this.ledError || '', supported: this.supported, connected: this.connected, product: d?.productName || this.config?.productName || '', vendorId: hex(d?.vendorId ?? this.config?.vendorId), productId: hex(d?.productId ?? this.config?.productId), collections, reportsReceived: this.reports, binding: this.config?.binding || null, mode: this.mode, hint };
   }
 }
 

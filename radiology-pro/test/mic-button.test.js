@@ -327,3 +327,17 @@ test('the very first press after starting counts, even if the mic sent a status 
   dev.send(0x80, 0, 0, 0x20, 0x39, 0x61, 0, 0, 1); // first real press
   assert.deepEqual(events, ['press']);
 });
+
+test('a release reported in the status message does not swallow the next press (every press works)', async () => {
+  const events = [];
+  const mic = new MicButton({ onPress: () => events.push('press'), persist: false });
+  const dev = { ...fakeDevice(), productId: 0x0064, sendReport: async () => {} };
+  await mic.open(dev);
+  mic.config = { vendorId: 0x0554, productId: 0x0064, binding: { ...KNOWN_BUTTONS['0554:0064'], reportId: 1 } };
+  const press = () => dev.send(0x80, 0, 0, 0x20, 0x39, 0x61, 0, 0, 1);
+  const releaseInStatus = () => dev.send(0x80, 0, 0, 0x08, 0, 0x02, 0, 0, 0);
+  for (let i = 0; i < 4; i++) { press(); releaseInStatus(); await new Promise((r) => setTimeout(r, 300)); }
+  assert.deepEqual(events, ['press', 'press', 'press', 'press']);
+  assert.ok(mic.diagnose().events.some((e) => /NACIŚNIĘCIE/.test(e)), 'the timeline is in the report');
+  assert.ok(mic.diagnose().events.some((e) => /puszczenie \(z wiadomości innego typu\)/.test(e)));
+});

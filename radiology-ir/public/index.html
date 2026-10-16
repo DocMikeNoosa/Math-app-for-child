@@ -594,6 +594,14 @@
           <div class="btn-row">
             <button class="btn btn-small" id="micLedFind">Znajdź czerwoną diodę</button>
             <button class="btn btn-small" id="micLedTest" hidden>Test diody</button>
+          <div class="led-color" id="ledColorBox" hidden>
+            <button class="btn btn-small" id="ledColorStart">Znajdź czerwony kolor</button>
+            <div class="sweep-box" id="ledColorAsk" hidden>
+              <div class="sweep-num" id="ledColorNum"></div>
+              <p>Jaki kolor ma teraz dioda na mikrofonie?</p>
+              <div class="btn-row"><button class="btn btn-small btn-primary" data-color="red">Czerwony</button><button class="btn btn-small" data-color="green">Zielony</button><button class="btn btn-small" data-color="other">Pomarańczowy / inny</button><button class="btn btn-small" data-color="none">Nie świeci</button><button class="btn btn-small" id="ledColorStop">Przerwij</button></div>
+            </div>
+          </div>
           </div>
           <div class="mic-led-ask" id="micLedAsk" hidden>
             <p id="micLedQ"></p>
@@ -605,6 +613,7 @@
           </div>
         </div>
         <details class="mic-diag" id="micDiagBox"><summary>Diagnostyka mikrofonu (gdy przycisk nie działa)</summary>
+          <div class="btn-row" style="margin-top:8px"><button class="btn btn-small" id="btnTest">Test przycisku</button><span class="hint" id="btnTestHint"></span></div>
           <pre class="mono" id="micDiag"></pre>
           <div class="btn-row"><button class="btn btn-small" id="micDiagCopy">Kopiuj raport</button></div>
         

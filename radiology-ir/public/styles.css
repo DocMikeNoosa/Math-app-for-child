@@ -1187,3 +1187,4 @@ body[data-view="card"] .panel.dictation { display: none; }
 .range-in { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .range-in input { width: 80px; }
 .sweep-num { font: 700 30px/1.1 var(--mono, monospace); color: #ffb547; margin: 2px 0 6px; }
+.led-color { margin-top: 8px; }

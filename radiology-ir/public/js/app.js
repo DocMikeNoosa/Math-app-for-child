@@ -32,7 +32,7 @@ const els = Object.fromEntries(
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
-    'chimeStyle', 'chimeTest', 'ledCodeOn', 'ledCodeOff', 'ledCodeTest', 'ledCodeSave', 'ledSweep', 'ledRangeBox', 'ledRangeFrom', 'ledRangeTo', 'ledRangeStart', 'ledStepBox', 'ledStepNum', 'ledStepQ', 'ledStepYes', 'ledStepNext', 'ledStepRepeat', 'ledStepBack', 'ledStepStop', 'ledSweepBox', 'ledSweepQ', 'ledSweepBar', 'ledSweepHit', 'ledSweepNo', 'ledSweepStop', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
+    'chimeStyle', 'chimeTest', 'ledColorBox', 'ledColorStart', 'ledColorAsk', 'ledColorNum', 'ledColorStop', 'btnTest', 'btnTestHint', 'ledCodeOn', 'ledCodeOff', 'ledCodeTest', 'ledCodeSave', 'ledSweep', 'ledRangeBox', 'ledRangeFrom', 'ledRangeTo', 'ledRangeStart', 'ledStepBox', 'ledStepNum', 'ledStepQ', 'ledStepYes', 'ledStepNext', 'ledStepRepeat', 'ledStepBack', 'ledStepStop', 'ledSweepBox', 'ledSweepQ', 'ledSweepBar', 'ledSweepHit', 'ledSweepNo', 'ledSweepStop', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
     'menuLang', 'procBtn', 'anatomy', 'anatSide', 'closeAnatomy', 'anatParts', 'anatTargets', 'anatProcs', 'anatTpls', 'anatSummary', 'anatCancel', 'anatApply',
   ].map((id) => [id, $(id)]),
 );
@@ -1894,6 +1894,7 @@ function micReport() {
     `Ostatnie dane: ${rawReports.length ? `\n  ${rawReports.join('\n  ')}` : '—'}`,
     `Dioda: ${d.led ? `${d.led.type} ${d.led.reportId}, ${d.led.on ? `wzór [${d.led.on.map((b) => b.toString(16)).join(' ')}]` : `bajt ${d.led.byte}, maska 0x${d.led.mask.toString(16)}`}` : 'nieustawiona'} · możliwe miejsca: ${d.leds} (standardowe: ${d.ledsStandard})${d.ledError ? ` · błąd: ${d.ledError}` : ''}`,
     `Ostatnie próby diody: ${d.ledLog.length ? `\n  ${d.ledLog.join('\n  ')}` : '—'}`,
+    `Przebieg (przycisk i dioda, od najstarszego): ${d.events.length ? `\n  ${d.events.join('\n  ')}` : '—'}`,
     `Budowa urządzenia: ${d.layout.length ? `\n  ${d.layout.join('\n  ')}` : '—'}`,
     `Głos brany z (mikrofon domyślny): ${defaultInputLabel || '— (nazwy widać po pierwszym dyktowaniu)'}`,
     `Mikrofony w komputerze: ${lastInputs.map((x) => x.label || '?').filter((x, i, a) => a.indexOf(x) === i).join(' | ') || '—'}`,
@@ -2063,6 +2064,7 @@ function renderLed() {
   els.micLedFind.hidden = !n || ledStep >= 0;
   els.micLedFind.textContent = mic.led ? 'Szukaj diody ponownie' : 'Znajdź czerwoną diodę';
   els.micLedTest.hidden = !mic.led || ledStep >= 0;
+  els.ledColorBox.hidden = !(mic.led && Array.isArray(mic.led.on) && mic.led.length > 1) || ledStep >= 0;
   els.micLedAsk.hidden = ledStep < 0;
 }
 async function ledShow(setting, question) {
@@ -2272,6 +2274,49 @@ function stepStart() {
   if (sweep) endSweep(null);
   stepper = { group, from, to, n: from, current: null };
   stepShow();
+}
+
+// the light shows a mixed colour (e.g. orange = red + green): light one channel of the found command at a time and
+// keep the one the radiologist sees as red
+let colorStep = null;
+async function colorShow() {
+  const c = colorStep;
+  if (c.current) await mic.setLed(false, c.current);
+  await sleep(250);
+  if (c.k >= c.base.length) {
+    colorStep = null;
+    els.ledColorAsk.hidden = true;
+    await mic.setLed(state.recording);
+    toast('Żaden pojedynczy kanał nie dał czerwonego. Wyślij raport z Diagnostyki — dobiorę kombinację.', 'warn', 8000);
+    return;
+  }
+  const on = c.base.map((v, i) => (i === 0 ? v : i === c.k ? 0xff : 0));
+  c.current = { type: c.led.type, reportId: c.led.reportId, length: c.led.length, on, off: c.led.off || [c.base[0], ...new Array(c.led.length - 1).fill(0)], led: false };
+  await mic.setLed(true, c.current);
+  els.ledColorNum.textContent = `Kanał ${c.k} z ${c.base.length - 1}`;
+  els.ledColorAsk.hidden = false;
+}
+function colorStart() {
+  const led = mic.led;
+  if (!mic.connected || !led || !Array.isArray(led.on) || led.length < 2) { toast('Najpierw ustaw diodę (kod lub wyszukiwanie).', 'warn'); return; }
+  colorStep = { led, base: led.on.slice(), k: 1, current: null };
+  colorShow();
+}
+async function colorAnswer(color) {
+  const c = colorStep;
+  if (!c) return;
+  if (color === 'red') {
+    colorStep = null;
+    els.ledColorAsk.hidden = true;
+    await mic.setLed(false, c.current);
+    mic.saveLed({ ...c.current, manual: true, color: 'red' });
+    toast(`Czerwony zapamiętany (kod ${c.current.on.map((b) => b.toString(16).padStart(2, '0')).join(' ')}). Wyślij mi raport z Diagnostyki — ustawię to dla wszystkich PowerMic 4.`, 'ok', 10000);
+    await mic.setLed(state.recording);
+    renderMicDiag();
+    return;
+  }
+  c.k++;
+  colorShow();
 }
 
 // microphones on this computer: list + level test (dictation itself uses the browser's default microphone)
@@ -2566,6 +2611,14 @@ function bind() {
     renderMicDiag();
   });
   els.ledSweep.addEventListener('click', startSweep);
+  els.ledColorStart.addEventListener('click', colorStart);
+  for (const b of els.ledColorAsk.querySelectorAll('[data-color]')) b.addEventListener('click', () => colorAnswer(b.dataset.color));
+  els.ledColorStop.addEventListener('click', async () => { if (colorStep?.current) await mic.setLed(false, colorStep.current); colorStep = null; els.ledColorAsk.hidden = true; await mic.setLed(state.recording); });
+  els.btnTest.addEventListener('click', () => {
+    mic.events = []; mic.t0 = undefined;
+    els.btnTestHint.textContent = 'Naciśnij teraz przycisk nagrywania 4 razy, co ok. 2 sekundy. Potem kliknij „Kopiuj raport” i wyślij go.';
+    setTimeout(() => { renderMicDiag(); els.btnTestHint.textContent = 'Gotowe — kliknij „Kopiuj raport” i wyślij go.'; }, 12000);
+  });
   els.ledRangeStart.addEventListener('click', stepStart);
   els.ledStepYes.addEventListener('click', () => stepper && stepEnd(stepper.current));
   els.ledStepNext.addEventListener('click', () => {
