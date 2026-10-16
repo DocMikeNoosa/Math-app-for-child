@@ -96,6 +96,14 @@ overall layout — add functionality in the existing style.
 - Disclaimer (terms 1.1): one tick on `/accept` after the first login — doctor reads the whole report, own clinical
   judgment, own risk; full text `terms.html#odpowiedzialnosc`. Friends now go through it too (access() order fixed).
 
+## Friends: credit ran out (1.3)
+- Anthropic 400 "credit balance" under a friend's key → 402 `own_credit` + `billingUrl`; `users.credit_out` set, one
+  e-mail a day at most (`credit_mailed`). App (`hosted.js` `showCreditDialog`), account page box and owner's friends
+  tab ("brak środków") show it; `/api/me/api-key-check` re-tests after a top-up; a successful own-key call clears it.
+- Friend-facing text explains an API key generically (prepaid card, small charge per AI use, suggest 20 USD) and does
+  not name the AI provider; only platform.claude.com is named, where the key is made. The Pro app shows "AI" instead
+  of the model name. The legal terms (2a) still name the processor, as data-protection law requires.
+
 ## Learning safety (1.3)
 - `lib/plausibility.js` `lessonProblem(kind, content)`: links / code, repeated characters, offensive words, too few
   letters, random-letter words, one word repeated, and too little medical vocabulary (PL + EN stems; everyday words
@@ -108,7 +116,7 @@ overall layout — add functionality in the existing style.
 
 ## Technical notes
 - Templates: 397 + 112 snippets (MR and X-ray libraries completed Oct 2026: mr-body-msk-2.js, mr-neuro-spine-2.js, xray-2.js).
-- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (192 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
+- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (195 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
   `NODE_ENV=production` serves `dist/`.
 - Report counting: the browser sends `reportId` (one per report); usage rows with the same id count once.
 - `background: true` marks pre-processing calls; capped per report by `maxBackgroundCalls` (settings).

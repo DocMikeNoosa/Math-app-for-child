@@ -500,7 +500,7 @@ function openLearn(open = true) {
   if (open) setTimeout(() => els.learnText.focus(), 0);
 }
 async function analyzeStyle() {
-  if (!state.ai) { toast('Analiza stylu wymaga AI (Claude) — brak klucza API.', 'warn'); return; }
+  if (!state.ai) { toast('Analiza stylu wymaga AI — AI jest teraz niedostępne.', 'warn'); return; }
   const body = {
     samples: profile.samples.map(({ text, lang }) => ({ text, lang })),
     edits: styleExamples.map(({ ai, final }) => ({ ai, final })),
@@ -871,7 +871,7 @@ async function process() {
         else if (prefetch.key === key && prefetch.inflight) data = await prefetch.promise.catch(() => null);
         if (!data) data = await callFormat(payload);
         result = data;
-        source = `Claude · ${data.model || state.model}`;
+        source = 'AI';
       } catch (err) {
         if (needsAI) {
           toast(`${err.message} Dyktat został zachowany.`, 'err', 5000);
@@ -882,7 +882,7 @@ async function process() {
     }
     if (!result) {
       if (!dictation) {
-        toast('Polecenia dla AI wymagają połączenia z Claude.', 'warn');
+        toast('Polecenia dla AI wymagają połączenia z AI.', 'warn');
         return;
       }
       result = localMerge(t, before, dictation, { ignore: state.ignore, clinical: payload.clinical });
@@ -893,7 +893,7 @@ async function process() {
   }
 
   commit(result.report, { baseline: before, warnings: result.warnings || [], corrections: result.corrections || [], source });
-  state.lastAI = source.startsWith('Claude') ? clone(result.report) : state.lastAI;
+  state.lastAI = source.startsWith('AI') ? clone(result.report) : state.lastAI;
   if (payload.inputLang === 'en' && dictation && result.report.lang === 'pl') state.enDictations.push(dictation);
   els.dictation.value = '';
   els.instruction.value = '';
@@ -963,7 +963,7 @@ function renderLangToggles() {
   const mark = (group, value) => group.querySelectorAll('button').forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.lang === value));
     b.disabled = b.dataset.lang === 'en' && !state.ai && value !== 'en';
-    b.title = b.disabled ? 'Wymaga AI (Claude) — brak klucza API' : '';
+    b.title = b.disabled ? 'Wymaga AI — AI jest teraz niedostępne' : '';
   });
   mark(els.inLang, state.inputLang);
   mark(els.outLang, state.outputLang);
@@ -977,7 +977,7 @@ function renderLangToggles() {
 
 async function setInputLang(lang) {
   if (lang === state.inputLang) return;
-  if (lang === 'en' && !state.ai) return toast('Dyktowanie po angielsku wymaga AI (Claude).', 'warn');
+  if (lang === 'en' && !state.ai) return toast('Dyktowanie po angielsku wymaga AI.', 'warn');
   if (state.recording) await stopRecording();
   state.inputLang = lang;
   dictationEngine.lang = lang === 'en' ? state.enVariant : 'pl-PL';
@@ -988,7 +988,7 @@ async function setInputLang(lang) {
 
 async function setOutputLang(lang) {
   if (lang === state.outputLang && lang === state.report.lang) return;
-  if (lang === 'en' && !state.ai) return toast('Opis po angielsku wymaga AI (Claude).', 'warn');
+  if (lang === 'en' && !state.ai) return toast('Opis po angielsku wymaga AI.', 'warn');
   state.outputLang = lang;
   renderLangToggles();
   save();
@@ -1014,9 +1014,9 @@ async function translateReport(lang) {
   if (!state.ai) {
     state.outputLang = r.lang;
     renderLangToggles();
-    return toast('Tłumaczenie wymaga AI (Claude).', 'warn');
+    return toast('Tłumaczenie wymaga AI.', 'warn');
   }
-  setBusy(true, lang === 'en' ? 'Claude tłumaczy opis na angielski…' : 'Claude tłumaczy opis na polski…');
+  setBusy(true, lang === 'en' ? 'AI tłumaczy opis na angielski…' : 'AI tłumaczy opis na polski…');
   try {
     const res = await fetch('/api/format', {
       method: 'POST',
@@ -1026,7 +1026,7 @@ async function translateReport(lang) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
     if (pristine) translationCache.set(key, clone(data.report));
-    commit(data.report, { warnings: data.warnings || [], source: `Claude · tłumaczenie ${lang.toUpperCase()}` });
+    commit(data.report, { warnings: data.warnings || [], source: `AI · tłumaczenie ${lang.toUpperCase()}` });
     toast(lang === 'en' ? 'Opis przetłumaczony na angielski' : 'Opis przetłumaczony na polski', 'ok');
   } catch (err) {
     state.outputLang = state.report.lang;
@@ -1045,7 +1045,7 @@ function setBusy(busy, label) {
   els.processBtn.querySelector('.btn-label').textContent = busy ? 'Przygotowuję…' : 'Przygotuj opis';
   els.processBtn.title = `${state.ai ? 'AI wstawia dyktat do szablonu, sprawdza sprzeczności i pisze wnioski' : 'Wstawia dyktat do szablonu regułami lokalnymi'} — ${els.processBtn.dataset.langs || ''} (Ctrl+Enter)`;
   els.processing.hidden = !busy;
-  els.processingText.textContent = label || (state.ai ? 'Claude opracowuje opis…' : 'Wstawianie do szablonu…');
+  els.processingText.textContent = label || (state.ai ? 'AI opracowuje opis…' : 'Wstawianie do szablonu…');
 }
 
 // ---------------------------------------------------------------- copy
@@ -1898,7 +1898,7 @@ async function checkStatus() {
   }
   els.aiStatus.classList.toggle('ok', state.ai);
   els.aiStatus.classList.toggle('local', !state.ai);
-  els.aiStatus.querySelector('.label').textContent = state.ai ? 'AI: Claude' : 'Tryb lokalny (bez AI)';
+  els.aiStatus.querySelector('.label').textContent = state.ai ? 'AI: włączone' : 'Tryb lokalny (bez AI)';
   els.aiStatus.title = state.ai ? `Model: ${state.model}` : 'AI chwilowo niedostępne — dyktat jest wstawiany i sprawdzany regułami lokalnymi.';
   if (!state.ai) {
     state.inputLang = 'pl';

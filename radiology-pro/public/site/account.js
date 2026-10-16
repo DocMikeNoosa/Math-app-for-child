@@ -80,7 +80,9 @@ function render() {
   $('#friendCard').hidden = !friend;
   if (friend) {
     $('#keyMasked').textContent = friend.key || 'brak — wklej klucz poniżej';
-    $('#ownCost').textContent = `${fmtUsd(friend.ownCostUsd)} (płatne przez Ciebie w Anthropic)`;
+    $('#ownCost').textContent = `${fmtUsd(friend.ownCostUsd)} (z Twojego konta API)`;
+    $('#creditOut').hidden = !friend.creditOut;
+    if (friend.billingUrl) $('#topUp').href = friend.billingUrl;
     $('#keyRemove').hidden = !friend.key;
     if (!friend.key) { $('#keyGuide').open = true; loadKeyGuide(); }
   }
@@ -104,10 +106,11 @@ function render() {
   else if (p.get('canceled')) showMsg($('#notice'), 'Płatność anulowana — nic nie zostało pobrane.', 'info');
   else if (owner) showMsg($('#notice'), 'Konto właściciela usługi — pełny dostęp bez subskrypcji. Włącz logowanie dwuetapowe poniżej.', 'info');
   else if (p.get('verify') === 'bad' && me.access.code === 'verify') showMsg($('#notice'), 'Link potwierdzający wygasł lub był już użyty — wyślij nowy przyciskiem poniżej.', 'warn');
-  else if (me.friend && !me.friend.key) showMsg($('#notice'), 'Ostatni krok: wklej swój klucz API Claude w kartę „Twój klucz API” poniżej. Nie masz go jeszcze? Instrukcja krok po kroku jest pod polem.', 'info');
+  else if (me.friend && !me.friend.key) showMsg($('#notice'), 'Ostatni krok: wklej swój klucz API w kartę „Twój klucz API” poniżej. Nie masz go jeszcze? Instrukcja krok po kroku jest pod polem.', 'info');
   else if (!me.access.ok) showMsg($('#notice'), me.access.reason, me.access.code === 'verify' || me.access.code === 'pending' ? 'info' : 'err');
   else if (org) showMsg($('#notice'), `Licencję zapewnia ${org.name}${org.status === 'trial' ? ' (okres próbny)' : ''}. Sprawy konta i hasła: dział IT${org.contact ? ` — ${org.contact}` : ''}.`, 'info');
   else if (u.subStatus === 'trial') showMsg($('#notice'), `Okres próbny: zostało ${left} dni. Wybierz plan, aby pracować dalej bez przerwy.`, 'info');
+  else if (friend && friend.creditOut) showMsg($('#notice'), 'Skończyły się środki na Twoim koncie API — doładuj je (przycisk „Doładuj teraz” poniżej), a AI od razu zadziała.', 'err');
   else if (friend) showMsg($('#notice'), 'Wersja dla przyjaciół — wszystko za darmo, opisy rozliczasz własnym kluczem API.', 'info');
   else if (u.subUntil > 0 && left <= 7 && !u.hasStripe) showMsg($('#notice'), `Subskrypcja kończy się za ${left} dni.`, 'info');
   $('#verifyRow').hidden = me.access.code !== 'verify';
@@ -225,7 +228,7 @@ $('#keyForm')?.addEventListener('submit', async (e) => {
   try {
     const r = await api('/api/me/api-key', { method: 'POST', body: { key: $('#apiKey').value } });
     me = r; $('#apiKey').value = ''; render();
-    toast(r.keyChecked === false ? 'Klucz zapisany. Anthropic nie odpowiedział teraz, więc sprawdzimy go przy pierwszym opisie.' : 'Klucz działa i jest zapisany — możesz dyktować.', 'ok', 6000);
+    toast(r.keyChecked === false ? 'Klucz zapisany. Nie udało się go teraz sprawdzić — sprawdzimy go przy pierwszym opisie.' : 'Klucz działa i jest zapisany — możesz dyktować.', 'ok', 6000);
   } catch (err) { toast(err.message, 'err', 9000); }
   finally { btn.disabled = false; btn.textContent = 'Zapisz klucz'; }
 });
@@ -247,3 +250,14 @@ async function loadKeyGuide() {
 }
 $('#keyGuide')?.addEventListener('toggle', () => { if ($('#keyGuide').open) loadKeyGuide(); });
 if (new URLSearchParams(location.search).has('klucz')) setTimeout(() => $('#friendCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+
+$('#creditCheck')?.addEventListener('click', async (e) => {
+  const b = e.currentTarget;
+  b.disabled = true; b.textContent = 'Sprawdzam…';
+  try {
+    me = await api('/api/me/api-key-check', { method: 'POST', body: {} });
+    render();
+    toast(me.unchecked ? 'Nie udało się teraz sprawdzić — spróbuj przygotować opis.' : 'Środki są — możesz dyktować.', 'ok', 5000);
+  } catch (err) { toast(err.message, 'err', 8000); }
+  finally { b.disabled = false; b.textContent = 'Wpłaciłem — sprawdź'; }
+});

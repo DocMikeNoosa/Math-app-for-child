@@ -42,6 +42,60 @@ export function showBanner(text, { error = false, link = true, onClose = null } 
   if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
 }
 
+// ---------------------------------------------------------------- friends: top up the API account
+// Shown when the friend's API credit has run out: what happened, a button to the payment page, and a re-check.
+let creditOpen = false;
+export function showCreditDialog(billingUrl = 'https://platform.claude.com/settings/billing') {
+  if (creditOpen) return;
+  creditOpen = true;
+  const show = () => {
+    const wrap = document.createElement('div');
+    wrap.className = 'credit-dialog';
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-modal', 'true');
+    wrap.innerHTML = `<div class="credit-box">
+      <div class="credit-icon">!</div>
+      <h2>Doładuj konto API</h2>
+      <p>Skończyły się środki na Twoim koncie API, dlatego AI nie może teraz przygotować opisu. Doładowanie trwa minutę — jak telefon na kartę.</p>
+      <ol>
+        <li>Kliknij <b>„Doładuj teraz”</b> — strona płatności otworzy się w nowej karcie.</li>
+        <li>Kliknij <b>Buy credits</b>, wybierz kwotę (proponujemy <b>20 USD</b>) i zapłać kartą.</li>
+        <li>Wróć tutaj i kliknij <b>„Wpłaciłem — sprawdź”</b>.</li>
+      </ol>
+      <details><summary>Co to jest konto API?</summary><p>To Twoje osobiste konto z przedpłaconymi środkami na korzystanie z AI. Za każdym razem, gdy aplikacja użyje AI (np. przygotuje opis), pobierana jest niewielka opłata — to naprawdę niewiele. Nie wydasz więcej, niż wpłacisz. Jeśli nie chcesz pamiętać o doładowaniu, na tej samej stronie możesz włączyć automatyczne doładowanie (<i>auto-reload</i>).</p></details>
+      <div class="credit-msg" hidden></div>
+      <div class="credit-actions">
+        <a class="credit-primary" target="_blank" rel="noopener"></a>
+        <button type="button" class="credit-check">Wpłaciłem — sprawdź</button>
+        <button type="button" class="credit-close">Zamknij</button>
+      </div>
+    </div>`;
+    const a = wrap.querySelector('.credit-primary');
+    a.href = billingUrl;
+    a.textContent = 'Doładuj teraz ↗';
+    const msg = wrap.querySelector('.credit-msg');
+    const close = () => { wrap.remove(); creditOpen = false; };
+    wrap.querySelector('.credit-close').addEventListener('click', close);
+    wrap.querySelector('.credit-check').addEventListener('click', async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true; b.textContent = 'Sprawdzam…';
+      try {
+        const r = await nativeFetch('/api/me/api-key-check', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Radiopis': '1' }, body: '{}' });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) {
+          msg.hidden = false; msg.className = 'credit-msg ok';
+          msg.textContent = d.unchecked ? 'Nie udało się teraz sprawdzić — spróbuj przygotować opis.' : 'Środki są — możesz dyktować dalej.';
+          setTimeout(close, 1800);
+        } else { msg.hidden = false; msg.className = 'credit-msg err'; msg.textContent = d.error || 'Nie udało się sprawdzić.'; }
+      } catch { msg.hidden = false; msg.className = 'credit-msg err'; msg.textContent = 'Brak połączenia — spróbuj za chwilę.'; }
+      b.disabled = false; b.textContent = 'Wpłaciłem — sprawdź';
+    });
+    document.body.append(wrap);
+    a.focus();
+  };
+  if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
+}
+
 window.fetch = async (input, init = {}) => {
   const u = typeof input === 'string' ? input : input?.url;
   if (!isApi(u)) return nativeFetch(input, init);
@@ -52,6 +106,7 @@ window.fetch = async (input, init = {}) => {
   } else if (res.status === 402) {
     const d = await res.clone().json().catch(() => ({}));
     if (d.code === 'pwd') { location.href = '/change-password'; return res; }
+    if (d.code === 'own_credit') { showCreditDialog(d.billingUrl); return res; }
     showBanner(d.error || 'Brak dostępu.', { error: d.code !== 'quota' });
   } else if (res.ok && u === '/api/format') {
     const d = await res.clone().json().catch(() => null);
@@ -63,7 +118,9 @@ window.fetch = async (input, init = {}) => {
       if (d.access.code === 'pwd') location.href = '/change-password';
       else showBanner(d.access.reason, { error: true });
     } else if (d?.access?.needKey) {
-      showBanner('Ostatni krok: dodaj swój klucz API Claude na stronie konta (jest tam instrukcja krok po kroku) — potem AI przygotuje opisy.');
+      showBanner('Ostatni krok: dodaj swój klucz API na stronie konta (jest tam instrukcja krok po kroku) — potem AI przygotuje opisy.');
+    } else if (d?.credit?.out) {
+      showCreditDialog(d.credit.billingUrl);
     } else if (d?.announcement && sessionStorage.getItem('radiopis.ann') !== d.announcement) {
       showBanner(d.announcement, { link: false, onClose: () => sessionStorage.setItem('radiopis.ann', d.announcement) });
     }

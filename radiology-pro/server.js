@@ -36,7 +36,7 @@ import { extendSubscription, stripeEnabled, createCheckout, createPrepaidCheckou
 import { sendMail, adminEmail, mailConfigured } from './lib/mail.js';
 import { runJobs, startJobs } from './lib/jobs.js';
 import { BRAND } from './lib/brand.js';
-import { aiConfigured, PROVIDER, withOwnKey, usingOwnKey, ownKeyProblem, checkOwnKey } from './lib/ai-client.js';
+import { aiConfigured, PROVIDER, withOwnKey, usingOwnKey, ownKeyProblem, checkOwnKey, isCreditProblem, BILLING_URL } from './lib/ai-client.js';
 import { seal, open as openSecret, maskKey, fingerprint } from './lib/secret-box.js';
 import { sharingSignals } from './lib/sharing.js';
 
@@ -199,6 +199,16 @@ function recordUsage(user, { kind, reportId = '', model = '', usage = null, ms =
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   user.id, Date.now(), monthOf(), kind, String(reportId).slice(0, 64), model || '', u.input_tokens || 0, u.output_tokens || 0,
   u.cache_creation_input_tokens || 0, u.cache_read_input_tokens || 0, own ? 0 : cost, own ? cost : 0, ms, ok ? 1 : 0, lang, globalVersion);
+  if (own && ok && usage && user.credit_out) run('UPDATE users SET credit_out = 0 WHERE id = ?', user.id); // topped up: works again
+}
+
+/** A friend's API credit ran out: remember it (account page, app, owner) and e-mail them at most once a day. */
+async function noteCreditOut(user, req) {
+  const now = Date.now();
+  run('UPDATE users SET credit_out = ? WHERE id = ? AND credit_out = 0', now, user.id);
+  if (now - (user.credit_mailed || 0) < 86400000) return;
+  run('UPDATE users SET credit_mailed = ? WHERE id = ?', now, user.id);
+  await sendMail(user.email, `${BRAND.name}: doładuj konto API`, `Dzień dobry,\n\nskończyły się środki na Twoim koncie API, dlatego AI w ${BRAND.name} nie może teraz przygotowywać opisów.\n\nDoładowanie trwa minutę (jak telefon na kartę):\n1. Otwórz: ${BILLING_URL}\n2. Kliknij „Buy credits”, wybierz kwotę (proponujemy 20 USD) i zapłać kartą.\n3. Wróć do aplikacji — działa od razu.\n\nInstrukcja krok po kroku: ${baseUrl(req)}/klucz-api#doladowanie`).catch(() => {});
 }
 
 /** Run an AI request: a friend's request goes out with their own API key, everyone else's with the service's. */
@@ -234,8 +244,12 @@ export function cleanLearned(l) {
 }
 
 /** AI errors for the browser. A bad server API key (401) is the operator's problem, not the user's login. */
-function sendAiError(res, err) {
+function sendAiError(res, err, ctx = null, req = null) {
   if (usingOwnKey()) {
+    if (isCreditProblem(err)) {
+      if (ctx) noteCreditOut(ctx.user, req).catch(() => {});
+      return sendJson(res, 402, { error: 'Skończyły się środki na Twoim koncie API — doładuj je, a AI od razu zadziała.', code: 'own_credit', billingUrl: BILLING_URL });
+    }
     const problem = ownKeyProblem(err);
     if (problem) return sendJson(res, 402, { error: `${problem} (strona konta → „Twój klucz API”)`, code: 'own_key' });
   }
@@ -312,7 +326,7 @@ async function handleFormat(req, res, ctx) {
     }
     recordUsage(ctx.user, { kind: 'format', reportId: '', ms: Date.now() - started, ok: false, lang: langTag });
     recordEvent(ctx.user.id, 'ai', String(err.status || 500), '', req.headers['user-agent']);
-    if (err instanceof ClaudeError) return sendAiError(res, err);
+    if (err instanceof ClaudeError) return sendAiError(res, err, ctx, req);
     console.error(err);
     sendJson(res, 500, { error: 'Błąd serwera.' });
   }
@@ -335,7 +349,7 @@ async function handleLearn(req, res, ctx) {
   } catch (err) {
     if (err instanceof BusyError) return sendAiError(res, err);
     recordUsage(ctx.user, { kind: 'learn', ms: Date.now() - started, ok: false });
-    if (err instanceof ClaudeError) return sendAiError(res, err);
+    if (err instanceof ClaudeError) return sendAiError(res, err, ctx, req);
     console.error(err);
     sendJson(res, 500, { error: 'Błąd serwera.' });
   }
@@ -429,7 +443,7 @@ function mePayload(ctx) {
     plan: u.sub_status === 'friend' ? { id: 'friend', name: 'Wersja dla przyjaciół (własny klucz API)', pricePln: 0, quota: 0, devices: 2 } : org ? { id: 'org', name: `Licencja: ${org.name}`, pricePln: 0, quota: quotaOf(u), devices: org.devices } : { id: p.id, name: p.name, pricePln: p.pricePln, quota: quotaOf(u), devices: p.devices },
     usage: { month: monthOf(), reports: used.reports },
     access: access(u),
-    friend: u.sub_status === 'friend' ? { key: maskKey(openSecret(u.api_key_enc)), ownCostUsd: one('SELECT COALESCE(SUM(own_cost_usd),0) AS c FROM usage WHERE user_id = ? AND month = ?', u.id, monthOf()).c } : null,
+    friend: u.sub_status === 'friend' ? { key: maskKey(openSecret(u.api_key_enc)), ownCostUsd: one('SELECT COALESCE(SUM(own_cost_usd),0) AS c FROM usage WHERE user_id = ? AND month = ?', u.id, monthOf()).c, creditOut: u.credit_out || 0, billingUrl: BILLING_URL } : null,
     sessions: userSessions(u.id).map((s) => ({ ...s, current: s.id === ctx.sessionId, id: undefined })),
     payments: all('SELECT ts, amount_pln, provider, plan, period_until FROM payments WHERE user_id = ? ORDER BY ts DESC LIMIT 24', u.id),
     plans: plans().filter((x) => x.public).map(({ stripePrice, stripePriceYear, ...x }) => ({ ...x, online: Boolean(stripeEnabled() && stripePrice), onlineYear: Boolean(stripeEnabled() && stripePriceYear) })),
@@ -573,6 +587,14 @@ async function handleMe(req, res, ctx, route) {
   if (route === '' && req.method === 'GET') return sendJson(res, 200, mePayload(ctx));
   const body = await readJson(req, 20_000);
   const u = ctx.user;
+  if (route === 'api-key-check') {
+    // "I have topped up": test the saved key now, so the friend knows at once whether it works again
+    if (u.sub_status !== 'friend' || !u.api_key_enc) return sendJson(res, 400, { error: 'Najpierw dodaj klucz API.' });
+    const check = await checkOwnKey(openSecret(u.api_key_enc));
+    if (check.ok && !check.unchecked) run('UPDATE users SET credit_out = 0 WHERE id = ?', u.id);
+    if (check.ok) return sendJson(res, 200, { ok: true, unchecked: Boolean(check.unchecked), ...mePayload({ ...ctx, user: getUser(u.id) }) });
+    return sendJson(res, 400, { error: check.credit ? 'Środki jeszcze nie dotarły albo wpłata się nie udała. Wpłata zwykle pojawia się po chwili — spróbuj za minutę.' : check.problem, code: check.credit ? 'own_credit' : 'own_key', billingUrl: check.credit ? BILLING_URL : undefined });
+  }
   if (route === 'api-key') {
     if (u.sub_status !== 'friend') return sendJson(res, 403, { error: 'Własny klucz API jest tylko w wersji dla przyjaciół.' });
     if (req.method === 'DELETE') { run("UPDATE users SET api_key_enc = '', key_hash = '' WHERE id = ?", u.id); audit(u.id, 'apikey.remove', u.id); return sendJson(res, 200, mePayload({ ...ctx, user: getUser(u.id) })); }
@@ -587,8 +609,8 @@ async function handleMe(req, res, ctx, route) {
       return sendJson(res, 409, { error: 'Ten klucz API jest już używany na innym koncie RadVox Pro. Konto i klucz są osobiste — utwórz własny klucz na swoim koncie Anthropic (instrukcja: /klucz-api).', code: 'own_key' });
     }
     const check = await checkOwnKey(k);
-    if (!check.ok) { audit(u.id, 'apikey.rejected', u.id, maskKey(k)); return sendJson(res, 400, { error: check.problem, code: 'own_key' }); }
-    run('UPDATE users SET api_key_enc = ?, key_hash = ? WHERE id = ?', seal(k), fp, u.id);
+    if (!check.ok) { audit(u.id, 'apikey.rejected', u.id, maskKey(k)); return sendJson(res, 400, { error: check.problem, code: check.credit ? 'own_credit' : 'own_key', billingUrl: check.credit ? BILLING_URL : undefined }); }
+    run('UPDATE users SET api_key_enc = ?, key_hash = ?, credit_out = 0 WHERE id = ?', seal(k), fp, u.id);
     audit(u.id, 'apikey.set', u.id, maskKey(k));
     return sendJson(res, 200, { ...mePayload({ ...ctx, user: getUser(u.id) }), keyChecked: !check.unchecked });
   }
@@ -741,15 +763,15 @@ function friendMessage(req, user, link, startPwd = '') {
   return `Cześć${first ? ` ${first}` : ''}!\n\nZałożyłem Ci darmowe konto w ${BRAND.name} (wersja dla przyjaciół). Aplikacja przeprowadzi Cię przez wszystko krok po kroku:\n\n`
     + `${step1}\n\n`
     + `2. Zaznacz jedną zgodę (sprawdzasz każdy opis przed użyciem).\n\n`
-    + `3. Zdobądź i wklej swój klucz API Claude — nie musisz wiedzieć, co to jest, aplikacja wszystko wyjaśni (ok. 10 minut). Instrukcja: ${baseUrl(req)}/klucz-api\n\n`
-    + `Aplikacja jest dla Ciebie za darmo; za AI płacisz sam, bezpośrednio w Anthropic, tylko za to, co zużyjesz. Konto jest osobiste — tylko dla Ciebie.`;
+    + `3. Załóż swój klucz API i wklej go w aplikacji — nie musisz wiedzieć, co to jest, aplikacja wszystko wyjaśni (ok. 10 minut). Instrukcja: ${baseUrl(req)}/klucz-api\n\n`
+    + `Aplikacja jest dla Ciebie za darmo. Za korzystanie z AI płacisz sam niewielkie kwoty z własnego konta API (doładowujesz je jak telefon na kartę). Konto jest osobiste — tylko dla Ciebie.`;
 }
 
 /** One friend for the owner's "Przyjaciele" tab. */
 function friendRow(u, month = monthOf()) {
   const row = adminUserRow(u, month);
   const own = one('SELECT COALESCE(SUM(own_cost_usd), 0) AS c FROM usage WHERE user_id = ? AND month = ?', u.id, month).c;
-  const state = u.blocked ? 'suspended' : !u.last_login ? 'invited' : !u.api_key_enc ? 'nokey' : 'ready';
+  const state = u.blocked ? 'suspended' : !u.last_login ? 'invited' : !u.api_key_enc ? 'nokey' : u.credit_out ? 'nocredit' : 'ready';
   return { ...row, state, ownCostUsd: own, ownCostPln: own * usdPln(), sharing: sharingSignals(u.id) };
 }
 
@@ -1665,7 +1687,7 @@ export function createServer() {
         res.uid = ctx?.user.id;
         if (p === '/api/status') {
           const a = ctx ? access(ctx.user) : { ok: false, code: 'login' };
-          return sendJson(res, 200, { ai: (ctx?.user.sub_status === 'friend' ? Boolean(ctx.user.api_key_enc) : aiAvailable()) && a.ok, friend: ctx?.user.sub_status === 'friend', model: aiAvailable() ? MODEL : null, version: VERSION, hosted: true, user: ctx ? publicUser(ctx.user) : null, access: a, brand: BRAND, announcement: settings().announcement || '' });
+          return sendJson(res, 200, { ai: (ctx?.user.sub_status === 'friend' ? Boolean(ctx.user.api_key_enc) : aiAvailable()) && a.ok, friend: ctx?.user.sub_status === 'friend', credit: ctx?.user.sub_status === 'friend' && ctx.user.credit_out ? { out: true, billingUrl: BILLING_URL } : null, model: aiAvailable() ? MODEL : null, version: VERSION, hosted: true, user: ctx ? publicUser(ctx.user) : null, access: a, brand: BRAND, announcement: settings().announcement || '' });
         }
         if (p === '/api/plans' && method === 'GET') {
           return sendJson(res, 200, { plans: plans().filter((x) => x.public).map(({ stripePrice, stripePriceYear, ...x }) => x), trialDays: settings().trialDays, annualMonths: settings().annualMonths, registrationOpen: settings().registrationOpen, requireNpwz: settings().requireNpwz, brand: BRAND });

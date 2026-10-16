@@ -42,13 +42,19 @@ export function aiConfigured() {
  * Anthropic answers 401 for a wrong / disabled / expired key, 400 for no credit or a key that needs a workspace,
  * 403 when the key's account may not use the API.
  */
+export const BILLING_URL = 'https://platform.claude.com/settings/billing';
+/** The friend's API account has no money left (a top-up fixes it). */
+export function isCreditProblem(err) {
+  const msg = String(err?.error?.error?.message || err?.message || '').toLowerCase();
+  return err?.status === 400 && /credit|balance|billing/.test(msg);
+}
 export function ownKeyProblem(err) {
   const msg = String(err?.error?.error?.message || err?.message || '').toLowerCase();
-  if (err?.status === 401) return 'Anthropic nie przyjmuje tego klucza — jest błędny, wyłączony albo wygasł. Utwórz nowy klucz (ważność: „Never”) i wklej go ponownie.';
-  if (err?.status === 400 && /credit|balance|billing/.test(msg)) return 'Na Twoim koncie Anthropic nie ma środków. Doładuj je: platform.claude.com → Settings → Billing.';
+  if (err?.status === 401) return 'Ten klucz nie działa — jest błędny, wyłączony albo wygasł. Utwórz nowy klucz (ważność: „Never”) i wklej go ponownie.';
+  if (isCreditProblem(err)) return 'Skończyły się środki na Twoim koncie API. Doładuj je (jak telefon na kartę): platform.claude.com → Settings → Billing → Buy credits.';
   if (err?.status === 400 && /workspace/.test(msg)) return 'Ten klucz nie jest przypisany do jednego workspace. Utwórz nowy klucz i przy tworzeniu wybierz workspace „Default”.';
-  if (err?.status === 403) return 'Konto Anthropic tego klucza nie ma uprawnień do API. Sprawdź konto na platform.claude.com albo utwórz klucz jako jego właściciel.';
-  if (err?.status === 404 && /model/.test(msg)) return 'Konto Anthropic tego klucza nie ma dostępu do modelu używanego przez aplikację. Sprawdź konto na platform.claude.com.';
+  if (err?.status === 403) return 'Konto API tego klucza nie ma uprawnień. Sprawdź konto na platform.claude.com albo utwórz klucz jako jego właściciel.';
+  if (err?.status === 404 && /model/.test(msg)) return 'Konto API tego klucza nie ma dostępu do potrzebnego modelu AI. Sprawdź konto na platform.claude.com.';
   return null;
 }
 
@@ -59,6 +65,6 @@ export async function checkOwnKey(apiKey) {
     return { ok: true };
   } catch (err) {
     const problem = ownKeyProblem(err);
-    return problem ? { ok: false, problem } : { ok: true, unchecked: true };
+    return problem ? { ok: false, problem, credit: isCreditProblem(err) } : { ok: true, unchecked: true };
   }
 }

@@ -58,7 +58,7 @@ test('owner creates a friend: free account, no plan to pay, asked for their own 
   assert.equal(r.data.user.friend, true);
   friendId = r.data.user.id;
   const mail = db.one("SELECT body FROM outbox WHERE to_addr = 'jan@kolega.pl' ORDER BY id DESC LIMIT 1").body;
-  assert.match(mail, /klucz API Claude/);
+  assert.match(mail, /klucz API/);
   const token = r.data.link.split('token=')[1];
   const set = await call('POST', '/api/auth/reset', { token, password: 'kolegahaslo2026' });
   friendCookie = set.cookie;

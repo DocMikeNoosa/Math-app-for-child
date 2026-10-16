@@ -341,3 +341,6 @@ details.guide > summary { cursor: pointer; font-weight: 600; margin: 4px 0 8px; 
 .wz-done { text-align: center; }
 .wz-big { width: 72px; height: 72px; margin: 6px auto 10px; border-radius: 50%; display: grid; place-items: center; font-size: 36px; font-weight: 700; color: #1a1305; background: #f5c14e; box-shadow: 0 10px 40px -10px rgba(245, 193, 78, 0.7); }
 .msg.warn { background: rgba(255, 181, 71, 0.08); border: 1px solid rgba(255, 181, 71, 0.35); color: #ffd79a; }
+.credit-out { margin: 0 0 14px; padding: 14px 16px; border-radius: 12px; background: rgba(255, 181, 71, 0.08); border: 1px solid rgba(255, 181, 71, 0.45); }
+.credit-out b { color: #ffd79a; }
+.credit-out p { margin: 6px 0 4px; font-size: 14px; }

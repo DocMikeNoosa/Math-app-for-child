@@ -730,6 +730,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 const FRIEND_STATE = {
   ready: ['ok', 'gotowy — ma klucz'],
   nokey: ['warn', 'czeka na klucz API'],
+  nocredit: ['err', 'brak środków na koncie API'],
   invited: ['warn', 'zaproszony — jeszcze nie wszedł'],
   suspended: ['err', 'zawieszony'],
 };

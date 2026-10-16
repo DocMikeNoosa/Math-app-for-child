@@ -173,6 +173,8 @@ function migrate(d) {
   add('end_mailed', 'INTEGER NOT NULL DEFAULT 0');                   // "your trial has ended" e-mail sent
   add('api_key_enc', "TEXT NOT NULL DEFAULT ''");                    // friend account: own Anthropic API key, encrypted (lib/secret-box.js)
   add('key_hash', "TEXT NOT NULL DEFAULT ''");                       // friend account: keyed hash of the key (one key = one account)
+  add('credit_out', 'INTEGER NOT NULL DEFAULT 0');                   // friend account: when the API credit ran out (0 = fine)
+  add('credit_mailed', 'INTEGER NOT NULL DEFAULT 0');                // last "top up your credit" e-mail (at most one a day)
   const ucols = new Set(d.prepare('PRAGMA table_info(usage)').all().map((c) => c.name));
   // which published version of the global (central) knowledge was used for this AI call — traceability
   if (!ucols.has('global_version')) d.exec('ALTER TABLE usage ADD COLUMN global_version INTEGER');

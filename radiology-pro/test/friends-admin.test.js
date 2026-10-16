@@ -73,7 +73,8 @@ test('the key is tested before it is saved, with a reason the friend can act on'
   assert.equal(r.res.status, 400);
   assert.match(r.data.error, /błędny, wyłączony albo wygasł/);
   r = await tryKey(400, { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API.' });
-  assert.match(r.data.error, /nie ma środków/);
+  assert.match(r.data.error, /Skończyły się środki/);
+  assert.equal(r.data.code, 'own_credit');
   r = await tryKey(400, { type: 'invalid_request_error', message: 'anthropic-workspace-id is required when authenticating with an identity-linked API key' });
   assert.match(r.data.error, /workspace „Default”/);
   assert.equal(db.one('SELECT api_key_enc FROM users WHERE id = ?', anna).api_key_enc, '', 'a key that does not work is not saved');
@@ -89,7 +90,9 @@ test('the key is tested before it is saved, with a reason the friend can act on'
   const out = await format(annaCookie, 'a2');
   reply = { status: 200, error: null };
   assert.equal(out.res.status, 402);
-  assert.match(out.data.error, /Doładuj/);
+  assert.equal(out.data.code, 'own_credit');
+  assert.match(out.data.billingUrl, /platform\.claude\.com\/settings\/billing/);
+  assert.match(out.data.error, /doładuj/);
 });
 
 test('suspend and restore: the friend cannot log in while suspended, the key survives', async () => {
@@ -215,4 +218,71 @@ test('the wizard is only for friends', async () => {
   const r = await call('GET', '/witaj', undefined, reg.cookie);
   assert.equal(r.res.status, 302);
   assert.equal((await call('GET', '/witaj')).res.headers.get('location'), '/login?next=/witaj');
+});
+
+test('credit runs out: the friend is told at once, gets a top-up link (app, account page, one e-mail a day), and it clears after topping up', async () => {
+  const l = await call('POST', '/api/auth/login', { email: 'anna@example.com', password: 'annahaslo2026' });
+  const c = l.cookie;
+  db.run("UPDATE users SET credit_out = 0, credit_mailed = 0 WHERE id = ?", anna);
+  const mails = () => db.one("SELECT COUNT(*) AS n FROM outbox WHERE to_addr = 'anna@example.com' AND subject LIKE '%doładuj konto API%'").n;
+  const before = mails();
+  reply = { status: 400, error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' } };
+  const r1 = await format(c, 'cr1');
+  const r2 = await format(c, 'cr2');
+  assert.equal(r1.data.code, 'own_credit');
+  assert.equal(r2.data.code, 'own_credit');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(mails() - before, 1, 'one reminder, not one per attempt');
+  const mail = db.one("SELECT body FROM outbox WHERE to_addr = 'anna@example.com' AND subject LIKE '%doładuj konto API%' ORDER BY id DESC LIMIT 1").body;
+  assert.match(mail, /settings\/billing/);
+  assert.match(mail, /20 USD/);
+  assert.doesNotMatch(mail, /Anthropic|Claude/, 'the e-mail does not explain how the app works');
+  const st = await call('GET', '/api/status', undefined, c);
+  assert.equal(st.data.credit.out, true);
+  const me = await call('GET', '/api/me', undefined, c);
+  assert.ok(me.data.friend.creditOut > 0);
+  assert.equal((await call('GET', '/api/admin/friends', undefined, owner)).data.friends.find((f) => f.id === anna).state, 'nocredit');
+  // "I have topped up" before the money arrived → still no credit, clear message
+  const early = await call('POST', '/api/me/api-key-check', {}, c);
+  assert.equal(early.res.status, 400);
+  assert.equal(early.data.code, 'own_credit');
+  // topped up
+  reply = { status: 200, error: null };
+  const ok = await call('POST', '/api/me/api-key-check', {}, c);
+  assert.equal(ok.res.status, 200);
+  assert.equal(ok.data.friend.creditOut, 0);
+  assert.equal((await call('GET', '/api/status', undefined, c)).data.credit, null);
+  // a successful report also clears it (e.g. auto-reload)
+  db.run('UPDATE users SET credit_out = 1 WHERE id = ?', anna);
+  assert.equal((await format(c, 'cr3')).res.status, 200);
+  assert.equal(db.one('SELECT credit_out FROM users WHERE id = ?', anna).credit_out, 0);
+});
+
+test('a key with no credit yet is explained as "top up", not as a broken key', async () => {
+  const r0 = await call('POST', '/api/admin/friends', { email: 'ola@example.com', password: 'olaa-2345-abcd' }, owner);
+  assert.equal(r0.res.status, 200);
+  const l = await call('POST', '/api/auth/login', { email: 'ola@example.com', password: 'olaa-2345-abcd' });
+  await call('POST', '/api/me/first-password', { next: 'OlaHaslo20266', accept: true }, l.cookie);
+  reply = { status: 400, error: { type: 'invalid_request_error', message: 'Your credit balance is too low' } };
+  const r = await call('POST', '/api/me/api-key', { key: 'sk-ant-api03-OLAKEY-abcdefghijklmnopqrstuvwxyz7777' }, l.cookie);
+  reply = { status: 200, error: null };
+  assert.equal(r.data.code, 'own_credit');
+  assert.match(r.data.error, /Skończyły się środki/);
+  assert.match(r.data.billingUrl, /billing/);
+});
+
+test('friend-facing pages explain an API key generically, suggest 20 USD and do not explain how the app works', async () => {
+  for (const path of ['/klucz-api']) {
+    const html = await (await fetch(`${url}${path}`)).text();
+    assert.match(html, /20 USD/);
+    assert.match(html, /niewielka opłata/);
+    assert.match(html, /id="doladowanie"/);
+    assert.doesNotMatch(html.replace(/platform\.claude\.com/g, ''), /Anthropic|Claude/);
+  }
+  const fs = await import('node:fs');
+  for (const f of ['public/site/witaj.html', 'public/site/account.html', 'public/js/hosted.js']) {
+    assert.doesNotMatch(fs.readFileSync(f, 'utf8').replace(/platform\.claude\.com/g, ''), /Anthropic|Claude/, f);
+  }
+  const r = await call('POST', '/api/admin/friends', { email: 'msg@example.com' }, owner);
+  assert.doesNotMatch(r.data.message.replace(/platform\.claude\.com/g, ''), /Anthropic|Claude/);
 });

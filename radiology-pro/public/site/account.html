@@ -43,10 +43,15 @@
 
           <div class="card" id="friendCard" hidden>
             <div class="card-head"><h2>Twój klucz API</h2><span class="pill gold">wersja dla przyjaciół</span></div>
-            <p class="dim small" style="margin-top:0">Masz pełną wersję RadVox Pro za darmo. Opisy przygotowuje AI <b>Claude</b> na Twoim własnym koncie w Anthropic — płacisz tylko Anthropic, ze środków, które sam tam wpłacisz.</p>
+            <p class="dim small" style="margin-top:0">Masz pełną wersję RadVox Pro za darmo. Za korzystanie z AI płacisz sam niewielkie kwoty ze swojego konta API — jak z karty przedpłaconej.</p>
+            <div class="credit-out" id="creditOut" hidden>
+              <b>Skończyły się środki na Twoim koncie API</b>
+              <p>AI nie przygotuje opisów, dopóki nie doładujesz konta — trwa to minutę, jak doładowanie telefonu. Proponujemy 20 USD.</p>
+              <div class="btn-row"><a class="btn btn-primary" id="topUp" href="https://platform.claude.com/settings/billing" target="_blank" rel="noopener">Doładuj teraz ↗</a><button class="btn" type="button" id="creditCheck">Wpłaciłem — sprawdź</button><a class="btn btn-ghost" href="/klucz-api#doladowanie" target="_blank">Jak to zrobić?</a></div>
+            </div>
             <dl class="kv"><dt>Zapisany klucz</dt><dd id="keyMasked">—</dd><dt>Koszt AI w tym miesiącu</dt><dd id="ownCost">—</dd></dl>
             <form id="keyForm" class="actions" style="margin-top:12px" autocomplete="off">
-              <input id="apiKey" type="password" placeholder="wklej tutaj klucz: sk-ant-…" autocomplete="off" aria-label="Klucz API Anthropic" style="flex:1;min-width:220px" />
+              <input id="apiKey" type="password" placeholder="wklej tutaj klucz: sk-ant-…" autocomplete="off" aria-label="Klucz API" style="flex:1;min-width:220px" />
               <button class="btn btn-sm btn-primary" type="submit">Zapisz klucz</button>
               <button class="btn btn-sm btn-ghost" type="button" id="keyRemove" hidden>Usuń klucz</button>
             </form>
