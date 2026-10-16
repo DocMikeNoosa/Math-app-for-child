@@ -23,7 +23,7 @@ import {
   isLockedOut, create2faTicket, use2faTicket,
 } from './lib/auth.js';
 import { newSecret, verifyTotp, otpauthUri } from './lib/totp.js';
-import { openLearningDb, closeLearningDb, captureLearning, forgetContributor, archiveStats, versions as learningVersions, getVersion, updateVersionContent, publishVersion, unpublishAll, exportArchive } from './lib/learning.js';
+import { openLearningDb, closeLearningDb, captureLearning, forgetContributor, archiveStats, setExcluded, contributorStatus, quarantineList, versions as learningVersions, getVersion, updateVersionContent, publishVersion, unpublishAll, exportArchive } from './lib/learning.js';
 import { createGlobalVersion, guidanceFor, invalidateGlobal, publishedId, cleanGlobal, GLOBAL_DEFAULTS } from './lib/global-learning.js';
 import { getOrg, listOrgs, seatsUsed, orgUsers, createOrg, updateOrg, tempPassword, parseUserList, ORG_STATUS, TEMP_PASSWORD_RE } from './lib/orgs.js';
 import { aiLimiter, BusyError } from './lib/limiter.js';
@@ -948,6 +948,7 @@ async function handleAdmin(req, res, ctx, parts) {
       return sendJson(res, 200, {
         user: adminUserRow(u),
         sharing: sharingSignals(u.id),
+        learning: contributorStatus(u.id),
         months: months.map((m) => ({ ...m, costPln: m.cost * usdPln() })),
         byLang: all("SELECT lang, COUNT(*) AS calls FROM usage WHERE user_id = ? AND kind='format' GROUP BY lang", u.id),
         payments: all('SELECT * FROM payments WHERE user_id = ? ORDER BY ts DESC', u.id),
@@ -1020,6 +1021,13 @@ async function handleAdmin(req, res, ctx, parts) {
         provider: ['transfer', 'manual', 'stripe', 'free'].includes(b.provider) ? b.provider : 'manual', ref: str(b.ref, 120), note: str(b.note, 500),
       }, me);
       return sendJson(res, 200, { user: adminUserRow(updated) });
+    }
+    if (action === 'learning' && method === 'POST') {
+      // the owner keeps one user's lessons out of the central learning (their personal learning keeps working)
+      const b = await readJson(req, 2_000);
+      setExcluded(u.id, b.excluded === true, 'owner');
+      audit(me, 'learning.exclude', u.id, b.excluded === true ? 'wykluczono z nauki globalnej' : 'przywrócono do nauki globalnej');
+      return sendJson(res, 200, { learning: contributorStatus(u.id) });
     }
     if (action === 'invite-link' && method === 'POST') {
       // a fresh invitation for a friend (the old link expired or got lost); a friend who already logged in gets the login page
@@ -1558,7 +1566,7 @@ async function handleAdminOrgs(req, res, me, idStr, action) {
 async function handleAdminLearning(req, res, me, idStr, action) {
   const method = req.method;
   if (!idStr && method === 'GET') {
-    return sendJson(res, 200, { stats: archiveStats(), versions: learningVersions(), publishedId: publishedId(), defaults: GLOBAL_DEFAULTS, enabled: settings().globalLearning, aiCallsWithGlobal: one('SELECT COUNT(*) AS n FROM usage WHERE global_version IS NOT NULL').n });
+    return sendJson(res, 200, { stats: archiveStats(), versions: learningVersions(), publishedId: publishedId(), defaults: GLOBAL_DEFAULTS, enabled: settings().globalLearning, aiCallsWithGlobal: one('SELECT COUNT(*) AS n FROM usage WHERE global_version IS NOT NULL').n, quarantine: quarantineList(30) });
   }
   if (idStr === 'export' && method === 'GET') {
     audit(me, 'learning.export');

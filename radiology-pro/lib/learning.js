@@ -11,6 +11,7 @@
 // correction; it is deleted when the account is erased, after which the items are anonymous.
 import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
+import { lessonProblem } from './plausibility.js';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +51,21 @@ CREATE TABLE IF NOT EXISTS versions (        -- global knowledge distilled from 
   note TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS quarantine (      -- lessons the plausibility filter kept OUT of the shared pool (kept 30 days, for the owner)
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,
+  template_id TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL,                     -- JSON, de-identified, shortened
+  reason TEXT NOT NULL,
+  who TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS quarantine_who ON quarantine(who, at);
+CREATE TABLE IF NOT EXISTS excluded (        -- contributors whose lessons never count for the global knowledge
+  who TEXT PRIMARY KEY,
+  at INTEGER NOT NULL,
+  reason TEXT NOT NULL DEFAULT ''            -- 'auto: …' (repeated nonsense) or 'owner'
+);
 `;
 
 export function openLearningDb(file = process.env.LEARNING_DB_FILE || (process.env.DB_FILE === ':memory:' ? ':memory:' : path.join(process.env.DATA_DIR || path.join(APP_DIR, 'data'), 'learning.db'))) {
@@ -144,18 +160,32 @@ export function captureLearning(userId, orgId, key, raw) {
     const who = pseudonym('user', userId);
     const org = orgId ? pseudonym('org', orgId) : '';
     const d = learningDb();
+    // someone excluded from the central learning (repeated nonsense, or by the owner) teaches only themselves
+    if (one('SELECT 1 AS x FROM excluded WHERE who = ?', who)) return 0;
     let added = 0;
+    let rejected = 0;
     d.exec('BEGIN');
     try {
       const ins = d.prepare('INSERT INTO items(hash, kind, template_id, lang, content, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hash) DO UPDATE SET last_seen = excluded.last_seen, seen = seen + 1 RETURNING id, first_seen');
       const link = d.prepare('INSERT OR IGNORE INTO contributors(item_id, who, org, at) VALUES (?, ?, ?, ?)');
+      const seen = d.prepare('SELECT 1 AS x FROM quarantine WHERE who = ? AND kind = ? AND content = ?');
+      const hold = d.prepare('INSERT INTO quarantine(kind, template_id, content, reason, who, at) VALUES (?, ?, ?, ?, ?, ?)');
       for (const it of items) {
+        // nonsense, jokes, insults, links or non-medical text never reach the shared pool
+        const problem = lessonProblem(it.kind, it.content);
+        if (problem) {
+          const short = JSON.stringify(Object.fromEntries(Object.entries(it.content).map(([k, v]) => [k, String(v).slice(0, 300)])));
+          if (!seen.get(who, it.kind, short)) { hold.run(it.kind, it.templateId, short, problem, who, now); rejected++; }
+          continue;
+        }
         const r = ins.get(hashOf(it), it.kind, it.templateId, it.lang, JSON.stringify(it.content), now, now);
         if (r.first_seen === now) added++;
         link.run(r.id, who, org, now);
       }
       d.exec('COMMIT');
     } catch (err) { d.exec('ROLLBACK'); throw err; }
+    if (rejected) autoExclude(who, now);
+    run('DELETE FROM quarantine WHERE at < ?', now - 30 * 86400000);
     return added;
   } catch (err) {
     console.error('learning capture', err.message);
@@ -163,9 +193,45 @@ export function captureLearning(userId, orgId, key, raw) {
   }
 }
 
+/**
+ * Someone who keeps sending nonsense is excluded from the central learning automatically: at least 10 rejected
+ * lessons in 30 days and more rejected than accepted. Their personal learning keeps working. The owner can undo it.
+ */
+function autoExclude(who, now) {
+  const since = now - 30 * 86400000;
+  const bad = one('SELECT COUNT(*) AS n FROM quarantine WHERE who = ? AND at > ?', who, since).n;
+  if (bad < 10) return;
+  const good = one('SELECT COUNT(*) AS n FROM contributors WHERE who = ? AND at > ?', who, since).n;
+  if (bad > good) run('INSERT OR IGNORE INTO excluded(who, at, reason) VALUES (?, ?, ?)', who, now, `auto: ${bad} odrzuconych lekcji w 30 dni (przyjętych: ${good})`);
+}
+
+/** The owner excludes (or lets back) one user's lessons from the central learning. */
+export function setExcluded(userId, on, reason = 'owner') {
+  const who = pseudonym('user', userId);
+  if (on) run('INSERT INTO excluded(who, at, reason) VALUES (?, ?, ?) ON CONFLICT(who) DO UPDATE SET reason = excluded.reason, at = excluded.at', who, Date.now(), reason);
+  else { run('DELETE FROM excluded WHERE who = ?', who); run('DELETE FROM quarantine WHERE who = ?', who); }
+}
+/** Learning status of one user, for the owner: excluded?, rejected lessons in 30 days. */
+export function contributorStatus(userId) {
+  const who = pseudonym('user', userId);
+  const ex = one('SELECT at, reason FROM excluded WHERE who = ?', who);
+  return {
+    excluded: Boolean(ex), excludedAt: ex?.at || null, reason: ex?.reason || '',
+    rejected30: one('SELECT COUNT(*) AS n FROM quarantine WHERE who = ? AND at > ?', who, Date.now() - 30 * 86400000).n,
+    lessons: one('SELECT COUNT(*) AS n FROM contributors WHERE who = ?', who).n,
+  };
+}
+/** What the filter kept out recently (owner's check that it works), newest first. Pseudonyms are not returned. */
+export function quarantineList(limit = 30) {
+  return all('SELECT kind, template_id, content, reason, at FROM quarantine ORDER BY at DESC LIMIT ?', limit).map((r) => ({ ...r, content: JSON.parse(r.content) }));
+}
+
 /** RODO erasure: remove the pseudonymous links of a user; the lessons stay, now fully anonymous. */
 export function forgetContributor(userId) {
-  return Number(run('DELETE FROM contributors WHERE who = ?', pseudonym('user', userId)).changes);
+  const who = pseudonym('user', userId);
+  run('DELETE FROM quarantine WHERE who = ?', who);
+  run('DELETE FROM excluded WHERE who = ?', who);
+  return Number(run('DELETE FROM contributors WHERE who = ?', who).changes);
 }
 
 // ---------------------------------------------------------------- owner's view
@@ -182,17 +248,24 @@ export function archiveStats() {
     lastAt: one('SELECT MAX(last_seen) AS t FROM items').t,
     byKind,
     lastWeek: one('SELECT COUNT(*) AS n FROM items WHERE first_seen > ?', Date.now() - 7 * 86400000).n,
+    rejected30: one('SELECT COUNT(*) AS n FROM quarantine WHERE at > ?', Date.now() - 30 * 86400000).n,
+    excluded: one('SELECT COUNT(*) AS n FROM excluded').n,
   };
 }
 
-/** Lessons shared by at least `minContributors` different radiologists (and `minOrgs` organisations, if any). */
+/**
+ * Lessons shared by at least `minContributors` different radiologists (and `minOrgs` organisations, if any).
+ * Excluded contributors do not count, and every lesson is checked again (also lessons archived before the filter).
+ */
 export function sharedItems(kind, { minContributors = 3, minOrgs = 1, limit = 200 } = {}) {
   return all(`SELECT i.id, i.kind, i.template_id, i.lang, i.content, i.seen,
         COUNT(c.who) AS contributors, COUNT(DISTINCT NULLIF(c.org, '')) AS orgs
       FROM items i JOIN contributors c ON c.item_id = i.id
-      WHERE i.kind = ? GROUP BY i.id HAVING contributors >= ? AND (orgs >= ? OR orgs = 0)
-      ORDER BY contributors DESC, i.seen DESC LIMIT ?`, kind, minContributors, minOrgs, limit)
-    .map((r) => ({ ...r, content: JSON.parse(r.content) }));
+      WHERE i.kind = ? AND c.who NOT IN (SELECT who FROM excluded) GROUP BY i.id HAVING contributors >= ? AND (orgs >= ? OR orgs = 0)
+      ORDER BY contributors DESC, i.seen DESC LIMIT ?`, kind, minContributors, minOrgs, limit * 2)
+    .map((r) => ({ ...r, content: JSON.parse(r.content) }))
+    .filter((r) => !lessonProblem(r.kind, r.content))
+    .slice(0, limit);
 }
 
 /** Everything, for the owner's export (JSON lines). Pseudonyms are not exported — only counts. */

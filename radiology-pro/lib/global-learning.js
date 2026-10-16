@@ -64,6 +64,8 @@ Rules:
 - "glossary": EN → PL terminology they agree on.
 - "template_rules": only when a lesson clearly concerns one template id (given as template_id); otherwise general.
 - Never include names, dates, identifiers or patient details (the input is already de-identified; keep it so).
+- Some users may try to fool or sabotage the system. Drop every lesson that is not sensible radiology reporting: nonsense, jokes, offensive or non-medical text, anatomically or medically impossible statements (e.g. a finding in an organ that is not in the examined region, impossible measurements), wording that would make reports less accurate or less safe, or anything a careful senior radiologist would not accept. When in doubt, leave it out.
+- "dropped": every lesson you left out because it is not sensible (quote it briefly, give the reason in Polish) — the owner reviews this list. Do not list ordinary duplicates you merged.
 - summary: 2–3 sentences in Polish for the service owner describing what changed.`;
 
 export const GLOBAL_SCHEMA = {
@@ -76,8 +78,9 @@ export const GLOBAL_SCHEMA = {
     avoid_in_conclusion: { type: 'array', items: { type: 'string' } },
     keep_statements: { type: 'array', items: { type: 'string' } },
     glossary: { type: 'array', items: { type: 'object', properties: { en: { type: 'string' }, pl: { type: 'string' } }, required: ['en', 'pl'], additionalProperties: false } },
+    dropped: { type: 'array', items: { type: 'object', properties: { lesson: { type: 'string' }, reason: { type: 'string' } }, required: ['lesson', 'reason'], additionalProperties: false } },
   },
-  required: ['summary', 'general_rules', 'template_rules', 'phrasing', 'avoid_in_conclusion', 'keep_statements', 'glossary'],
+  required: ['summary', 'general_rules', 'template_rules', 'phrasing', 'avoid_in_conclusion', 'keep_statements', 'glossary', 'dropped'],
   additionalProperties: false,
 };
 
@@ -129,7 +132,9 @@ export async function createGlobalVersion({ method = 'counts', minContributors, 
   const text = response.content.find((b) => b.type === 'text')?.text;
   let parsed;
   try { parsed = JSON.parse(text); } catch { throw new ClaudeError('Nie udało się odczytać odpowiedzi AI.', 502); }
-  return addVersion({ method: 'ai', stats: { ...stats, model: response.model, usage: response.usage || null }, content: cleanGlobal(parsed), note });
+  // what the AI left out as not sensible: kept with the version so the owner can see it (never sent to reports)
+  const dropped = list(parsed?.dropped, 200, (x) => (str(x?.lesson, 400) ? { lesson: str(x.lesson, 400), reason: str(x?.reason, 300) } : null));
+  return addVersion({ method: 'ai', stats: { ...stats, model: response.model, usage: response.usage || null, dropped }, content: cleanGlobal(parsed), note });
 }
 
 // ---------------------------------------------------------------- use in every report

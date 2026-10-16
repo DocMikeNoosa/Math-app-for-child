@@ -96,9 +96,19 @@ overall layout — add functionality in the existing style.
 - Disclaimer (terms 1.1): one tick on `/accept` after the first login — doctor reads the whole report, own clinical
   judgment, own risk; full text `terms.html#odpowiedzialnosc`. Friends now go through it too (access() order fixed).
 
+## Learning safety (1.3)
+- `lib/plausibility.js` `lessonProblem(kind, content)`: links / code, repeated characters, offensive words, too few
+  letters, random-letter words, one word repeated, and too little medical vocabulary (PL + EN stems; everyday words
+  like "prawy/lewy" count half). Checked against the whole template library: 1 of 3187 lines rejected (a placeholder).
+- `captureLearning`: rejected lessons go to `quarantine` (30 days, shown to the owner), never to `items`.
+  ≥10 rejected in 30 days and more rejected than accepted → contributor auto-`excluded`; owner can exclude / restore
+  per user (drawer). Excluded contributors do not count in `sharedItems`, which also re-checks every lesson.
+- AI distillation prompt drops nonsense / medically impossible lessons and lists them (`stats.dropped`, shown in the
+  version drawer, never sent to reports). Personal learning is not filtered (it affects only that user).
+
 ## Technical notes
 - Templates: 397 + 112 snippets (MR and X-ray libraries completed Oct 2026: mr-body-msk-2.js, mr-neuro-spine-2.js, xray-2.js).
-- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (186 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
+- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (192 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
   `NODE_ENV=production` serves `dist/`.
 - Report counting: the browser sends `reportId` (one per report); usage rows with the same id count once.
 - `background: true` marks pre-processing calls; capped per report by `maxBackgroundCalls` (settings).

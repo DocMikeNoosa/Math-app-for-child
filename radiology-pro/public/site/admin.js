@@ -157,6 +157,7 @@ async function openUser(id) {
       ${kpi('Koszt AI (mies.)', fmtPln(u.costPln, 2), `${fmtUsd(u.costUsd)}${u.pricePln ? ` · ${pct(u.costPln, u.pricePln)} ceny planu` : ''}`)}
     </div>
     ${d.sharing?.flags?.length ? `<div class="msg warn"><b>Możliwe współdzielenie konta</b> (30 dni): ${d.sharing.flags.map(esc).join(' · ')}. Jeśli to nie on, zawieś konto albo zmień hasło przez „Link do zmiany hasła”.</div>` : ''}
+    ${d.learning ? `<p class="small">${d.learning.excluded ? `<span class="pill warn">wykluczony z nauki globalnej</span> <span class="dim">${esc(d.learning.reason === 'owner' ? 'przez Ciebie' : d.learning.reason)}</span>` : '<span class="pill ok">uczy wiedzę globalną</span>'} <span class="dim">· lekcje: ${d.learning.lessons} · zatrzymane przez filtr (30 dni): ${d.learning.rejected30}</span> <button class="btn btn-sm" data-act="learning">${d.learning.excluded ? 'Przywróć do nauki globalnej' : 'Wyklucz z nauki globalnej'}</button></p>` : ''}
     ${d.sharing?.logins ? `<p class="dim small">Logowania w 30 dni: ${d.sharing.logins} · przeglądarki: ${d.sharing.devices} · miejsca (sieci): ${d.sharing.networks}</p>` : ''}
     ${u.orgId ? `<div class="msg info">Licencja z organizacji <b>${esc(u.orgName)}</b> (do ${fmtDate(u.subUntil)}). Przedłużasz ją w zakładce „Organizacje”.</div>` : ''}
     <h3${u.orgId ? ' hidden' : ''}>Przedłuż / zapisz płatność</h3>
@@ -254,6 +255,12 @@ async function openUser(id) {
         } else if (act === 'logout') {
           await api(`/api/admin/users/${id}/logout`, { method: 'POST', body: {} });
           toast('Wylogowano', 'ok');
+        } else if (act === 'learning') {
+          const on = !d.learning.excluded;
+          if (on && !window.confirm(`Wykluczyć ${u.email} z nauki globalnej? Jego poprawki nie będą uczyć AI innych radiologów (jego własny styl działa dalej).`)) return;
+          await api(`/api/admin/users/${id}/learning`, { method: 'POST', body: { excluded: on } });
+          toast(on ? 'Wykluczono z nauki globalnej' : 'Przywrócono do nauki globalnej', 'ok');
+          openUser(id);
         } else if (act === 'access') {
           openAccessModal(u, async () => { await openUser(id); refreshCurrent(); });
         } else if (act === 'block') {
@@ -572,7 +579,10 @@ async function loadLearning() {
     kpi('Radiolodzy uczący AI', fmtNum(st.contributors), `${fmtNum(st.organisations)} organizacji · ${fmtNum(st.templates)} szablonów`),
     kpi('Wiedza globalna', d.publishedId ? `wersja ${d.publishedId}` : '—', d.enabled ? (d.publishedId ? 'używana w każdym opisie' : 'brak opublikowanej wersji') : 'wyłączona w ustawieniach', d.publishedId && d.enabled ? 'good' : ''),
     kpi('Opisy z wiedzą globalną', fmtNum(d.aiCallsWithGlobal), 'zapytania AI (ślad: która wersja)'),
+    kpi('Zatrzymane przez filtr', fmtNum(st.rejected30 || 0), `30 dni · wykluczonych osób: ${fmtNum(st.excluded || 0)}`, st.excluded ? 'warn' : ''),
   ].join('');
+  $('#lqcount').textContent = d.quarantine.length ? `ostatnie ${d.quarantine.length}` : '';
+  $('#lquar').innerHTML = d.quarantine.length ? d.quarantine.map((q) => `<tr><td>${fmtDateTime(q.at)}</td><td>${esc(KIND[q.kind] || q.kind)}</td><td class="small">${esc(Object.values(q.content).join(' → ').slice(0, 160))}</td><td><span class="pill warn">${esc(q.reason)}</span></td></tr>`).join('') : '<tr><td colspan="4" class="empty">Nic nie zostało zatrzymane.</td></tr>';
   $('#lkinds').innerHTML = st.byKind.length ? st.byKind.map((k) => `<tr><td>${esc(KIND[k.kind] || k.kind)}</td><td class="num">${fmtNum(k.items)}</td><td class="num">${fmtNum(k.shared)}</td><td class="num">${fmtNum(k.seen)}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">Archiwum jest puste — lekcje pojawią się, gdy radiolodzy zaczną poprawiać opisy.</td></tr>';
   $('#lversions').innerHTML = d.versions.length ? d.versions.map((v) => `<tr><td>${v.id}</td><td>${fmtDateTime(v.created_at)}${v.note ? `<span class="sub">${esc(v.note)}</span>` : ''}</td><td>${v.method === 'ai' ? 'AI' : 'liczby'}<span class="sub">≥${v.stats.minContributors} radiologów</span></td><td>${VSTATUS[v.status] || v.status}</td><td class="num"><button class="btn btn-sm" data-version="${v.id}">Otwórz</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">Brak wersji</td></tr>';
 }
@@ -616,6 +626,7 @@ async function openVersion(id) {
     ${SECTIONS.map(([key, title, fmt]) => (c[key]?.length ? `<h3>${title} (${c[key].length})</h3><ul class="vlist">${c[key].map((x, i) => item(key, i, fmt(x))).join('')}</ul>` : '')).join('')}
     ${tpl.length ? `<h3>Reguły dla szablonów (${tpl.length})</h3>${tpl.map(([tid, rules]) => `<div class="small"><b class="mono">${esc(tid)}</b><ul class="vlist">${rules.map((r, i) => item(`tpl:${tid}`, i, esc(r))).join('')}</ul></div>`).join('')}` : ''}
     <div class="actions" style="margin-top:16px">${draft ? '<button class="btn" id="vsave">Zapisz zmiany szkicu</button><button class="btn btn-primary" id="vpub">Opublikuj (działa od razu dla wszystkich)</button>' : v.status === 'archived' ? '<button class="btn btn-primary" id="vpub">Przywróć tę wersję (opublikuj ponownie)</button>' : ''}</div>
+    ${v.stats.dropped?.length ? `<h3>Pominięte przez AI jako niesensowne (${v.stats.dropped.length})</h3><ul class="vlist">${v.stats.dropped.map((x) => `<li><del>${esc(x.lesson)}</del> <span class="dim small">— ${esc(x.reason)}</span></li>`).join('')}</ul>` : ''}
     <h3>Statystyki źródłowe</h3><pre class="cred mono small">${esc(JSON.stringify(v.stats.shared || {}, null, 1))}</pre>`;
   $('#overlay').hidden = false;
   dr.hidden = false;
