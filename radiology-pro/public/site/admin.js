@@ -156,6 +156,8 @@ async function openUser(id) {
       ${kpi('Opisy (mies.)', `${u.reports} / ${u.quota}`, `${u.calls} zapytań AI`)}
       ${kpi('Koszt AI (mies.)', fmtPln(u.costPln, 2), `${fmtUsd(u.costUsd)}${u.pricePln ? ` · ${pct(u.costPln, u.pricePln)} ceny planu` : ''}`)}
     </div>
+    ${d.sharing?.flags?.length ? `<div class="msg warn"><b>Możliwe współdzielenie konta</b> (30 dni): ${d.sharing.flags.map(esc).join(' · ')}. Jeśli to nie on, zawieś konto albo zmień hasło przez „Link do zmiany hasła”.</div>` : ''}
+    ${d.sharing?.logins ? `<p class="dim small">Logowania w 30 dni: ${d.sharing.logins} · przeglądarki: ${d.sharing.devices} · miejsca (sieci): ${d.sharing.networks}</p>` : ''}
     ${u.orgId ? `<div class="msg info">Licencja z organizacji <b>${esc(u.orgName)}</b> (do ${fmtDate(u.subUntil)}). Przedłużasz ją w zakładce „Organizacje”.</div>` : ''}
     <h3${u.orgId ? ' hidden' : ''}>Przedłuż / zapisz płatność</h3>
     <form id="extendForm" class="card" style="padding:16px"${u.orgId ? ' hidden' : ''}>
@@ -731,12 +733,14 @@ async function loadFriends() {
     kpi('W trakcie', fmtNum(k.waiting), 'jeszcze bez klucza', k.waiting ? 'warn' : ''),
     kpi('Zawieszeni', fmtNum(k.suspended), ''),
     kpi('Opisy (mies.)', fmtNum(k.reports), 'na ich koszt, nie Twój'),
+    kpi('Możliwe współdzielenie', fmtNum(k.sharing), 'konta używane jak przez kilka osób', k.sharing ? 'warn' : ''),
   ].join('');
   $('#friendRows').innerHTML = d.friends.length ? d.friends.map((f) => {
     const [cls, label] = FRIEND_STATE[f.state] || ['', f.state];
     return `<tr>
       <td><a href="#" data-open-user="${f.id}"><b>${esc(f.name || '—')}</b></a><span class="sub">${esc(f.email)}</span></td>
       <td><span class="pill ${cls}">${label}</span></td>
+      <td>${sharingCell(f.sharing)}</td>
       <td class="num">${f.reports}</td>
       <td class="num">${fmtUsd(f.ownCostUsd)}</td>
       <td>${f.lastLogin ? fmtDateTime(f.lastLogin) : '—'}</td>
@@ -745,9 +749,27 @@ async function loadFriends() {
         <button class="btn btn-sm${f.state === 'suspended' ? ' btn-primary' : ''}" data-f="${f.state === 'suspended' ? 'restore' : 'suspend'}" data-id="${f.id}">${f.state === 'suspended' ? 'Przywróć' : 'Zawieś'}</button>
         <button class="btn btn-sm" data-f="access" data-id="${f.id}">Zmień dostęp</button>
       </div></td></tr>`;
-  }).join('') : '<tr><td colspan="6" class="empty">Nie masz jeszcze przyjaciół w aplikacji — dodaj pierwszego powyżej.</td></tr>';
+  }).join('') : '<tr><td colspan="7" class="empty">Nie masz jeszcze przyjaciół w aplikacji — dodaj pierwszego powyżej.</td></tr>';
   $('#friendNote').textContent = `${d.friends.length} · miesiąc ${d.month}`;
 }
+
+function sharingCell(sh) {
+  if (!sh || !sh.logins) return '<span class="dim small">—</span>';
+  const pl = (n, one, few, many) => `${n} ${n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? few : many}`;
+  const info = `${pl(sh.devices, 'przeglądarka', 'przeglądarki', 'przeglądarek')} · ${pl(sh.networks, 'miejsce', 'miejsca', 'miejsc')}`;
+  return sh.flags.length ? `<span class="pill warn" title="${esc(sh.flags.join('\n'))}">⚠ sprawdź</span><span class="sub">${esc(sh.flags[0])}</span>` : `<span class="pill ok">tak</span><span class="sub">${info}</span>`;
+}
+function randomPassword() {
+  const a = 'abcdefghjkmnpqrstuvwxyz', d = '23456789';
+  const pick = (set) => set[crypto.getRandomValues(new Uint32Array(1))[0] % set.length];
+  return `${Array.from({ length: 4 }, () => pick(a)).join('')}-${Array.from({ length: 4 }, () => pick(d)).join('')}-${Array.from({ length: 4 }, () => pick(a)).join('')}`;
+}
+for (const r of document.querySelectorAll('#friendForm input[name=pwdMode]')) r.addEventListener('change', () => {
+  const start = document.querySelector('#friendForm input[name=pwdMode]:checked').value === 'start';
+  $('#startPwdRow').hidden = !start;
+  if (start && !$('#fPwd').value) $('#fPwd').value = randomPassword();
+});
+$('#genPwd').addEventListener('click', () => { $('#fPwd').value = randomPassword(); });
 
 function showInvite(box, r, title) {
   const wa = `https://wa.me/?text=${encodeURIComponent(r.message)}`;
@@ -775,7 +797,7 @@ $('#friendForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   const btn = f.querySelector('button[type=submit]');
-  const body = { name: f.name.value.trim(), email: f.email.value.trim(), sendEmail: f.sendEmail.checked };
+  const body = { name: f.name.value.trim(), email: f.email.value.trim(), sendEmail: f.sendEmail.checked, password: f.pwdMode.value === 'start' ? f.password.value.trim() : '' };
   btn.disabled = true;
   try {
     let r;
@@ -786,8 +808,8 @@ $('#friendForm').addEventListener('submit', async (e) => {
     }
     showInvite($('#inviteOut'), { ...r, email: r.user.email }, r.converted
       ? `Gotowe — ${esc(r.user.email)} jest teraz przyjacielem. Zaloguje się swoim dotychczasowym hasłem.`
-      : `Gotowe — konto ${esc(r.user.email)} utworzone${r.mailed ? ' i zaproszenie wysłane e-mailem' : ''}. Link jest ważny 7 dni.`);
-    f.reset();
+      : `Gotowe — konto ${esc(r.user.email)} utworzone${r.mailed ? ' i zaproszenie wysłane e-mailem' : ''}. ${body.password ? 'Hasło startowe jest w wiadomości poniżej — przekaż ją tylko jemu.' : 'Link jest ważny 7 dni.'}`);
+    f.reset(); $('#startPwdRow').hidden = true;
     loadFriends().catch(() => {});
   } catch (err) { toast(err.message, 'err', 6000); }
   finally { btn.disabled = false; }

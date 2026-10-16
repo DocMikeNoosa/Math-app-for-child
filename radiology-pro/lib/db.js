@@ -172,11 +172,17 @@ function migrate(d) {
   add('last_message_at', 'INTEGER');                                 // last offer e-mail sent by the owner (no repeats within 7 days)
   add('end_mailed', 'INTEGER NOT NULL DEFAULT 0');                   // "your trial has ended" e-mail sent
   add('api_key_enc', "TEXT NOT NULL DEFAULT ''");                    // friend account: own Anthropic API key, encrypted (lib/secret-box.js)
+  add('key_hash', "TEXT NOT NULL DEFAULT ''");                       // friend account: keyed hash of the key (one key = one account)
   const ucols = new Set(d.prepare('PRAGMA table_info(usage)').all().map((c) => c.name));
   // which published version of the global (central) knowledge was used for this AI call — traceability
   if (!ucols.has('global_version')) d.exec('ALTER TABLE usage ADD COLUMN global_version INTEGER');
   // friend accounts pay with their own API key: their cost is kept here, never in cost_usd (the owner's cost)
   if (!ucols.has('own_cost_usd')) d.exec('ALTER TABLE usage ADD COLUMN own_cost_usd REAL NOT NULL DEFAULT 0');
+  // every login: which browser and network, and whether it pushed out a session that was in use minutes ago
+  // (two people on one account keep pushing each other out) — signals for the owner, kept 90 days
+  d.exec(`CREATE TABLE IF NOT EXISTS logins (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL, ip TEXT NOT NULL DEFAULT '', device TEXT NOT NULL DEFAULT '', ua TEXT NOT NULL DEFAULT '', kicked INTEGER NOT NULL DEFAULT 0)`);
+  d.exec('CREATE INDEX IF NOT EXISTS logins_user ON logins(user_id, ts)');
   d.exec('CREATE INDEX IF NOT EXISTS users_org ON users(org_id)');
   d.exec('CREATE INDEX IF NOT EXISTS audit_target ON audit(target_id)');
   d.exec('CREATE INDEX IF NOT EXISTS usage_user_report ON usage(user_id, report_id)');

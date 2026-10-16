@@ -94,7 +94,7 @@ export function quotaOf(user) {
 /** Devices logged in at the same time. */
 export function devicesOf(user) {
   if (user.role === 'admin') return 10;
-  if (user.sub_status === 'friend') return 3;
+  if (user.sub_status === 'friend') return 2; // personal: e.g. work + home; a third login logs out the oldest
   const org = orgOf(user);
   return Math.max(1, org ? org.devices : planById(user.plan).devices || 2);
 }

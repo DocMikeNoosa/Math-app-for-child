@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Witaj — RadVox Pro</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-friend-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="witaj" class="friend">
+  <nav class="nav"><div class="wrap"><a class="brand" href="/"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span>RadVox Pro</span></a><span class="grow"></span><a class="btn btn-sm btn-ghost" href="/logout">Wyloguj</a></div></nav>
+  <main class="shell"><div class="wrap wizard">
+    <h1 id="hello">Witaj!</h1>
+    <p class="dim" style="margin-top:-6px">Przygotujemy Twoje konto krok po kroku. Nie musisz znać się na komputerach — wystarczy robić to, co jest na ekranie.</p>
+    <ol class="wz-progress" id="progress"></ol>
+
+    <!-- rules -->
+    <section class="card wz-step" data-step="rules" hidden>
+      <h2>Zasady — jedno potwierdzenie</h2>
+      <div class="disclaimer">
+        <span class="dt">Odpowiedzialność lekarza</span>
+        <ul>
+          <li>RadVox Pro to narzędzie pomocnicze: AI przygotowuje <b>projekt</b> opisu i może się mylić.</li>
+          <li>Przed użyciem <b>przeczytam cały opis</b> i sprawdzę jego poprawność, kierując się <b>własną oceną kliniczną</b>.</li>
+          <li>Korzystam z aplikacji <b>na własną odpowiedzialność</b>; za podpisany opis odpowiada lekarz.</li>
+          <li>Konto jest <b>tylko dla mnie</b> — nie udostępniam hasła ani klucza nikomu.</li>
+          <li>Nie wpisuję danych identyfikujących pacjenta (numery PESEL są usuwane automatycznie).</li>
+        </ul>
+      </div>
+      <label class="check check-lg"><input type="checkbox" id="accept" /> <span>Rozumiem i akceptuję powyższe zasady oraz <a href="/terms#odpowiedzialnosc" target="_blank">regulamin</a> i <a href="/privacy" target="_blank">informację o danych osobowych</a>.</span></label>
+      <div id="rulesMsg" class="msg" style="margin-top:12px" hidden></div>
+      <div class="wz-nav"><span></span><button class="btn btn-primary btn-lg" id="rulesNext">Akceptuję — dalej</button></div>
+    </section>
+
+    <!-- what is an API key -->
+    <section class="card wz-step" data-step="what" hidden>
+      <h2>Co to jest „klucz API”?</h2>
+      <p>RadVox Pro pisze opisy przy pomocy sztucznej inteligencji <b>Claude</b> firmy <b>Anthropic</b>. W wersji dla przyjaciół aplikacja jest <b>za darmo</b>, a za pracę AI płacisz sam, bezpośrednio w Anthropic.</p>
+      <div class="wz-analogy">
+        <div><b>Klucz API</b> to długi „kod dostępu” (zaczyna się od <span class="kbd">sk-ant-</span>). Działa jak <b>karta do licznika</b>: RadVox Pro pokazuje go Anthropic przy każdym opisie, a Anthropic pobiera drobną opłatę z <b>Twoich</b> środków.</div>
+      </div>
+      <ul class="wz-list">
+        <li>Zakładasz konto w Anthropic i wpłacasz kwotę, jaką chcesz — nie wydasz więcej, niż wpłacisz.</li>
+        <li>Tworzysz klucz, kopiujesz go i wklejasz tutaj. To wszystko — robi się to raz.</li>
+        <li>Zajmie Ci to ok. 10 minut. Strona Anthropic jest po angielsku — powiemy Ci dokładnie, co kliknąć.</li>
+      </ul>
+      <div class="wz-nav"><span></span><button class="btn btn-primary btn-lg" data-next>Rozumiem — zaczynamy</button></div>
+    </section>
+
+    <!-- Anthropic account -->
+    <section class="card wz-step" data-step="account" hidden>
+      <h2>Załóż konto w Anthropic</h2>
+      <ol class="wz-list num">
+        <li>Kliknij przycisk poniżej — strona Anthropic otworzy się <b>w nowej karcie</b>. Ta karta (RadVox Pro) zostanie otwarta, wrócisz do niej.</li>
+        <li>Załóż konto: adresem e-mail albo kontem Google. Jeśli przyjdzie e-mail z linkiem lub kodem — użyj go.</li>
+        <li>Jeśli strona zapyta o nazwę organizacji, wpisz po prostu swoje imię i nazwisko.</li>
+      </ol>
+      <a class="btn btn-lg wz-ext" href="https://platform.claude.com/" target="_blank" rel="noopener">Otwórz stronę Anthropic ↗</a>
+      <p class="dim small">Masz już konto w Anthropic (np. do pracy)? Wystarczy się zalogować.</p>
+      <div class="wz-nav"><button class="btn" data-back>Wstecz</button><button class="btn btn-primary btn-lg" data-next>Mam konto — dalej</button></div>
+    </section>
+
+    <!-- credits -->
+    <section class="card wz-step" data-step="credits" hidden>
+      <h2>Wpłać środki</h2>
+      <ol class="wz-list num">
+        <li>Kliknij przycisk poniżej (otworzy stronę płatności w Anthropic).</li>
+        <li>Kliknij <span class="kbd">Buy credits</span>, podaj kartę i wybierz kwotę — na początek wystarczy niewielka.</li>
+        <li>Automatyczne doładowanie (<span class="kbd">auto-reload</span>) możesz zostawić <b>wyłączone</b> — wtedy nigdy nie wydasz więcej, niż wpłaciłeś.</li>
+      </ol>
+      <a class="btn btn-lg wz-ext" href="https://platform.claude.com/settings/billing" target="_blank" rel="noopener">Otwórz płatności (Billing) ↗</a>
+      <p class="dim small">Nie widzisz tej strony? Na stronie Anthropic wejdź w <span class="kbd">Settings</span> → <span class="kbd">Billing</span>.</p>
+      <div class="wz-nav"><button class="btn" data-back>Wstecz</button><button class="btn btn-primary btn-lg" data-next>Wpłaciłem — dalej</button></div>
+    </section>
+
+    <!-- create key -->
+    <section class="card wz-step" data-step="key" hidden>
+      <h2>Utwórz klucz</h2>
+      <ol class="wz-list num">
+        <li>Kliknij przycisk poniżej (strona kluczy w Anthropic), potem <span class="kbd">Create key</span>.</li>
+        <li>Wypełnij okienko tak:
+          <table class="wz-table">
+            <tr><td><span class="kbd">Name</span> (nazwa)</td><td><b>RadVox</b></td></tr>
+            <tr class="hl"><td><span class="kbd">Expiration</span> (ważność)</td><td><b>Never</b> — ważne! Inaczej klucz sam przestanie działać.</td></tr>
+            <tr class="hl"><td><span class="kbd">Workspace</span></td><td><b>Default</b> (jeśli strona o to pyta)</td></tr>
+            <tr><td><span class="kbd">Linked account</span></td><td>zostaw siebie</td></tr>
+          </table></li>
+        <li>Zatwierdź przyciskiem tworzenia klucza.</li>
+      </ol>
+      <a class="btn btn-lg wz-ext" href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">Otwórz klucze (API keys) ↗</a>
+      <div class="wz-nav"><button class="btn" data-back>Wstecz</button><button class="btn btn-primary btn-lg" data-next>Klucz jest na ekranie — dalej</button></div>
+    </section>
+
+    <!-- paste -->
+    <section class="card wz-step" data-step="paste" hidden>
+      <h2>Skopiuj klucz i wklej go tutaj</h2>
+      <ol class="wz-list num">
+        <li>Na stronie Anthropic kliknij <span class="kbd">Copy</span> przy kluczu (długi tekst od <span class="kbd">sk-ant-</span>). Anthropic pokazuje go <b>tylko raz</b> — jeśli okno już zniknęło, utwórz nowy klucz (krok wcześniej).</li>
+        <li>Wróć do tej karty, kliknij w pole poniżej i wklej: <span class="kbd">Ctrl</span> + <span class="kbd">V</span> (na Macu <span class="kbd">⌘</span> + <span class="kbd">V</span>).</li>
+      </ol>
+      <form id="keyForm" autocomplete="off">
+        <input id="apiKey" type="password" placeholder="wklej tutaj: sk-ant-…" autocomplete="off" aria-label="Klucz API" class="wz-input" />
+        <label class="check" style="margin-top:8px"><input type="checkbox" id="showKey" /> pokaż, co wkleiłem</label>
+        <div id="keyMsg" class="msg" style="margin-top:12px" hidden></div>
+        <div class="wz-nav"><button class="btn" type="button" data-back>Wstecz</button><button class="btn btn-primary btn-lg" type="submit" id="keySave">Sprawdź i zapisz</button></div>
+      </form>
+      <p class="dim small">Klucz zapisujemy zaszyfrowany — nikt, także osoba, która Cię zaprosiła, nie zobaczy go w całości. Nie wysyłaj go nikomu.</p>
+    </section>
+
+    <!-- done -->
+    <section class="card wz-step wz-done" data-step="done" hidden>
+      <div class="wz-big">✓</div>
+      <h2>Gotowe — konto działa!</h2>
+      <p>Klucz jest zapisany i sprawdzony. Możesz dyktować.</p>
+      <a class="btn btn-primary btn-lg" href="/app/">Otwórz aplikację</a>
+      <ul class="wz-list" style="text-align:left;margin-top:18px">
+        <li><b>Jak zwykły program:</b> w aplikacji wejdź w Ustawienia → „Aplikacja na komputerze” i zainstaluj ją — będzie miała złotą ikonę.</li>
+        <li><b>Konto jest osobiste.</b> Możesz być zalogowany na 2 komputerach naraz (np. praca i dom); logowanie na kolejnym wyloguje najstarszy.</li>
+        <li>Wydatki sprawdzisz w Anthropic (<span class="kbd">Settings</span> → <span class="kbd">Billing</span>) i na stronie <a href="/account">Moje konto</a>.</li>
+      </ul>
+    </section>
+    <p class="dim small" style="text-align:center;margin-top:18px">Utknąłeś? Napisz do osoby, która Cię zaprosiła — albo zajrzyj do <a href="/klucz-api" target="_blank">instrukcji na jednej stronie</a>.</p>
+  </div></main>
+  <script type="module" src="/site/witaj.js"></script>
+</body>
+</html>

@@ -34,3 +34,6 @@ export function open(box) {
 
 /** What the owner of a key may see of it: the start and the last four characters. */
 export const maskKey = (k) => (k ? `${k.slice(0, 7)}…${k.slice(-4)}` : '');
+
+/** A keyed fingerprint of a secret: equal keys give equal fingerprints, but the key cannot be recovered from it. */
+export const fingerprint = (text) => crypto.createHmac('sha256', masterKey()).update(`fp:${text}`).digest('base64url');

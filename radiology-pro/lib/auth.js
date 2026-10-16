@@ -93,7 +93,7 @@ setInterval(() => { for (const k of [...fails.keys()]) failCount(k) || fails.del
 export function resetRateLimits() { fails.clear(); }
 
 // ---- sessions
-export function createSession(user, { ip = '', ua = '' } = {}) {
+export function createSession(user, { ip = '', ua = '', device = '' } = {}) {
   const token = randomToken();
   const now = Date.now();
   run('INSERT INTO sessions(id, user_id, created_at, last_seen, expires_at, ip, ua) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -101,9 +101,12 @@ export function createSession(user, { ip = '', ua = '' } = {}) {
   // Device limit: the plan (or organisation) allows N devices at once; the oldest sessions are logged out
   // (prevents account sharing).
   const max = devicesOf(user);
-  const extra = all('SELECT id FROM sessions WHERE user_id = ? ORDER BY last_seen DESC LIMIT -1 OFFSET ?', user.id, max);
+  const extra = all('SELECT id, last_seen FROM sessions WHERE user_id = ? ORDER BY last_seen DESC LIMIT -1 OFFSET ?', user.id, max);
   for (const s of extra) run('DELETE FROM sessions WHERE id = ?', s.id);
   run('UPDATE users SET last_login = ? WHERE id = ?', now, user.id);
+  const kicked = extra.filter((s) => now - s.last_seen < 15 * 60000).length; // pushed out a device that was in use
+  run('INSERT INTO logins(user_id, ts, ip, device, ua, kicked) VALUES (?, ?, ?, ?, ?, ?)', user.id, now, String(ip).slice(0, 64), String(device).slice(0, 64), String(ua).slice(0, 300), kicked);
+  run('DELETE FROM logins WHERE user_id = ? AND ts < ?', user.id, now - 90 * 86400000);
   return token;
 }
 

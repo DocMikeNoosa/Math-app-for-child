@@ -37,7 +37,8 @@ import { sendMail, adminEmail, mailConfigured } from './lib/mail.js';
 import { runJobs, startJobs } from './lib/jobs.js';
 import { BRAND } from './lib/brand.js';
 import { aiConfigured, PROVIDER, withOwnKey, usingOwnKey, ownKeyProblem, checkOwnKey } from './lib/ai-client.js';
-import { seal, open as openSecret, maskKey } from './lib/secret-box.js';
+import { seal, open as openSecret, maskKey, fingerprint } from './lib/secret-box.js';
+import { sharingSignals } from './lib/sharing.js';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(APP_DIR, 'public');
@@ -360,7 +361,7 @@ function acceptTerms(userId, ip = '') {
 function eraseUser(u, actorId) {
   tx(() => {
     run(`UPDATE users SET email = ?, name = 'Usunięty użytkownik', npwz = '', phone = '', company = '', nip = '', note = '', pwd = '!',
-         blocked = 1, must_change_pwd = 0, totp_secret = '', totp_on = 0, api_key_enc = '', stripe_customer = NULL WHERE id = ?`, `u${u.id}${DELETED_DOMAIN}`, u.id);
+         blocked = 1, must_change_pwd = 0, totp_secret = '', totp_on = 0, api_key_enc = '', key_hash = '', stripe_customer = NULL WHERE id = ?`, `u${u.id}${DELETED_DOMAIN}`, u.id);
     run('DELETE FROM sessions WHERE user_id = ?', u.id);
     run('DELETE FROM user_data WHERE user_id = ?', u.id);
     run('DELETE FROM tokens WHERE user_id = ?', u.id);
@@ -408,10 +409,11 @@ const EVENT_HELP = {
 /** Where to go after logging in. */
 function homeFor(user) {
   if (user.must_change_pwd) return '/change-password';
+  // a friend is guided step by step (rules → API key) until the account is ready
+  if (user.sub_status === 'friend' && !user.blocked && (['terms'].includes(access(user).code) || !user.api_key_enc)) return '/witaj';
   if (user.role !== 'admin' && access(user).code === 'terms') return '/accept';
   if (user.role === 'admin') return '/admin';
   if (user.role === 'orgadmin') return '/it';
-  if (user.sub_status === 'friend' && !user.api_key_enc && !user.blocked) return '/account?klucz=1';
   return access(user).ok ? '/app/' : '/account';
 }
 
@@ -424,7 +426,7 @@ function mePayload(ctx) {
     user: publicUser(u),
     org: org ? { name: org.name, status: org.status, subUntil: org.sub_until, contact: org.contact, devices: org.devices } : null,
     twoFactor: Boolean(u.totp_on), termsVersion: u.terms_version, termsAcceptedAt: u.terms_at,
-    plan: u.sub_status === 'friend' ? { id: 'friend', name: 'Wersja dla przyjaciół (własny klucz API)', pricePln: 0, quota: 0, devices: 3 } : org ? { id: 'org', name: `Licencja: ${org.name}`, pricePln: 0, quota: quotaOf(u), devices: org.devices } : { id: p.id, name: p.name, pricePln: p.pricePln, quota: quotaOf(u), devices: p.devices },
+    plan: u.sub_status === 'friend' ? { id: 'friend', name: 'Wersja dla przyjaciół (własny klucz API)', pricePln: 0, quota: 0, devices: 2 } : org ? { id: 'org', name: `Licencja: ${org.name}`, pricePln: 0, quota: quotaOf(u), devices: org.devices } : { id: p.id, name: p.name, pricePln: p.pricePln, quota: quotaOf(u), devices: p.devices },
     usage: { month: monthOf(), reports: used.reports },
     access: access(u),
     friend: u.sub_status === 'friend' ? { key: maskKey(openSecret(u.api_key_enc)), ownCostUsd: one('SELECT COALESCE(SUM(own_cost_usd),0) AS c FROM usage WHERE user_id = ? AND month = ?', u.id, monthOf()).c } : null,
@@ -443,6 +445,10 @@ async function handleAuth(req, res, route) {
   const ip = clientIp(req);
   const ua = String(req.headers['user-agent'] || '');
   const secure = isSecure(req);
+  // this browser's long-lived id: recorded at every login (personal accounts: the owner sees how many browsers use one)
+  const knownDev = /^[\w-]{16,64}$/.test(parseCookies(req.headers.cookie).rv_dev || '') ? parseCookies(req.headers.cookie).rv_dev : '';
+  const dev = knownDev || crypto.randomUUID();
+  const withDev = (cookie) => (knownDev ? cookie : [cookie, `rv_dev=${dev}; Path=/; Max-Age=63072000; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`]);
 
   if (route === 'login') {
     const email = str(body.email, 254).toLowerCase();
@@ -455,9 +461,9 @@ async function handleAuth(req, res, route) {
     if (user.blocked) return sendJson(res, 403, { error: access(user).reason || 'Konto zablokowane — skontaktuj się z administratorem.' });
     clearFailures(email);
     if (user.totp_on) return sendJson(res, 200, { need2fa: true, ticket: create2faTicket(user.id) });
-    const token = createSession(user, { ip, ua });
+    const token = createSession(user, { ip, ua, device: dev });
     audit(user.id, 'login', user.id, ip);
-    return sendJson(res, 200, { ok: true, next: homeFor(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    return sendJson(res, 200, { ok: true, next: homeFor(user) }, { 'Set-Cookie': withDev(sessionCookie(token, { secure })) });
   }
 
   if (route === 'login-2fa') {
@@ -466,9 +472,9 @@ async function handleAuth(req, res, route) {
     if (r.error) { noteFailure(`2fa:${body.ticket}`, ip); return sendJson(res, 401, { error: `Nieprawidłowy kod (pozostało prób: ${r.left}).` }); }
     const user = getUser(r.userId);
     if (!user || user.blocked) return sendJson(res, 403, { error: 'Konto zablokowane — skontaktuj się z administratorem.' });
-    const token = createSession(user, { ip, ua });
+    const token = createSession(user, { ip, ua, device: dev });
     audit(user.id, 'login', user.id, `${ip} (2FA)`);
-    return sendJson(res, 200, { ok: true, next: homeFor(user) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    return sendJson(res, 200, { ok: true, next: homeFor(user) }, { 'Set-Cookie': withDev(sessionCookie(token, { secure })) });
   }
 
   if (route === 'register') {
@@ -493,7 +499,7 @@ async function handleAuth(req, res, route) {
     if (settings().verifyEmail) await sendVerifyMail(getUser(user.id), req);
     else await startOrQueueTrial(getUser(user.id), req);
     user = getUser(user.id);
-    const token = createSession(user, { ip, ua });
+    const token = createSession(user, { ip, ua, device });
     const devCookie = `rv_dev=${device}; Path=/; Max-Age=63072000; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
     return sendJson(res, 200, { ok: true, next: access(user).ok ? '/app/' : '/account' }, { 'Set-Cookie': [sessionCookie(token, { secure }), devCookie] });
   }
@@ -528,8 +534,8 @@ async function handleAuth(req, res, route) {
     await setPassword(user.id, body.password);
     deleteUserSessions(user.id);
     audit(user.id, 'password.reset', user.id);
-    const token = createSession(user, { ip, ua });
-    return sendJson(res, 200, { ok: true, next: homeFor(getUser(user.id)) }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    const token = createSession(user, { ip, ua, device: dev });
+    return sendJson(res, 200, { ok: true, next: homeFor(getUser(user.id)) }, { 'Set-Cookie': withDev(sessionCookie(token, { secure })) });
   }
   return sendJson(res, 404, { error: 'Nie znaleziono.' });
 }
@@ -569,13 +575,20 @@ async function handleMe(req, res, ctx, route) {
   const u = ctx.user;
   if (route === 'api-key') {
     if (u.sub_status !== 'friend') return sendJson(res, 403, { error: 'Własny klucz API jest tylko w wersji dla przyjaciół.' });
-    if (req.method === 'DELETE') { run("UPDATE users SET api_key_enc = '' WHERE id = ?", u.id); audit(u.id, 'apikey.remove', u.id); return sendJson(res, 200, mePayload({ ...ctx, user: getUser(u.id) })); }
+    if (req.method === 'DELETE') { run("UPDATE users SET api_key_enc = '', key_hash = '' WHERE id = ?", u.id); audit(u.id, 'apikey.remove', u.id); return sendJson(res, 200, mePayload({ ...ctx, user: getUser(u.id) })); }
     const k = String(body.key || '').trim();
     if (!/^sk-ant-[A-Za-z0-9_-]{20,200}$/.test(k)) return sendJson(res, 400, { error: 'To nie wygląda na klucz API Anthropic — klucz zaczyna się od „sk-ant-”. Skopiuj go jeszcze raz (platform.claude.com → API keys) i wklej w całości.' });
     // a quick test with Anthropic first, so a friend learns at once what is wrong instead of during dictation
+    // one key = one person: the same key on a second account means the account (or the key) is being shared
+    const fp = fingerprint(k);
+    const other = one('SELECT id, email FROM users WHERE key_hash = ? AND id <> ?', fp, u.id);
+    if (other) {
+      audit(u.id, 'apikey.duplicate', u.id, `ten sam klucz co ${other.email}`);
+      return sendJson(res, 409, { error: 'Ten klucz API jest już używany na innym koncie RadVox Pro. Konto i klucz są osobiste — utwórz własny klucz na swoim koncie Anthropic (instrukcja: /klucz-api).', code: 'own_key' });
+    }
     const check = await checkOwnKey(k);
     if (!check.ok) { audit(u.id, 'apikey.rejected', u.id, maskKey(k)); return sendJson(res, 400, { error: check.problem, code: 'own_key' }); }
-    run('UPDATE users SET api_key_enc = ? WHERE id = ?', seal(k), u.id);
+    run('UPDATE users SET api_key_enc = ?, key_hash = ? WHERE id = ?', seal(k), fp, u.id);
     audit(u.id, 'apikey.set', u.id, maskKey(k));
     return sendJson(res, 200, { ...mePayload({ ...ctx, user: getUser(u.id) }), keyChecked: !check.unchecked });
   }
@@ -718,13 +731,18 @@ async function handleSync(req, res, ctx, key) {
 const usdPln = () => settings().usdPln;
 
 /** The ready-to-send invitation for a friend (e-mail, WhatsApp, SMS): link + what to do, in plain words. */
-function friendMessage(req, user, link) {
+function friendMessage(req, user, link, startPwd = '') {
   const first = String(user.name || '').replace(/^(lek\.|dr n\. med\.|dr|prof\.)\s+/i, '').split(/\s+/)[0];
-  return `Cześć${first ? ` ${first}` : ''}!\n\nZałożyłem Ci darmowe konto w ${BRAND.name} (wersja dla przyjaciół). Trzy kroki:\n\n`
-    + `1. Otwórz link i ${link.includes('/reset?') ? 'ustaw swoje hasło (link ważny 7 dni)' : 'zaloguj się swoim hasłem'}:\n${link}\n\n`
+  const step1 = link.includes('/reset?')
+    ? `1. Otwórz link i wybierz swoje hasło (link ważny 7 dni):\n${link}`
+    : startPwd
+      ? `1. Wejdź na ${link} i zaloguj się:\n   e-mail: ${user.email}\n   hasło startowe: ${startPwd}\n   Przy pierwszym logowaniu ustawisz własne hasło.`
+      : `1. Wejdź na ${link} i zaloguj się swoim hasłem (e-mail: ${user.email}).`;
+  return `Cześć${first ? ` ${first}` : ''}!\n\nZałożyłem Ci darmowe konto w ${BRAND.name} (wersja dla przyjaciół). Aplikacja przeprowadzi Cię przez wszystko krok po kroku:\n\n`
+    + `${step1}\n\n`
     + `2. Zaznacz jedną zgodę (sprawdzasz każdy opis przed użyciem).\n\n`
-    + `3. Wklej swój klucz API Anthropic (Claude) — aplikacja poprowadzi Cię krok po kroku. Instrukcja: ${baseUrl(req)}/klucz-api\n\n`
-    + `Aplikacja jest dla Ciebie za darmo. Za AI płacisz sam, bezpośrednio w Anthropic, tylko za to, co zużyjesz.`;
+    + `3. Zdobądź i wklej swój klucz API Claude — nie musisz wiedzieć, co to jest, aplikacja wszystko wyjaśni (ok. 10 minut). Instrukcja: ${baseUrl(req)}/klucz-api\n\n`
+    + `Aplikacja jest dla Ciebie za darmo; za AI płacisz sam, bezpośrednio w Anthropic, tylko za to, co zużyjesz. Konto jest osobiste — tylko dla Ciebie.`;
 }
 
 /** One friend for the owner's "Przyjaciele" tab. */
@@ -732,7 +750,7 @@ function friendRow(u, month = monthOf()) {
   const row = adminUserRow(u, month);
   const own = one('SELECT COALESCE(SUM(own_cost_usd), 0) AS c FROM usage WHERE user_id = ? AND month = ?', u.id, month).c;
   const state = u.blocked ? 'suspended' : !u.last_login ? 'invited' : !u.api_key_enc ? 'nokey' : 'ready';
-  return { ...row, state, ownCostUsd: own, ownCostPln: own * usdPln() };
+  return { ...row, state, ownCostUsd: own, ownCostPln: own * usdPln(), sharing: sharingSignals(u.id) };
 }
 
 function adminUserRow(u, month = monthOf()) {
@@ -869,7 +887,7 @@ async function handleAdmin(req, res, ctx, parts) {
     const month = monthOf();
     const friends = all("SELECT * FROM users WHERE sub_status = 'friend' AND role = 'user' ORDER BY blocked, name COLLATE NOCASE").map((u) => friendRow(u, month));
     const count = (st) => friends.filter((f) => f.state === st).length;
-    return sendJson(res, 200, { friends, month, kpis: { total: friends.length, ready: count('ready'), waiting: count('nokey') + count('invited'), suspended: count('suspended'), reports: friends.reduce((a, f) => a + f.reports, 0) } });
+    return sendJson(res, 200, { friends, month, kpis: { total: friends.length, ready: count('ready'), waiting: count('nokey') + count('invited'), suspended: count('suspended'), reports: friends.reduce((a, f) => a + f.reports, 0), sharing: friends.filter((f) => f.sharing.flags.length && !f.blocked).length } });
   }
   if (section === 'friends' && !idStr && method === 'POST') {
     // add a friend: a new account with an invitation link, or (after the owner confirms) an existing account
@@ -886,16 +904,22 @@ async function handleAdmin(req, res, ctx, parts) {
       audit(me, 'user.friend', user.id, 'istniejące konto → przyjaciel');
       link = `${baseUrl(req)}/login`;
     } else {
-      user = await createUser({ email, password: `${crypto.randomUUID()}A1`, name: str(body.name, 120) }, me);
+      // the owner either lets the friend choose a password (link, recommended) or gives a starting password that the
+      // friend must replace at the first login
+      const startPwd = typeof body.password === 'string' && body.password ? body.password : '';
+      if (startPwd) { const problem = passwordProblem(startPwd); if (problem) return sendJson(res, 400, { error: `Hasło startowe: ${problem}` }); }
+      user = await createUser({ email, password: startPwd || `${crypto.randomUUID()}A1`, name: str(body.name, 120), mustChangePwd: Boolean(startPwd) }, me);
       run("UPDATE users SET plan = 'friend', sub_status = 'friend', sub_until = 0 WHERE id = ?", user.id);
-      audit(me, 'user.friend', user.id, 'utworzono jako przyjaciel');
-      link = `${baseUrl(req)}/reset?token=${createOneTimeToken(user.id, 'invite', 24 * 7)}`;
+      audit(me, 'user.friend', user.id, startPwd ? 'utworzono jako przyjaciel (hasło startowe)' : 'utworzono jako przyjaciel');
+      link = startPwd ? `${baseUrl(req)}/login` : `${baseUrl(req)}/reset?token=${createOneTimeToken(user.id, 'invite', 24 * 7)}`;
+      body.startPwd = startPwd;
     }
     user = getUser(user.id);
-    const message = friendMessage(req, user, link);
+    const message = friendMessage(req, user, link, body.startPwd || '');
     let mailed = false;
-    if (body.sendEmail === true) { await sendMail(user.email, `Zaproszenie do ${BRAND.name} — wersja dla przyjaciół`, message); mailed = true; }
-    return sendJson(res, 200, { user: friendRow(user), link, message, mailed, converted: link.endsWith('/login') });
+    // passwords never go into stored e-mails: with a starting password the e-mail says it comes separately
+    if (body.sendEmail === true) { await sendMail(user.email, `Zaproszenie do ${BRAND.name} — wersja dla przyjaciół`, friendMessage(req, user, link, body.startPwd ? '(przekażę Ci je osobno, np. SMS-em)' : '')); mailed = true; }
+    return sendJson(res, 200, { user: friendRow(user), link, message, mailed, converted: !body.startPwd && link.endsWith('/login') });
   }
 
   if (section === 'users' && !idStr && method === 'POST') {
@@ -923,6 +947,7 @@ async function handleAdmin(req, res, ctx, parts) {
       const months = all("SELECT month, COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN report_id END) AS reports, COUNT(*) AS calls, COALESCE(SUM(cost_usd),0) AS cost, SUM(input_tokens) AS input, SUM(output_tokens) AS output, SUM(cache_read) AS cacheRead, SUM(cache_write) AS cacheWrite FROM usage WHERE user_id = ? GROUP BY month ORDER BY month DESC LIMIT 12", u.id);
       return sendJson(res, 200, {
         user: adminUserRow(u),
+        sharing: sharingSignals(u.id),
         months: months.map((m) => ({ ...m, costPln: m.cost * usdPln() })),
         byLang: all("SELECT lang, COUNT(*) AS calls FROM usage WHERE user_id = ? AND kind='format' GROUP BY lang", u.id),
         payments: all('SELECT * FROM payments WHERE user_id = ? ORDER BY ts DESC', u.id),
@@ -964,7 +989,7 @@ async function handleAdmin(req, res, ctx, parts) {
       }
       for (const k of ['npwz', 'company', 'nip', 'phone']) if (typeof b[k] === 'string') set(k, str(b[k], 200), k);
       if (b.friend === true && u.sub_status !== 'friend' && !u.org_id) { set('plan', 'friend', 'plan przyjaciel'); set('sub_status', 'friend', 'wersja dla przyjaciół'); set('sub_until', 0, 'bez terminu'); }
-      if (b.friend === false && u.sub_status === 'friend') { set('plan', 'trial', 'plan trial'); set('sub_status', 'expired', 'koniec wersji dla przyjaciół'); set('api_key_enc', '', 'klucz usunięty'); }
+      if (b.friend === false && u.sub_status === 'friend') { set('plan', 'trial', 'plan trial'); set('sub_status', 'expired', 'koniec wersji dla przyjaciół'); set('api_key_enc', '', 'klucz usunięty'); set('key_hash', '', 'odcisk klucza'); }
       audit(me, 'user.update', u.id, changes.join(', '));
       return sendJson(res, 200, { user: adminUserRow(getUser(u.id)) });
     }
@@ -1011,19 +1036,19 @@ async function handleAdmin(req, res, ctx, parts) {
       if (b.mode === 'trial') {
         const days = Math.round(Math.min(90, Math.max(1, Number(b.days) || settings().trialDays)));
         const reports = Math.round(Math.min(10000, Math.max(1, Number(b.reports) || settings().trialReports)));
-        run("UPDATE users SET plan = 'trial', sub_status = 'trial', sub_until = ?, trial_reports = ?, blocked = 0, api_key_enc = '' WHERE id = ?", Date.now() + days * 86400000, reports, u.id);
+        run("UPDATE users SET plan = 'trial', sub_status = 'trial', sub_until = ?, trial_reports = ?, blocked = 0, api_key_enc = '', key_hash = '' WHERE id = ?", Date.now() + days * 86400000, reports, u.id);
         audit(me, 'user.access', u.id, `okres próbny ${days} dni, ${reports} opisów`);
         mail = `Dzień dobry,\n\nTwoje konto ${BRAND.name} działa teraz w okresie próbnym: ${days} dni, do ${reports} opisów. Nie potrzebujesz już własnego klucza API.\nAplikacja: ${app}`;
       } else if (b.mode === 'pay') {
         const paid = plans().filter((p) => p.id !== 'trial' && p.pricePln > 0);
         const plan = paid.find((p) => p.id === b.plan) || paid[0];
-        run("UPDATE users SET plan = ?, sub_status = 'expired', sub_until = 0, blocked = 0, api_key_enc = '' WHERE id = ?", plan?.id || 'trial', u.id);
+        run("UPDATE users SET plan = ?, sub_status = 'expired', sub_until = 0, blocked = 0, api_key_enc = '', key_hash = '' WHERE id = ?", plan?.id || 'trial', u.id);
         audit(me, 'user.access', u.id, `wymaga subskrypcji (${plan?.id || '—'})`);
         mail = `Dzień dobry,\n\nwersja dla przyjaciół na Twoim koncie ${BRAND.name} została zakończona. Aby dalej korzystać z aplikacji, wybierz plan na stronie konta: ${baseUrl(req)}/account`;
       } else if (b.mode === 'gift') {
         const plan = plans().find((p) => p.id === b.plan && p.id !== 'trial') || plans().find((p) => p.id !== 'trial');
         const months = Math.round(Math.min(36, Math.max(1, Number(b.months) || 1)));
-        run("UPDATE users SET sub_until = 0, blocked = 0, api_key_enc = '' WHERE id = ?", u.id);
+        run("UPDATE users SET sub_until = 0, blocked = 0, api_key_enc = '', key_hash = '' WHERE id = ?", u.id);
         extendSubscription(u.id, { plan: plan.id, interval: 'month', count: months, amountPln: 0, provider: 'free', note: 'gratis od administratora' }, me);
         mail = `Dzień dobry,\n\nmasz teraz plan ${plan.name} w ${BRAND.name} gratis na ${months} mies. Nie potrzebujesz już własnego klucza API — AI jest wliczone.\nAplikacja: ${app}`;
       } else if (b.mode === 'friend') {
@@ -1682,6 +1707,13 @@ export function createServer() {
         if (!ctx.user.must_change_pwd) return redirect(res, homeFor(ctx.user));
         return sitePage(res, 'change-password', req);
       }
+      if (p === '/witaj') {
+        // friends' setup: rules, what an API key is, getting one at Anthropic, pasting it — one step at a time
+        if (!ctx) return redirect(res, '/login?next=/witaj');
+        if (ctx.user.sub_status !== 'friend') return redirect(res, homeFor(ctx.user));
+        if (ctx.user.must_change_pwd) return redirect(res, '/change-password');
+        return sitePage(res, 'witaj', req);
+      }
       if (p === '/accept') {
         if (!ctx) return redirect(res, '/login');
         return sitePage(res, 'accept', req);
@@ -1716,7 +1748,7 @@ export function createServer() {
       if (p.startsWith('/app/')) {
         if (!ctx) return redirect(res, `/login?next=${encodeURIComponent(p)}`);
         const a = access(ctx.user);
-        if (!a.ok) return redirect(res, a.code === 'pwd' ? '/change-password' : a.code === 'terms' ? '/accept' : '/account?need=1');
+        if (!a.ok) return redirect(res, a.code === 'pwd' ? '/change-password' : a.code === 'terms' ? (ctx.user.sub_status === 'friend' ? '/witaj' : '/accept') : '/account?need=1');
         let rel = p.slice('/app/'.length) || 'index.html';
         if (rel === 'index.html' || rel === '') rel = 'index.html';
         if (rel.startsWith('site/') || rel.startsWith('js/templates-pro/BRIEF') || rel.includes('check.mjs')) { res.writeHead(404, headers()); return res.end(); }

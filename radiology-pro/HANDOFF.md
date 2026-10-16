@@ -86,12 +86,19 @@ overall layout — add functionality in the existing style.
   Workspace **Default** — a key without a workspace gets 400 from Anthropic). Also loaded into the account page.
 - The key is tested with a 1-token request before it is saved (`checkOwnKey`); `ownKeyProblem()` turns 401 / no credit /
   workspace / 403 into plain Polish, also during dictation.
+- Friends' setup wizard `/witaj` (`witaj.html/js`): rules (one tick) → what an API key is → Anthropic account →
+  credits → create key (Never / Default) → paste + check → done. Friends land there (homeFor) until the key works;
+  the step is remembered in localStorage. Owner may give a starting password instead of a link (must_change_pwd;
+  never put into e-mails).
+- One person only: friends 2 devices at once; `logins` table (device cookie `rv_dev`, network, "kicked" = pushed out
+  a device used <15 min before) → `lib/sharing.js` flags (≥3 kicks, ≥5 browsers or ≥6 networks in 30 days) shown
+  to the owner, nothing blocked automatically; one API key = one account (`users.key_hash`, HMAC fingerprint).
 - Disclaimer (terms 1.1): one tick on `/accept` after the first login — doctor reads the whole report, own clinical
   judgment, own risk; full text `terms.html#odpowiedzialnosc`. Friends now go through it too (access() order fixed).
 
 ## Technical notes
 - Templates: 397 + 112 snippets (MR and X-ray libraries completed Oct 2026: mr-body-msk-2.js, mr-neuro-spine-2.js, xray-2.js).
-- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (182 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
+- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (186 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
   `NODE_ENV=production` serves `dist/`.
 - Report counting: the browser sends `reportId` (one per report); usage rows with the same id count once.
 - `background: true` marks pre-processing calls; capped per report by `maxBackgroundCalls` (settings).

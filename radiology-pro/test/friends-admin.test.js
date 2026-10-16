@@ -57,11 +57,11 @@ test('owner adds a friend: account + ready message with the link and the key gui
   // the friend sets a password → one tick → straight to the key guide on the account page
   const set = await call('POST', '/api/auth/reset', { token: r.data.link.split('token=')[1], password: 'annahaslo2026' });
   annaCookie = set.cookie;
-  assert.equal(set.data.next, '/accept', 'the disclaimer comes first');
+  assert.equal(set.data.next, '/witaj', 'the setup wizard: the disclaimer comes first, then the key');
   assert.equal((await format(annaCookie, 'a0')).data.code, 'terms', 'no AI before the disclaimer is accepted');
   assert.equal((await call('POST', '/api/me/accept', { accept: false }, annaCookie)).res.status, 400);
   const acc = await call('POST', '/api/me/accept', { accept: true }, annaCookie);
-  assert.equal(acc.data.next, '/account?klucz=1');
+  assert.equal(acc.data.next, '/witaj', 'still in the wizard until the key works');
   assert.equal(db.one('SELECT terms_version FROM users WHERE id = ?', anna).terms_version, '1.1');
   const list = await call('GET', '/api/admin/friends', undefined, owner);
   assert.equal(list.data.friends.find((f) => f.id === anna).state, 'nokey');
@@ -158,4 +158,61 @@ test('the key guide is public (can be sent to a friend) and only the owner manag
   assert.match(html, /Never/);
   assert.equal((await call('GET', '/api/admin/friends', undefined, annaCookie)).res.status, 403);
   assert.equal((await call('POST', '/api/admin/friends', { email: 'x@example.com' }, annaCookie)).res.status, 403);
+});
+
+test('a starting password: the friend must replace it first; the e-mail never contains it', async () => {
+  const weak = await call('POST', '/api/admin/friends', { email: 'tomek@example.com', password: 'abc' }, owner);
+  assert.equal(weak.res.status, 400);
+  const r = await call('POST', '/api/admin/friends', { name: 'Tomek', email: 'tomek@example.com', password: 'abcd-2345-efgh', sendEmail: true }, owner);
+  assert.equal(r.res.status, 200, JSON.stringify(r.data));
+  assert.match(r.data.message, /hasło startowe: abcd-2345-efgh/);
+  assert.match(r.data.link, /\/login$/);
+  assert.doesNotMatch(db.one("SELECT body FROM outbox WHERE to_addr = 'tomek@example.com'").body, /abcd-2345-efgh/, 'no passwords in stored e-mails');
+  const login = await call('POST', '/api/auth/login', { email: 'tomek@example.com', password: 'abcd-2345-efgh' });
+  assert.equal(login.data.next, '/change-password');
+  const first = await call('POST', '/api/me/first-password', { next: 'TomekWlasne2026', accept: true }, login.cookie);
+  assert.equal(first.data.next, '/witaj', 'then the wizard walks him through the API key');
+  const page = await call('GET', '/witaj', undefined, login.cookie);
+  assert.equal(page.res.status, 200);
+  assert.match(page.text, /Co to jest „klucz API”/);
+});
+
+test('one person only: one API key cannot serve two accounts', async () => {
+  assert.equal((await call('POST', '/api/me/api-key', { key: KEY }, annaCookie)).res.status, 200, 'Anna (back as a friend) saves her key again');
+  const r = await call('POST', '/api/admin/friends', { email: 'kasia@example.com', password: 'kasi-2345-abcd' }, owner);
+  const l = await call('POST', '/api/auth/login', { email: 'kasia@example.com', password: 'kasi-2345-abcd' });
+  await call('POST', '/api/me/first-password', { next: 'KasiaHaslo2026', accept: true }, l.cookie);
+  const dup = await call('POST', '/api/me/api-key', { key: KEY }, l.cookie);
+  assert.equal(dup.res.status, 409, 'Anna already uses this key');
+  assert.match(dup.data.error, /już używany na innym koncie/);
+  assert.doesNotMatch(dup.data.error, /anna@example\.com/, "the other person's address is not revealed");
+  assert.match(db.one("SELECT detail FROM audit WHERE action = 'apikey.duplicate'").detail, /anna@example\.com/, 'the owner can see it in the history');
+  assert.equal((await call('POST', '/api/me/api-key', { key: 'sk-ant-api03-KASIAKEY-abcdefghijklmnopqrstuvwxyz5555' }, l.cookie)).res.status, 200);
+  // once a key is removed it may be used elsewhere
+  assert.ok(r.data.user.id);
+});
+
+test('two people on one account show up for the owner (but nobody is blocked automatically)', async () => {
+  const login = (dev) => fetch(`${url}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Radiopis': '1', Cookie: `rv_dev=${dev}` }, body: JSON.stringify({ email: 'kasia@example.com', password: 'KasiaHaslo2026' }) });
+  // two browsers taking turns: each login pushes out the other one that was in use a moment ago (2 devices allowed)
+  for (let i = 0; i < 6; i++) assert.equal((await login(`device-number-${i}-abcdefgh`)).status, 200);
+  const list = await call('GET', '/api/admin/friends', undefined, owner);
+  const kasia = list.data.friends.find((f) => f.email === 'kasia@example.com');
+  assert.ok(kasia.sharing.devices >= 5);
+  assert.ok(kasia.sharing.flags.length > 0, JSON.stringify(kasia.sharing));
+  assert.ok(list.data.kpis.sharing >= 1);
+  assert.equal(db.one('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?', kasia.id).n, 2, 'at most 2 devices at once');
+  const detail = await call('GET', `/api/admin/users/${kasia.id}`, undefined, owner);
+  assert.ok(detail.data.sharing.flags.length > 0);
+  // one person at work and at home is not flagged
+  const anna1 = (await call('GET', '/api/admin/friends', undefined, owner)).data.friends.find((f) => f.id === anna);
+  assert.equal(anna1.sharing.flags.length, 0);
+});
+
+test('the wizard is only for friends', async () => {
+  db.setSetting('appSettings', { verifyEmail: false, trialsPerIp: 1000 });
+  const reg = await call('POST', '/api/auth/register', { email: 'zwykla@example.com', password: 'zwyklahaslo2026', name: 'Zwykła', accept: true });
+  const r = await call('GET', '/witaj', undefined, reg.cookie);
+  assert.equal(r.res.status, 302);
+  assert.equal((await call('GET', '/witaj')).res.headers.get('location'), '/login?next=/witaj');
 });

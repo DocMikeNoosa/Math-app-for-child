@@ -116,15 +116,20 @@
               <div class="field"><label for="fName">Imię i nazwisko</label><input id="fName" name="name" placeholder="np. Anna Kowalska" /></div>
               <div class="field"><label for="fEmail">E-mail</label><input id="fEmail" name="email" type="email" required placeholder="anna@example.com" /></div>
             </div>
-            <div class="field"><label class="check"><input type="checkbox" name="sendEmail" /> Wyślij też zaproszenie e-mailem (link i tak pojawi się poniżej)</label></div>
+            <div class="field"><label>Hasło</label>
+              <label class="radio-card"><input type="radio" name="pwdMode" value="link" checked /><div><b>Przyjaciel sam wybierze hasło</b> (zalecane)<div class="dim small">Dostanie link (ważny 7 dni), ustawi hasło i aplikacja przeprowadzi go przez resztę.</div></div></label>
+              <label class="radio-card"><input type="radio" name="pwdMode" value="start" /><div><b>Ustaw hasło startowe</b><div class="dim small">Przekażesz mu je sam (np. SMS-em); przy pierwszym logowaniu ustawi własne.</div>
+                <div class="row" id="startPwdRow" hidden><div class="field"><input name="password" id="fPwd" autocomplete="off" placeholder="min. 10 znaków, litera i cyfra" /></div><div class="field" style="flex:0 0 auto"><button class="btn btn-sm" type="button" id="genPwd">Wygeneruj</button></div></div></div></label>
+            </div>
+            <div class="field"><label class="check"><input type="checkbox" name="sendEmail" /> Wyślij też zaproszenie e-mailem (wiadomość i tak pojawi się poniżej; hasła nie wysyłamy e-mailem)</label></div>
             <button class="btn btn-primary" type="submit">Utwórz konto i pokaż zaproszenie</button>
           </form>
           <div id="inviteOut" class="invite-out" style="margin-top:14px" hidden></div>
         </div>
         <div class="card">
           <div class="card-head"><h3>2. Twoi przyjaciele</h3><span class="dim small" id="friendNote"></span></div>
-          <div class="table-wrap"><table><thead><tr><th>Przyjaciel</th><th>Stan</th><th class="num">Opisy (mies.)</th><th class="num">Ich koszt AI</th><th>Ostatnio</th><th>Co możesz zrobić</th></tr></thead><tbody id="friendRows"></tbody></table></div>
-          <p class="dim small" style="margin:10px 0 0"><b>Zawieś</b> — przyjaciel nie może się zalogować, klucz zostaje (przywrócisz jednym kliknięciem). <b>Zmień dostęp</b> — okres próbny, płatna subskrypcja albo plan gratis. Kliknij imię, aby zobaczyć wszystkie szczegóły konta.</p>
+          <div class="table-wrap"><table><thead><tr><th>Przyjaciel</th><th>Stan</th><th>Tylko on?</th><th class="num">Opisy (mies.)</th><th class="num">Ich koszt AI</th><th>Ostatnio</th><th>Co możesz zrobić</th></tr></thead><tbody id="friendRows"></tbody></table></div>
+          <p class="dim small" style="margin:10px 0 0"><b>Tylko on?</b> — ile przeglądarek i miejsc logowania w 30 dni; ⚠ gdy wygląda na to, że konta używa więcej osób (decydujesz Ty). Konto działa na 2 komputerach naraz, a jeden klucz API może być tylko na jednym koncie. <b>Zawieś</b> — przyjaciel nie może się zalogować, klucz zostaje (przywrócisz jednym kliknięciem). <b>Zmień dostęp</b> — okres próbny, płatna subskrypcja albo plan gratis. Kliknij imię, aby zobaczyć wszystkie szczegóły konta.</p>
         </div>
       </section>
 
