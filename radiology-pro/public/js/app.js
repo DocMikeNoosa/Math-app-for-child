@@ -29,7 +29,7 @@ const els = Object.fromEntries(
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
-    'micStatus', 'micSetup', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
+    'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
   ].map((id) => [id, $(id)]),
 );
 
@@ -1786,15 +1786,25 @@ function renderMic() {
   els.keyClear.hidden = !state.recordKey;
   els.micHint.textContent = mic.connected && mic.bound ? 'mikrofon' : state.recordKey ? keyLabel(state.recordKey) : '';
   // on the main screen, right under the record button: a PowerMic that needs one click (never hidden in settings)
-  els.micSetup.hidden = !mic.needsSetup;
-  if (mic.needsSetup) {
+  // "Bez PowerMica": working with the computer's own microphone — no reminder until a dictation mic is plugged in
+  const skipped = (() => { try { return localStorage.getItem(MIC_SKIP_KEY) === '1'; } catch { return false; } })();
+  const showSetup = mic.needsSetup && (mic.connected || !skipped);
+  els.micSetupRow.hidden = !showSetup;
+  if (showSetup) {
     els.micSetup.textContent = !mic.connected
       ? 'PowerMic niepołączony — kliknij tutaj'
       : `${mic.replaced ? 'Nowy mikrofon' : 'Mikrofon'} — kliknij tutaj i naciśnij przycisk nagrywania 2×`;
   }
 }
+const MIC_SKIP_KEY = 'radvox.micskip.v1';
+function skipMicSetup() {
+  try { localStorage.setItem(MIC_SKIP_KEY, '1'); } catch { /* private mode: hidden until reload */ }
+  els.micSetupRow.hidden = true;
+  toast('Dobrze — dyktujesz mikrofonem komputera: przycisk na ekranie, Spacja lub F2. PowerMica połączysz kiedyś w ⚙ Ustawieniach.', 'info', 6000);
+}
 // one click from the main screen: connect (the browser asks once), learn the button, then find the red light
 async function setupMicFromMain() {
+  try { localStorage.removeItem(MIC_SKIP_KEY); } catch { /* ignore */ }
   openSettings(true);
   els.micStatus.scrollIntoView({ block: 'center' });
   if (!mic.connected) await connectMic(false);
@@ -2127,6 +2137,7 @@ function bind() {
   // dictation button
   els.micConnect.addEventListener('click', () => connectMic(false));
   els.micSetup.addEventListener('click', setupMicFromMain);
+  els.micSkip.addEventListener('click', skipMicSetup);
   els.micConnectAny.addEventListener('click', () => connectMic(true));
   for (const r of [els.micModeToggle, els.micModeHold]) {
     r.addEventListener('change', () => {
