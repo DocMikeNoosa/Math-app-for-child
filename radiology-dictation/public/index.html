@@ -334,7 +334,7 @@
       <label class="setup-choice"><input type="radio" name="setupMic" value="default" checked /> <span><b>Mikrofonem komputera</b> albo zestawem słuchawkowym<br><small>Nic nie trzeba ustawiać — działa od razu.</small></span></label>
       <label class="setup-choice"><input type="radio" name="setupMic" value="dictation" /> <span><b>Mikrofonem do dyktowania</b> (PowerMic, SpeechMike)<br><small>Podłącz go teraz — znajdziemy go, nauczymy przycisk nagrywania i czerwoną diodę (ok. minuty).</small></span></label>
       <p class="setup-q">2. Dźwięk przy rozpoczęciu i zakończeniu nagrywania</p>
-      <label class="setup-choice inline"><input type="checkbox" id="setupChime" checked /> <span>Tak, krótki, delikatny dźwięk</span> <button type="button" class="btn btn-small" id="setupChimeTest">Posłuchaj</button></label>
+      <div class="setup-choice inline"><select id="setupChime" aria-label="Dźwięk nagrywania"></select> <button type="button" class="btn btn-small" id="setupChimeTest">Posłuchaj</button></div>
       <div class="setup-actions"><button type="button" class="btn btn-primary" id="setupDone">Gotowe — zaczynam</button></div>
     </div>
   </div>
@@ -402,7 +402,7 @@
           <label><input type="radio" name="micMode" id="micModeHold" value="hold" /> <span><b>Przytrzymaj</b>, aby dyktować — puść, aby zakończyć</span></label>
         </div>
         <p class="hint">Dotyczy przycisku na mikrofonie (PowerMic / SpeechMike) i przypisanego klawisza.</p>
-        <label class="chime-opt"><input type="checkbox" id="chimeOn" /> <span><b>Dźwięk</b> na początku i na końcu nagrywania</span> <button type="button" class="btn btn-small" id="chimeTest">Posłuchaj</button></label>
+        <div class="chime-opt"><label for="chimeStyle"><b>Dźwięk</b> na początku i końcu nagrywania</label> <select id="chimeStyle"></select> <button type="button" class="btn btn-small" id="chimeTest">Posłuchaj</button></div>
         <div class="mic-led" id="micLedRow" hidden>
           <p class="hint" id="micLedStatus"></p>
           <div class="btn-row">

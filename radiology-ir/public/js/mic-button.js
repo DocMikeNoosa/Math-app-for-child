@@ -177,13 +177,20 @@ export class MicButton {
   async setLed(on, led = this.led) {
     this.ledOn = Boolean(on);
     if (!led || !this.connected) return false;
+    const data = ledBytes(led, on);
+    const log = (ok, err = '') => {
+      // last attempts, for the diagnostic report (what was sent, did the browser accept it)
+      (this.ledLog ||= []).push(`${led.type} ${led.reportId} [${[...data].map((b) => b.toString(16).padStart(2, '0')).join(' ')}] ${ok ? 'OK' : `BŁĄD: ${err}`}`);
+      if (this.ledLog.length > 12) this.ledLog.shift();
+    };
     try {
-      const data = ledBytes(led, on);
       if (led.type === 'feature') await this.device.sendFeatureReport(led.reportId, data);
       else await this.device.sendReport(led.reportId, data);
+      log(true);
       return true;
     } catch (err) {
       this.ledError = err?.message || String(err);
+      log(false, this.ledError);
       return false;
     }
   }
@@ -375,7 +382,18 @@ export class MicButton {
     else if (!this.bound) hint = 'Dane z mikrofonu docierają. Kliknij „Naucz przycisk” i naciśnij przycisk nagrywania dwa razy.';
     else hint = 'Mikrofon połączony, przycisk nauczony.';
     const leds = d ? ledCandidates(d.collections) : [];
-    return { leds: leds.length, ledsStandard: leds.filter((c) => c.led).length, led: this.led, ledError: this.ledError || '', supported: this.supported, connected: this.connected, product: d?.productName || this.config?.productName || '', vendorId: hex(d?.vendorId ?? this.config?.vendorId), productId: hex(d?.productId ?? this.config?.productId), collections, reportsReceived: this.reports, binding: this.config?.binding || null, mode: this.mode, hint };
+    // the device's full report layout as the browser sees it: where a light could be switched
+    const page = (u) => `0x${((u >>> 16) || 0).toString(16)}`;
+    const items = (r) => (r.items || []).map((it) => `${it.reportSize}×${it.reportCount}${(it.usages || []).length ? ` str.${page(it.usages[0])}` : ''}`).join(' + ');
+    const layout = [];
+    const walk = (cols, depth = 0) => {
+      for (const c of cols || []) {
+        layout.push(`${'  '.repeat(depth)}kolekcja ${hex(c.usagePage)}/${hex(c.usage)}${PROTECTED(c) ? ' (klawiatura/mysz — zablokowana)' : ''}: wejście [${(c.inputReports || []).map((r) => r.reportId).join(', ')}] · wyjście [${(c.outputReports || []).map((r) => `${r.reportId}: ${items(r)}`).join('; ')}] · funkcje [${(c.featureReports || []).map((r) => `${r.reportId}: ${items(r)}`).join('; ')}]`);
+        walk(c.children, depth + 1);
+      }
+    };
+    walk(d?.collections);
+    return { layout, ledLog: this.ledLog || [], leds: leds.length, ledsStandard: leds.filter((c) => c.led).length, led: this.led, ledError: this.ledError || '', supported: this.supported, connected: this.connected, product: d?.productName || this.config?.productName || '', vendorId: hex(d?.vendorId ?? this.config?.vendorId), productId: hex(d?.productId ?? this.config?.productId), collections, reportsReceived: this.reports, binding: this.config?.binding || null, mode: this.mode, hint };
   }
 }
 

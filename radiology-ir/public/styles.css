@@ -1157,7 +1157,7 @@ body[data-view="card"] .panel.dictation { display: none; }
 @media (prefers-reduced-motion: reduce) { .mic-setup { animation: none; } }
 
 .chime-opt { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; font-size: 13px; }
-.chime-opt .btn { margin-left: auto; }
+.chime-opt select { flex: 1; min-width: 160px; }
 .mic-now { margin: 0 0 8px; font-size: 13.5px; line-height: 1.45; }
 .mic-find-link { margin-top: 6px; border: 0; background: none; color: var(--text-faint); font: 12px inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .mic-find-link:hover { color: var(--accent); }
@@ -1173,3 +1173,5 @@ body[data-view="card"] .panel.dictation { display: none; }
 .setup-choice.inline { align-items: center; }
 .setup-choice.inline .btn { margin-left: auto; }
 .setup-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.setup-choice.inline select { flex: 1; }
+.mic-now.warn { color: #ffd79a; padding: 8px 10px; border-radius: 10px; background: rgba(255, 181, 71, 0.08); border: 1px solid rgba(255, 181, 71, 0.4); }

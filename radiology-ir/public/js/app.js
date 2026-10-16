@@ -7,7 +7,7 @@ import { Dictation, LevelMeter, speechSupported } from './speech.js';
 import { parseVoiceCommands, dropLastSentence, dropLastWord, COMMAND_LABELS } from './voice-commands.js';
 import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, addUnique, similarity } from './style-learning.js';
 import { MicButton, ledPattern, isDictationMic } from './mic-button.js';
-import { chime, chimeEnabled, setChimeEnabled } from './chime.js';
+import { chime, chimeStyle, setChimeStyle, styleOptions } from './chime.js';
 import { listInputs, InputTester, inputError } from './audio-input.js';
 import { initCard, setView, resetCard, onLanguageChanged, currentView, toggleCardMic, cardMicActive } from './cardui.js';
 
@@ -32,7 +32,7 @@ const els = Object.fromEntries(
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
-    'chimeOn', 'chimeTest', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
+    'chimeStyle', 'chimeTest', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
     'menuLang', 'procBtn', 'anatomy', 'anatSide', 'closeAnatomy', 'anatParts', 'anatTargets', 'anatProcs', 'anatTpls', 'anatSummary', 'anatCancel', 'anatApply',
   ].map((id) => [id, $(id)]),
 );
@@ -1892,7 +1892,11 @@ function micReport() {
     `Kolekcje HID: ${d.collections.map((c) => `${c.usagePage}/${c.usage}${c.protected ? ' (zablokowana przez przeglądarkę)' : ''}`).join(', ') || '—'}`,
     `Odebrane raporty: ${d.reportsReceived} · przycisk: ${d.binding ? `raport ${d.binding.reportId}, bajt ${d.binding.byte}, maska 0x${d.binding.mask.toString(16)}` : 'nienauczony'}`,
     `Ostatnie dane: ${rawReports.length ? `\n  ${rawReports.join('\n  ')}` : '—'}`,
-    `Dioda: ${d.led ? `${d.led.type} ${d.led.reportId}, bajt ${d.led.byte}, maska 0x${d.led.mask.toString(16)}` : 'nieustawiona'} · możliwe miejsca: ${d.leds} (standardowe: ${d.ledsStandard})${d.ledError ? ` · błąd: ${d.ledError}` : ''}`,
+    `Dioda: ${d.led ? `${d.led.type} ${d.led.reportId}, ${d.led.on ? `wzór [${d.led.on.map((b) => b.toString(16)).join(' ')}]` : `bajt ${d.led.byte}, maska 0x${d.led.mask.toString(16)}`}` : 'nieustawiona'} · możliwe miejsca: ${d.leds} (standardowe: ${d.ledsStandard})${d.ledError ? ` · błąd: ${d.ledError}` : ''}`,
+    `Ostatnie próby diody: ${d.ledLog.length ? `\n  ${d.ledLog.join('\n  ')}` : '—'}`,
+    `Budowa urządzenia: ${d.layout.length ? `\n  ${d.layout.join('\n  ')}` : '—'}`,
+    `Głos brany z (mikrofon domyślny): ${defaultInputLabel || '— (nazwy widać po pierwszym dyktowaniu)'}`,
+    `Mikrofony w komputerze: ${lastInputs.map((x) => x.label || '?').filter((x, i, a) => a.indexOf(x) === i).join(' | ') || '—'}`,
     `Wskazówka: ${d.hint}`,
   ].join('\n');
 }
@@ -1943,12 +1947,12 @@ function maybeFirstRun() {
     // people who already use the app are not interrupted (they find it in Settings)
     if (localStorage.getItem('radvox.v2') || localStorage.getItem('radvox.mic.v1')) { localStorage.setItem(SETUP_KEY, 'existing'); return; }
   } catch { return; }
-  els.setupChime.checked = chimeEnabled();
+  els.setupChime.value = chimeStyle();
   els.setupModal.hidden = false;
 }
 function finishSetup() {
-  setChimeEnabled(els.setupChime.checked);
-  els.chimeOn.checked = els.setupChime.checked;
+  setChimeStyle(els.setupChime.value);
+  els.chimeStyle.value = els.setupChime.value;
   const dictation = document.querySelector('input[name="setupMic"]:checked')?.value === 'dictation';
   try { localStorage.setItem(SETUP_KEY, dictation ? 'dictation-mic' : 'default-mic'); } catch { /* ignore */ }
   els.setupModal.hidden = true;
@@ -1961,6 +1965,13 @@ let lastInputs = [];
 const DICTATION_MIC_NAME = /powermic|speechmike|nuance|philips|dictation/i;
 function renderMicNow() {
   const def = defaultInputLabel ? `: ${defaultInputLabel}` : '';
+  // a PowerMic is connected but the voice comes from another microphone (e.g. the laptop's): say so plainly
+  const otherVoice = mic.connected && defaultInputLabel && !DICTATION_MIC_NAME.test(defaultInputLabel) && lastInputs.some((x) => DICTATION_MIC_NAME.test(x.label || ''));
+  els.micNow.classList.toggle('warn', Boolean(otherVoice));
+  if (otherVoice) {
+    els.micNow.textContent = `Uwaga: przycisk ${mic.name} działa, ale głos jest brany z „${defaultInputLabel}”, nie z PowerMica. Ustaw PowerMic jako mikrofon domyślny (Windows: Ustawienia → System → Dźwięk → Wejście), wtedy też dyktujesz do niego.`;
+    return;
+  }
   els.micNow.textContent = mic.connected && mic.bound ? `Dyktujesz z mikrofonem ${mic.name} — przycisk nagrywania${mic.led ? ' i czerwona dioda działają' : ' działa'}. Głos: mikrofon domyślny${def}.`
     : mic.connected ? `${mic.name} połączony — naucz przycisk nagrywania (poniżej: „Naucz przycisk”).`
       : `Dyktujesz mikrofonem domyślnym${def}. Masz PowerMic lub SpeechMike? Kliknij „Wykryj mikrofon”.`;
@@ -2376,12 +2387,17 @@ function bind() {
   // dictation button
   els.micConnect.addEventListener('click', () => connectMic(false));
   els.micSetup.addEventListener('click', setupMicFromMain);
-  els.chimeOn.checked = chimeEnabled();
-  els.chimeOn.addEventListener('change', () => { setChimeEnabled(els.chimeOn.checked); if (els.chimeOn.checked) chime('start'); });
-  els.chimeTest.addEventListener('click', (e) => { e.preventDefault(); chime('start', { force: true }); setTimeout(() => chime('stop', { force: true }), 700); });
+  // recording sound: a choice of styles (or none), each can be heard before choosing
+  const fillStyles = (sel) => { sel.innerHTML = styleOptions().map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join(''); sel.value = chimeStyle(); };
+  const preview = (style) => { if (style === 'off') { toast('Bez dźwięku', 'info', 1500); return; } chime('start', { style }); setTimeout(() => chime('stop', { style }), 650); };
+  fillStyles(els.chimeStyle);
+  fillStyles(els.setupChime);
+  els.chimeStyle.addEventListener('change', () => { setChimeStyle(els.chimeStyle.value); els.setupChime.value = els.chimeStyle.value; preview(els.chimeStyle.value); });
+  els.chimeTest.addEventListener('click', (e) => { e.preventDefault(); preview(els.chimeStyle.value); });
+  els.setupChime.addEventListener('change', () => preview(els.setupChime.value));
   els.micSkip.addEventListener('click', skipMicSetup);
   els.micFind.addEventListener('click', discoverMic);
-  els.setupChimeTest.addEventListener('click', (e) => { e.preventDefault(); chime('start', { force: true }); setTimeout(() => chime('stop', { force: true }), 700); });
+  els.setupChimeTest.addEventListener('click', (e) => { e.preventDefault(); preview(els.setupChime.value); });
   els.setupDone.addEventListener('click', finishSetup);
   els.micConnectAny.addEventListener('click', () => connectMic(true));
   for (const r of [els.micModeToggle, els.micModeHold]) {
