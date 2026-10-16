@@ -920,3 +920,6 @@ body.friend .brand-mark {
 .setup-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 .setup-choice.inline select { flex: 1; }
 .mic-now.warn { color: #ffd79a; padding: 8px 10px; border-radius: 10px; background: rgba(255, 181, 71, 0.08); border: 1px solid rgba(255, 181, 71, 0.4); }
+.led-code { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.led-code-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
+.led-code-row input { flex: 1; min-width: 0; }

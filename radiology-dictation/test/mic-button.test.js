@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 
 globalThis.localStorage = { _m: new Map(), getItem(k) { return this._m.get(k) ?? null; }, setItem(k, v) { this._m.set(k, String(v)); }, removeItem(k) { this._m.delete(k); } };
 Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
-const { chooseButton, risingBits, MicButton, ledCandidates, ledBytes, ledReports, ledPattern } = await import('../public/js/mic-button.js');
+const { chooseButton, risingBits, MicButton, ledCandidates, ledBytes, ledReports, ledPattern, parseLedCode } = await import('../public/js/mic-button.js');
 
 const R = (...bytes) => ({ reportId: 1, bytes: Uint8Array.from(bytes) });
 
@@ -220,4 +220,15 @@ test('red light search: groups first, patterns of several switches, keyboard par
   assert.deepEqual([...ledBytes(pat, true)], [0x0c], 'only the chosen switches');
   assert.deepEqual([...ledBytes(pat, false)], [0x00]);
   assert.deepEqual([...ledBytes({ type: 'output', reportId: 3, length: 1, byte: 0, mask: 0x20 }, true)], [0x20], 'single switches unchanged');
+});
+
+test('light code typed in from IT: on and off commands, checked before use', () => {
+  const led = parseLedCode('0a 01 00 00 00 00 00 00 00', '0x0a,0x00');
+  assert.equal(led.length, 9);
+  assert.deepEqual([...ledBytes(led, true)], [0x0a, 1, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual([...ledBytes(led, false)], [0x0a, 0, 0, 0, 0, 0, 0, 0, 0], 'its own "off" command');
+  assert.deepEqual([...ledBytes(parseLedCode('05'), false)], [0], 'no off code → zeros');
+  assert.match(parseLedCode('').error, /włącz/);
+  assert.match(parseLedCode('zz 01').error, /zz/);
+  assert.match(parseLedCode('01', '', 300).error, /0–255/);
 });

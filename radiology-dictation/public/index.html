@@ -421,6 +421,13 @@
         <details class="mic-diag" id="micDiagBox"><summary>Diagnostyka mikrofonu (gdy przycisk nie działa)</summary>
           <pre class="mono" id="micDiag"></pre>
           <div class="btn-row"><button class="btn btn-small" id="micDiagCopy">Kopiuj raport</button></div>
+        
+          <div class="led-code">
+            <p class="hint"><b>Kod czerwonej diody</b> — gdy dział IT odczyta go z oprogramowania Nuance (instrukcja: <span class="mono">docs/POWERMIC-LED-CAPTURE.md</span>). Bajty szesnastkowo, oddzielone spacją.</p>
+            <label class="led-code-row">włącz <input id="ledCodeOn" class="mono" spellcheck="false" placeholder="np. 00 01 00 00 00 00 00 00 00" /></label>
+            <label class="led-code-row">wyłącz <input id="ledCodeOff" class="mono" spellcheck="false" placeholder="puste = same zera" /></label>
+            <div class="btn-row"><button class="btn btn-small" id="ledCodeTest">Test (3 s)</button><button class="btn btn-small btn-primary" id="ledCodeSave">Zapisz kod</button></div>
+          </div>
         </details>
         <div class="field-head key-head">
           <label>Klawisz nagrywania</label>

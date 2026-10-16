@@ -5,7 +5,7 @@ import { localMerge, findConflicts, applyConflicts, splitSentences, analyseFindi
 import { Dictation, LevelMeter, speechSupported } from './speech.js';
 import { parseVoiceCommands, dropLastSentence, dropLastWord, COMMAND_LABELS } from './voice-commands.js';
 import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, addUnique, similarity } from './style-learning.js';
-import { MicButton, ledPattern, isDictationMic } from './mic-button.js';
+import { MicButton, ledPattern, isDictationMic, parseLedCode } from './mic-button.js';
 import { chime, chimeStyle, setChimeStyle, styleOptions } from './chime.js';
 import { listInputs, InputTester, inputError } from './audio-input.js';
 
@@ -30,7 +30,7 @@ const els = Object.fromEntries(
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
-    'chimeStyle', 'chimeTest', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
+    'chimeStyle', 'chimeTest', 'ledCodeOn', 'ledCodeOff', 'ledCodeTest', 'ledCodeSave', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
   ].map((id) => [id, $(id)]),
 );
 
@@ -2263,6 +2263,33 @@ function bind() {
   els.chimeTest.addEventListener('click', (e) => { e.preventDefault(); preview(els.chimeStyle.value); });
   els.setupChime.addEventListener('change', () => preview(els.setupChime.value));
   els.micSkip.addEventListener('click', skipMicSetup);
+  // light code typed in by hand (read by IT from the manufacturer's software)
+  const readLedCode = () => {
+    if (!mic.connected) { toast('Najpierw podłącz i połącz mikrofon.', 'warn'); return null; }
+    let led = parseLedCode(els.ledCodeOn.value, els.ledCodeOff.value, 0);
+    if (led.error) { toast(led.error, 'err', 6000); return null; }
+    // the device's own report length; a code copied with the report number in front (00 …) is accepted too
+    const group = mic.ledReports().find((g) => g.reportId === led.reportId && g.type === led.type);
+    if (group && led.length === group.length + 1 && led.on[0] === 0 && (!led.off || led.off[0] === 0)) led = { ...led, length: group.length, on: led.on.slice(1), off: led.off?.slice(1) };
+    if (group && led.length < group.length) led = { ...led, length: group.length, on: [...led.on, ...new Array(group.length - led.length).fill(0)], off: led.off && [...led.off, ...new Array(group.length - led.off.length).fill(0)] };
+    return led;
+  };
+  els.ledCodeTest.addEventListener('click', async () => {
+    const led = readLedCode();
+    if (!led) return;
+    const ok = await mic.setLed(true, led);
+    toast(ok ? 'Dioda powinna teraz świecić przez 3 sekundy…' : `Mikrofon nie przyjął kodu${mic.ledError ? `: ${mic.ledError}` : ''}`, ok ? 'info' : 'err', 3500);
+    setTimeout(async () => { await mic.setLed(false, led); await mic.setLed(state.recording); renderMicDiag(); }, 3000);
+    renderMicDiag();
+  });
+  els.ledCodeSave.addEventListener('click', () => {
+    const led = readLedCode();
+    if (!led) return;
+    mic.saveLed(led);
+    toast('Kod diody zapisany — dioda będzie świecić podczas dyktowania.', 'ok', 4000);
+    mic.setLed(state.recording);
+    renderMicDiag();
+  });
   els.micFind.addEventListener('click', discoverMic);
   els.setupChimeTest.addEventListener('click', (e) => { e.preventDefault(); preview(els.setupChime.value); });
   els.setupDone.addEventListener('click', finishSetup);

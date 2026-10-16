@@ -116,9 +116,28 @@ export function ledCandidates(collections = []) {
 /** The bytes to send for one light state (one switch, or a remembered pattern of several). */
 export function ledBytes(led, on) {
   const data = new Uint8Array(led.length);
-  if (on && Array.isArray(led.on)) data.set(led.on.slice(0, led.length));
+  if (!on && Array.isArray(led.off)) data.set(led.off.slice(0, led.length)); // a device with its own "light off" command
+  else if (on && Array.isArray(led.on)) data.set(led.on.slice(0, led.length));
   else if (on) data[led.byte] |= led.mask;
   return data;
+}
+
+/**
+ * A light code typed in by hand (e.g. read by IT from the manufacturer's software): hex bytes for "on" and, if the
+ * device needs it, "off". Returns the light setting or { error }. Pure, for tests.
+ */
+export function parseLedCode(onText, offText = '', reportId = 0, type = 'output') {
+  const bytes = (t) => String(t || '').trim().split(/[\s,;:]+/).filter(Boolean).map((x) => x.replace(/^0x/i, ''));
+  const on = bytes(onText);
+  const off = bytes(offText);
+  if (!on.length) return { error: 'Wpisz bajty „włącz” (szesnastkowo, np. 00 01 00 …).' };
+  for (const b of [...on, ...off]) if (!/^[0-9a-f]{1,2}$/i.test(b)) return { error: `„${b}” to nie bajt szesnastkowy (00–ff).` };
+  const id = Number(reportId) || 0;
+  if (id < 0 || id > 255) return { error: 'Numer raportu: 0–255.' };
+  const length = Math.max(on.length, off.length);
+  if (length > 64) return { error: 'Za długi kod (najwyżej 64 bajty).' };
+  const num = (a) => [...a.map((x) => parseInt(x, 16)), ...new Array(length - a.length).fill(0)];
+  return { type: type === 'feature' ? 'feature' : 'output', reportId: id, length, on: num(on), off: off.length ? num(off) : undefined, led: false, manual: true };
 }
 
 /** The reports (groups of switches) the candidates live in: [{ type, reportId, length }], in candidate order. */
