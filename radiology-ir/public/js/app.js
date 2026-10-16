@@ -1986,7 +1986,7 @@ async function discoverMic() {
     const audioDictation = lastInputs.find((d) => DICTATION_MIC_NAME.test(d.label || ''));
     if (mic.supported && !mic.connected) {
       const allowed = (await navigator.hid.getDevices()).find(isDictationMic);
-      if (allowed) { await mic.open(allowed); mic.adopt(allowed); renderMic(); await learnMicButton(); }
+      if (allowed) { await mic.open(allowed); mic.adopt(allowed); mic.autoLed(); renderMic(); if (!mic.bound) await learnMicButton(); }
       else await connectMic(false); // the browser shows its list once; connecting continues with the button
     } else if (mic.connected && !mic.bound) await learnMicButton();
     const voiceHint = audioDictation && defaultInputLabel && !DICTATION_MIC_NAME.test(defaultInputLabel)
@@ -2020,8 +2020,8 @@ async function connectMic(any) {
   try {
     if (await mic.connect({ any })) {
       mic.autoLed();
-      toast('Mikrofon połączony — naciśnij przycisk nagrywania, aby go nauczyć', 'info', 4000);
-      learnMicButton();
+      if (mic.bound) { toast(`${mic.name} gotowy — przycisk nagrywania${mic.led ? ' i czerwona dioda działają' : ' działa'}.`, 'ok', 5000); renderMic(); }
+      else { toast('Mikrofon połączony — naciśnij przycisk nagrywania, aby go nauczyć', 'info', 4000); learnMicButton(); }
     }
   } catch (err) {
     // the list was empty or closed: a newer model may introduce itself differently — the full list shows it

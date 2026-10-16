@@ -65,7 +65,31 @@ export function chooseButton(reports, { expectedPresses = 2 } = {}) {
     .map((s) => ({ ...s, score: Math.min(s.rises + (s.falls > s.rises ? 1 : 0), expectedPresses) * 2 + Math.min(s.falls, expectedPresses) - Math.abs(s.rises - expectedPresses) * 0.5 }))
     .sort((a, b) => b.score - a.score || a.byte - b.byte || a.mask - b.mask);
   const best = candidates[0];
-  return best ? { reportId: best.reportId, byte: best.byte, mask: best.mask } : null;
+  if (!best) return null;
+  return { reportId: best.reportId, byte: best.byte, mask: best.mask, ...signatureOf(reports, best) };
+}
+
+/**
+ * What a genuine button message looks like: the bytes that are identical in every report where the button bit
+ * changed during learning (e.g. a "message type" byte). Some microphones (PowerMic 4) also send status messages with
+ * the same bit meaning something else (the light being on) — those differ in such a byte and are ignored.
+ * Returns { sig: [[byte, value], …] } or {} when it cannot be told.
+ */
+export function signatureOf(reports, { reportId, byte, mask }) {
+  const own = reports.filter((r) => r.reportId === reportId);
+  const changes = [];
+  let prev = null;
+  for (const r of own) {
+    if (prev && ((prev.bytes[byte] ^ r.bytes[byte]) & mask)) changes.push(r.bytes);
+    prev = r;
+  }
+  if (changes.length < 2) return {};
+  const sig = [];
+  for (let j = 0; j < changes[0].length; j++) {
+    if (j === byte) continue;
+    if (changes.every((b) => b[j] === changes[0][j])) sig.push([j, changes[0][j]]);
+  }
+  return sig.length ? { sig } : {};
 }
 
 /**
@@ -161,8 +185,15 @@ const PROTECTED = isProtected;
  * Filled in from codes users found with the light search (Diagnostyka → „Kod czerwonej diody”).
  */
 export const KNOWN_LEDS = {
-  // '0554:0064': { type: 'output', reportId: 0, length: 9, on: [/* PowerMic 4 — code to be added */], off: [/* … */] },
+  // Nuance PowerMic 4: found on a real device (search attempt 259 = command 0x02 with every value byte on)
+  '0554:0064': { type: 'output', reportId: 0, length: 9, on: [0x02, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff], off: [0x02, 0, 0, 0, 0, 0, 0, 0, 0] },
 };
+/** Record buttons known for a model: used without learning, and to upgrade an older saved button (no signature). */
+export const KNOWN_BUTTONS = {
+  // Nuance PowerMic 4: button messages "80 00 00 20 …", record button = byte 8 bit 0 (status messages "…08…" ignored)
+  '0554:0064': { reportId: 0, byte: 8, mask: 0x01, sig: [[0, 0x80], [3, 0x20]] },
+};
+const modelKey = (d) => `${Number(d?.vendorId).toString(16).padStart(4, '0')}:${Number(d?.productId).toString(16).padStart(4, '0')}`;
 const knownLed = (d) => KNOWN_LEDS[`${Number(d?.vendorId).toString(16).padStart(4, '0')}:${Number(d?.productId).toString(16).padStart(4, '0')}`] || null;
 
 /** A dictation microphone (Nuance PowerMic, Philips SpeechMike) whose buttons a web page can read. */
@@ -212,6 +243,8 @@ export class MicButton {
       if (this.ledLog.length > 12) this.ledLog.shift();
     };
     try {
+      // the microphone may answer a light change with a status message: no "press" is taken from it for a moment
+      this.quietUntil = Date.now() + 500;
       if (led.type === 'feature') await this.device.sendFeatureReport(led.reportId, data);
       else await this.device.sendReport(led.reportId, data);
       log(true);
@@ -229,9 +262,10 @@ export class MicButton {
   }
   /** A light code known for this model is used without asking; so is exactly one standard LED declared. */
   autoLed() {
-    if (this.led) return this.led;
     const known = knownLed(this.device);
-    if (known) { const led = { ...known, led: false, known: true }; this.saveLed(led); return led; }
+    // a built-in code replaces one found by the automatic search (a code typed in by hand is the user's choice)
+    if (known && !this.led?.manual && !this.led?.known) { const led = { ...known, led: false, known: true }; this.saveLed(led); return led; }
+    if (this.led) return this.led;
     const leds = this.ledCandidates().filter((c) => c.led);
     if (leds.length === 1) { this.saveLed(leds[0]); return leds[0]; }
     return null;
@@ -244,6 +278,17 @@ export class MicButton {
 
   save(config) { if (this.persist) save(config); }
 
+  /** A known model's record button: set it when none is learned yet, or replace an older one without a signature. */
+  applyKnownButton() {
+    const known = KNOWN_BUTTONS[modelKey(this.device)];
+    if (!known || !this.config || this.config.vendorId !== this.device.vendorId || this.config.productId !== this.device.productId) return false;
+    const b = this.config.binding;
+    if (b && b.sig) return false;
+    if (b && (b.reportId !== known.reportId || b.byte !== known.byte || b.mask !== known.mask)) return false; // the user taught another button
+    this.config = { ...this.config, binding: { ...known } };
+    this.save(this.config);
+    return true;
+  }
   /** A device needs setting up: chosen before but not connected now, or connected without a learned button. */
   get needsSetup() { return this.supported && this.known && (!this.connected || !this.bound); }
   /** A different microphone than the remembered one was taken over (e.g. a new PowerMic): learn its button. */
@@ -252,7 +297,7 @@ export class MicButton {
     if (same) return;
     this.config = { vendorId: d.vendorId, productId: d.productId, productName: d.productName, binding: null, led: null };
     this.save(this.config);
-    this.replaced = true;
+    this.replaced = !this.applyKnownButton();
     this.onChange();
   }
 
@@ -293,6 +338,7 @@ export class MicButton {
     const same = this.config && this.config.vendorId === d.vendorId && this.config.productId === d.productId;
     this.config = { vendorId: d.vendorId, productId: d.productId, productName: d.productName, binding: same ? this.config.binding : null, led: same ? this.config.led || null : null };
     this.save(this.config);
+    this.applyKnownButton();
     this.onChange();
     return true;
   }
@@ -307,8 +353,10 @@ export class MicButton {
     }
     if (this.device && this.device !== d) this.device.removeEventListener('inputreport', this.handle);
     this.device = d;
+    this.applyKnownButton();
     this.reports = 0;
     this.last.clear();
+    this.btnDown = undefined;
     d.addEventListener('inputreport', this.handle);
     this.onChange();
     // keep the light in step with dictation after (re)connecting
@@ -385,17 +433,27 @@ export class MicButton {
     if (this.learning) { this.learning(e.reportId, copy); return; }
     const b = this.config?.binding;
     if (!b || b.reportId !== e.reportId) return;
+    // only genuine button messages count (see signatureOf); others (status, light echo) are ignored
+    if (b.sig && !b.sig.every(([j, v]) => copy[j] === v)) return;
     const isDown = (copy[b.byte] & b.mask) !== 0;
-    const wasDown = prev ? (prev[b.byte] & b.mask) !== 0 : false;
+    // the button's state comes only from genuine button messages (never from a status message in between)
+    const wasDown = this.btnDown ?? false;
+    const now = Date.now();
     if (isDown && !wasDown) {
-      const now = Date.now();
+      // right after switching the light, an apparent press is the device's echo, not the user: ignore it
+      // (releases are still taken, so the next real press is never missed)
+      if (now < (this.quietUntil || 0)) return;
+      this.btnDown = true;
       if (now - this.lastPress < 250) return; // bounce
       this.lastPress = now;
       this.pressed = true;
       this.onPress();
-    } else if (!isDown && wasDown && this.pressed) {
-      this.pressed = false;
-      if (this.mode === 'hold') this.onRelease();
+    } else if (!isDown && wasDown) {
+      this.btnDown = false;
+      if (this.pressed) {
+        this.pressed = false;
+        if (this.mode === 'hold') this.onRelease();
+      }
     }
   }
 

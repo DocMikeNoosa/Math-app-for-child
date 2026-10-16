@@ -5,14 +5,15 @@ import assert from 'node:assert/strict';
 
 globalThis.localStorage = { _m: new Map(), getItem(k) { return this._m.get(k) ?? null; }, setItem(k, v) { this._m.set(k, String(v)); }, removeItem(k) { this._m.delete(k); } };
 Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
-const { chooseButton, risingBits, MicButton, ledCandidates, ledBytes, ledReports, ledPattern, parseLedCode, KNOWN_LEDS } = await import('../public/js/mic-button.js');
+const { chooseButton, risingBits, MicButton, ledCandidates, ledBytes, ledReports, ledPattern, parseLedCode, KNOWN_LEDS, KNOWN_BUTTONS } = await import('../public/js/mic-button.js');
 
 const R = (...bytes) => ({ reportId: 1, bytes: Uint8Array.from(bytes) });
+const pos = (b) => (b ? { reportId: b.reportId, byte: b.byte, mask: b.mask } : b); // where the button is (without its message signature)
 
 test('the old bug: the first report made a constant status bit look like a press', () => {
   // byte 0 = constant status 0x80, byte 2 bit 0x04 = record button
   assert.deepEqual(risingBits(undefined, Uint8Array.from([0x80, 0, 0x04]))[0], { byte: 0, mask: 0x80 }, 'old learning picked the status bit');
-  const pick = chooseButton([R(0x80, 0, 0x04), R(0x80, 0, 0), R(0x80, 0, 0x04), R(0x80, 0, 0)]);
+  const pick = pos(chooseButton([R(0x80, 0, 0x04), R(0x80, 0, 0), R(0x80, 0, 0x04), R(0x80, 0, 0)]));
   assert.deepEqual(pick, { reportId: 1, byte: 2, mask: 0x04 });
 });
 
@@ -22,13 +23,13 @@ test('trackball / counter noise is ignored, the record button is found', () => {
   const noisy = (btn) => { ball = (ball + 37) & 0xff; return R(0x01, ball, btn ? 0x10 : 0); };
   for (let i = 0; i < 12; i++) reports.push(noisy(false)); // moving the trackball while getting ready
   reports.push(noisy(true), noisy(true), noisy(false), noisy(false), noisy(true), noisy(false));
-  assert.deepEqual(chooseButton(reports), { reportId: 1, byte: 2, mask: 0x10 });
+  assert.deepEqual(pos(chooseButton(reports)), { reportId: 1, byte: 2, mask: 0x10 });
 });
 
 test('devices that send only on change, and devices that send no release, still work', () => {
-  assert.deepEqual(chooseButton([R(0, 0x02), R(0, 0), R(0, 0x02), R(0, 0)]), { reportId: 1, byte: 1, mask: 0x02 });
+  assert.deepEqual(pos(chooseButton([R(0, 0x02), R(0, 0), R(0, 0x02), R(0, 0)])), { reportId: 1, byte: 1, mask: 0x02 });
   // press-only reports with an idle report in between
-  assert.deepEqual(chooseButton([R(0, 0), R(0x08, 0), R(0, 0), R(0x08, 0)]), { reportId: 1, byte: 0, mask: 0x08 });
+  assert.deepEqual(pos(chooseButton([R(0, 0), R(0x08, 0), R(0, 0), R(0x08, 0)])), { reportId: 1, byte: 0, mask: 0x08 });
   assert.equal(chooseButton([R(0x80, 1), R(0x80, 1)]), null, 'nothing changes → no button');
   assert.equal(chooseButton([]), null);
 });
@@ -54,7 +55,7 @@ test('learning from two presses, then toggle mode and hold-to-talk mode', async 
   dev.send(0x80, 0x04); dev.send(0x80, 0); dev.send(0x80, 0x04); dev.send(0x80, 0);
   const r = await learning;
   assert.equal(r.ok, true);
-  assert.deepEqual(r.binding, { reportId: 1, byte: 1, mask: 0x04 });
+  assert.deepEqual(pos(r.binding), { reportId: 1, byte: 1, mask: 0x04 });
   assert.deepEqual(events, [], 'learning presses do not start dictation');
   await new Promise((res) => setTimeout(res, 300));
   dev.send(0x80, 0x04); dev.send(0x80, 0);
@@ -160,7 +161,7 @@ test('the toggle / hold choice survives "Odłącz" and a reload; test pages neve
 
 test('a NEW PowerMic replacing the remembered one is taken over and asks for its button (no silent dead button)', async () => {
   localStorage.setItem('radvox.mic.v1', JSON.stringify({ vendorId: 0x0554, productId: 0x1001, productName: 'PowerMic II', binding: { reportId: 1, byte: 1, mask: 4 }, led: null }));
-  const newMic = { ...fakeDevice(), productId: 0x0064, productName: 'PowerMic 4' };
+  const newMic = { ...fakeDevice(), productId: 0x0099, productName: 'PowerMic X' }; // a model without built-in settings
   const keyboardOnly = { ...fakeDevice(), vendorId: 0x046d, productId: 0x0001, collections: [{ usagePage: 0x01, usage: 0x06 }] };
   const hid = { listeners: {}, addEventListener(t, f) { (this.listeners[t] ||= []).push(f); }, getDevices: async () => [keyboardOnly, newMic] };
   Object.defineProperty(globalThis.navigator, 'hid', { value: hid, configurable: true });
@@ -168,7 +169,7 @@ test('a NEW PowerMic replacing the remembered one is taken over and asks for its
   assert.equal(mic.needsSetup, true, 'remembered but not connected yet');
   await mic.restore();
   assert.equal(mic.connected, true);
-  assert.equal(mic.name, 'PowerMic 4');
+  assert.equal(mic.name, 'PowerMic X');
   assert.equal(mic.bound, false, "the old mic's button is not assumed for the new one");
   assert.equal(mic.replaced, true);
   assert.equal(mic.needsSetup, true, 'the main screen asks to press the button twice');
@@ -193,11 +194,11 @@ test('a new PowerMic plugged in while the app is open is picked up by itself', a
   const mic = new MicButton({ onPress: () => {} });
   await mic.restore();
   assert.equal(mic.connected, false);
-  const newMic = { ...fakeDevice(), productId: 0x0064, productName: 'PowerMic 4' };
+  const newMic = { ...fakeDevice(), productId: 0x0099, productName: 'PowerMic X' }; // a model without built-in settings
   for (const f of hid.listeners.connect) f({ device: newMic });
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(mic.connected, true);
-  assert.equal(mic.name, 'PowerMic 4');
+  assert.equal(mic.name, 'PowerMic X');
   assert.equal(mic.needsSetup, true);
   Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
 });
@@ -235,6 +236,9 @@ test('light code typed in from IT: on and off commands, checked before use', () 
 
 test('a light code known for a model is used by itself on every computer', async () => {
   localStorage._m.clear();
+  const real = KNOWN_LEDS['0554:0064'];
+  assert.deepEqual(real.on, [2, 255, 255, 255, 255, 255, 255, 255, 255], 'PowerMic 4: command 02, found on a real device (attempt 259)');
+  assert.deepEqual(real.off, [2, 0, 0, 0, 0, 0, 0, 0, 0]);
   KNOWN_LEDS['0554:0064'] = { type: 'output', reportId: 0, length: 3, on: [3, 0xff, 0xff], off: [3, 0, 0] };
   const mic = new MicButton({ onPress: () => {} });
   const dev = { ...ledDevice([{ usagePage: 0xffa0, usage: 1, outputReports: [{ reportId: 0, items: [{ reportSize: 8, reportCount: 3, usages: [0xffa10001] }] }] }]), productId: 0x0064 };
@@ -243,5 +247,83 @@ test('a light code known for a model is used by itself on every computer', async
   dev.sent.length = 0;
   await mic.setLed(true); await mic.setLed(false);
   assert.deepEqual(dev.sent, [['out', 0, [3, 0xff, 0xff]], ['out', 0, [3, 0, 0]]]);
-  delete KNOWN_LEDS['0554:0064'];
+  KNOWN_LEDS['0554:0064'] = real;
+});
+
+test('PowerMic 4: the status message (light on) after a release is not a second press — one press, one action', async () => {
+  // real PowerMic 4 data: button messages "80 00 00 20 …", status messages "80 00 00 08 …", both use byte 8 bit 0
+  const btn = (down, a = 0x39, b = 0x61) => [0x80, 0, 0, 0x20, a, b, 0, 0, down ? 1 : 0];
+  const status = (light) => [0x80, 0, 0, 0x08, 0, 0x02, 0, 0, light ? 1 : 0];
+  const events = [];
+  const mic = new MicButton({ onPress: () => events.push('press'), onRelease: () => events.push('release'), persist: false });
+  const dev = fakeDevice();
+  dev.sendReport = async () => {};
+  await mic.open(dev);
+  mic.config = { vendorId: dev.vendorId, productId: dev.productId };
+  const learning = mic.learn(5000);
+  for (const r of [btn(1), btn(1), btn(0, 0x7f, 0), btn(0, 0x7f, 0), btn(1, 0x12, 0x34), btn(0)]) dev.send(...r);
+  const r = await learning;
+  assert.equal(r.ok, true);
+  assert.deepEqual(pos(r.binding), { reportId: 1, byte: 8, mask: 1 });
+  assert.ok(r.binding.sig.some(([j, v]) => j === 3 && v === 0x20), 'learned: button messages carry 0x20 in byte 3');
+  mic.saveLed = () => {};
+  mic.config.led = { type: 'output', reportId: 0, length: 9, on: [3, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff] };
+  await new Promise((res) => setTimeout(res, 300));
+  // press → dictation starts → the app lights the light → the mic answers with a status "1" after the release
+  dev.send(...btn(1)); await mic.setLed(true); dev.send(...btn(0)); dev.send(...status(1));
+  await new Promise((res) => setTimeout(res, 600));
+  dev.send(...status(1)); // later status messages too
+  assert.deepEqual(events, ['press'], 'exactly one press — the status message never toggles dictation');
+  // the next real press works at once
+  dev.send(...btn(1)); dev.send(...btn(0));
+  assert.deepEqual(events, ['press', 'press']);
+});
+
+test('an old saved button (no signature) is still protected from the light echo', async () => {
+  const events = [];
+  const mic = new MicButton({ onPress: () => events.push('press'), persist: false });
+  const dev = fakeDevice();
+  dev.sendReport = async () => {};
+  await mic.open(dev);
+  mic.config = { vendorId: dev.vendorId, productId: dev.productId, binding: { reportId: 1, byte: 1, mask: 1 }, led: { type: 'output', reportId: 0, length: 1, on: [1] } };
+  dev.send(0x20, 1); await mic.setLed(true); dev.send(0x20, 0); dev.send(0x08, 1); // echo within half a second
+  assert.deepEqual(events, ['press']);
+  dev.send(0x20, 0); await new Promise((res) => setTimeout(res, 550)); dev.send(0x20, 1);
+  assert.deepEqual(events, ['press', 'press'], 'a real press after the quiet moment works');
+});
+
+test('PowerMic 4 works without learning, and an older saved button is upgraded (no double press)', async () => {
+  localStorage._m.clear();
+  const pm4 = () => ({ ...fakeDevice(), productId: 0x0064, productName: 'PowerMic 4', sendReport: async () => {} });
+  // older install: the button was learned before (no signature)
+  localStorage.setItem('radvox.mic.v1', JSON.stringify({ vendorId: 0x0554, productId: 0x0064, productName: 'PowerMic 4', binding: { reportId: 0, byte: 8, mask: 1 } }));
+  const old = new MicButton({ onPress: () => {} });
+  const d1 = pm4();
+  await old.open(d1);
+  assert.deepEqual(old.config.binding, KNOWN_BUTTONS['0554:0064'], 'upgraded to the known PowerMic 4 button');
+  // a new PowerMic 4: connected, nothing to learn
+  localStorage._m.clear();
+  const fresh = new MicButton({ onPress: () => {} });
+  const d2 = pm4();
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [], requestDevice: async () => [d2] }, configurable: true });
+  await fresh.connect();
+  assert.equal(fresh.bound, true);
+  assert.equal(fresh.autoLed().known, true, 'and its light code');
+  // a user who taught a different button keeps it
+  localStorage.setItem('radvox.mic.v1', JSON.stringify({ vendorId: 0x0554, productId: 0x0064, binding: { reportId: 0, byte: 7, mask: 2 } }));
+  const other = new MicButton({ onPress: () => {} });
+  await other.open(pm4());
+  assert.deepEqual(other.config.binding, { reportId: 0, byte: 7, mask: 2 });
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
+});
+
+test('the very first press after starting counts, even if the mic sent a status message first', async () => {
+  const events = [];
+  const mic = new MicButton({ onPress: () => events.push('press'), persist: false });
+  const dev = { ...fakeDevice(), productId: 0x0064, sendReport: async () => {} };
+  await mic.open(dev);
+  mic.config = { vendorId: 0x0554, productId: 0x0064, binding: { ...KNOWN_BUTTONS['0554:0064'], reportId: 1 } }; // the fake device reports on id 1
+  dev.send(0x80, 0, 0, 0x08, 0, 0x02, 0, 0, 1); // status: light state "1"
+  dev.send(0x80, 0, 0, 0x20, 0x39, 0x61, 0, 0, 1); // first real press
+  assert.deepEqual(events, ['press']);
 });
