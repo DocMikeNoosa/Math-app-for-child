@@ -94,6 +94,7 @@ export function quotaOf(user) {
 /** Devices logged in at the same time. */
 export function devicesOf(user) {
   if (user.role === 'admin') return 10;
+  if (user.sub_status === 'friend') return 3;
   const org = orgOf(user);
   return Math.max(1, org ? org.devices : planById(user.plan).devices || 2);
 }
@@ -106,6 +107,8 @@ export function access(user, now = Date.now()) {
   if (!user) return { ok: false, code: 'login', reason: 'Zaloguj się.' };
   if (user.role === 'admin') return { ok: true };
   if (user.blocked) return { ok: false, code: 'blocked', reason: 'Konto zablokowane — skontaktuj się z administratorem.' };
+  // friends: free, with their own API key (they pay for their own reports)
+  if (user.sub_status === 'friend') return user.api_key_enc ? { ok: true, friend: true } : { ok: true, friend: true, needKey: true };
   if (user.sub_status === 'verify') return { ok: false, code: 'verify', reason: `Potwierdź adres e-mail: kliknij link, który wysłaliśmy na ${user.email}. Okres próbny zacznie się od razu po potwierdzeniu.` };
   if (user.sub_status === 'pending') return { ok: false, code: 'pending', reason: 'Twoje konto czeka na zatwierdzenie okresu próbnego. Dostaniesz e-mail, gdy będzie gotowe.' };
   if (user.must_change_pwd) return { ok: false, code: 'pwd', reason: 'Ustaw własne hasło, aby rozpocząć pracę.' };
@@ -130,7 +133,7 @@ export function access(user, now = Date.now()) {
 
 /** Is there room for one more report this month? (A call for a report already counted is always allowed.) */
 export function quotaCheck(user, reportId) {
-  if (user.role === 'admin') return { ok: true };
+  if (user.role === 'admin' || user.sub_status === 'friend') return { ok: true };
   const quota = quotaOf(user);
   // an approved trial has one limit for the whole trial, not per month
   if (user.sub_status === 'trial' && user.trial_reports != null) {

@@ -32,6 +32,7 @@ rows.push({ ...(await person('start@test.radvoxpro.local', 'Lek. Piotr Testowy',
 rows.push({ ...(await person('proba@test.radvoxpro.local', 'Lek. Ewa Próbna', { plan: 'trial', status: 'trial', until: now + 14 * DAY })), what: 'Okres próbny zatwierdzony (14 dni, 60 opisów)' });
 run("UPDATE users SET trial_reports = COALESCE(trial_reports, ?) WHERE email = 'proba@test.radvoxpro.local'", settings().trialReports || 60);
 rows.push({ ...(await person('czeka@test.radvoxpro.local', 'Lek. Olga Czekająca', { plan: 'trial', status: 'pending', until: 0 })), what: 'Czeka na Twoje zatwierdzenie (Admin → Pulpit)' });
+rows.push({ ...(await person('przyjaciel@test.radvoxpro.local', 'Lek. Adam Przyjaciel', { plan: 'friend', status: 'friend', until: 0 })), what: 'Wersja dla przyjaciół — za darmo, wklej własny klucz API na stronie konta' });
 rows.push({ ...(await person('wygasly@test.radvoxpro.local', 'Lek. Jan Wygasły', { plan: 'start', status: 'expired', until: now - DAY })), what: 'Subskrypcja wygasła — zobaczysz blokadę i stronę płatności' });
 
 let org = one("SELECT * FROM orgs WHERE name = 'Szpital Testowy'");

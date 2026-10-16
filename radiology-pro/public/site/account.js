@@ -1,5 +1,5 @@
 // Account page: subscription, plan choice (Stripe or bank transfer), invoice data, password, devices.
-import { $, $$, api, esc, toast, showMsg, fmtDate, fmtDateTime, fmtPln, daysLeft, statusPill, CHECK } from './common.js';
+import { $, $$, api, esc, toast, showMsg, fmtDate, fmtDateTime, fmtPln, fmtUsd, daysLeft, statusPill, CHECK } from './common.js';
 
 let me = null;
 let interval = 'month';
@@ -74,17 +74,27 @@ function render() {
   $('#itLink').hidden = u.role !== 'orgadmin';
   const org = me.org;
   const owner = u.role === 'admin';
-  $('#choose').hidden = Boolean(org) || owner;
-  $('#paymentsCard').hidden = Boolean(org) || owner;
+  const friend = me.friend;
+  document.body.classList.toggle('friend', Boolean(friend));
+  if (friend) for (const l of document.querySelectorAll('link[rel="icon"]')) l.href = '/icons/radvox-friend-192.png';
+  $('#friendCard').hidden = !friend;
+  if (friend) {
+    $('#keyMasked').textContent = friend.key || 'brak — wklej klucz poniżej';
+    $('#ownCost').textContent = `${fmtUsd(friend.ownCostUsd)} (płatne przez Ciebie w Anthropic)`;
+    $('#keyRemove').hidden = !friend.key;
+  }
+  $('#choose').hidden = Boolean(org) || owner || Boolean(friend);
+  $('#paymentsCard').hidden = Boolean(org) || owner || Boolean(friend);
   if (org) u.subUntil = org.subUntil;
   $('#statusPill').innerHTML = owner ? '<span class="pill ok">właściciel</span>' : statusPill({ ...u, blocked: false, ...(me.org ? { subStatus: 'org', subUntil: me.org.subUntil } : {}) });
   $('#planName').textContent = owner ? 'Właściciel usługi' : me.plan.name;
   const left = daysLeft(u.subUntil);
-  $('#until').textContent = owner ? 'bez limitu' : u.subUntil ? `${fmtDate(u.subUntil)}${left > 0 ? ` (${left} dni)` : ''}` : '—';
+  $('#until').textContent = owner || friend ? 'bez terminu' : u.subUntil ? `${fmtDate(u.subUntil)}${left > 0 ? ` (${left} dni)` : ''}` : '—';
   const pct = me.plan.quota ? Math.min(100, (me.usage.reports / me.plan.quota) * 100) : 0;
-  $('#usageText').textContent = `${me.usage.reports} z ${me.plan.quota}`;
+  $('#usageText').textContent = me.plan.quota ? `${me.usage.reports} z ${me.plan.quota}` : `${me.usage.reports} (bez limitu)`;
   $('#meterBar').style.width = `${pct}%`;
   $('#meter').className = `meter${pct >= 100 ? ' err' : pct >= 80 ? ' warn' : ''}`;
+  $('#meter').hidden = !me.plan.quota;
   $('#portalBtn').hidden = !u.hasStripe;
   $('#appLink').hidden = !me.access.ok;
   $('#chooseTitle').textContent = me.access.ok && u.subStatus !== 'trial' ? 'Zmień lub przedłuż plan' : 'Wybierz plan';
@@ -93,17 +103,19 @@ function render() {
   else if (p.get('canceled')) showMsg($('#notice'), 'Płatność anulowana — nic nie zostało pobrane.', 'info');
   else if (owner) showMsg($('#notice'), 'Konto właściciela usługi — pełny dostęp bez subskrypcji. Włącz logowanie dwuetapowe poniżej.', 'info');
   else if (p.get('verify') === 'bad' && me.access.code === 'verify') showMsg($('#notice'), 'Link potwierdzający wygasł lub był już użyty — wyślij nowy przyciskiem poniżej.', 'warn');
+  else if (me.friend && !me.friend.key) showMsg($('#notice'), 'Wklej swój klucz API Anthropic poniżej — potem możesz od razu dyktować.', 'info');
   else if (!me.access.ok) showMsg($('#notice'), me.access.reason, me.access.code === 'verify' || me.access.code === 'pending' ? 'info' : 'err');
   else if (org) showMsg($('#notice'), `Licencję zapewnia ${org.name}${org.status === 'trial' ? ' (okres próbny)' : ''}. Sprawy konta i hasła: dział IT${org.contact ? ` — ${org.contact}` : ''}.`, 'info');
   else if (u.subStatus === 'trial') showMsg($('#notice'), `Okres próbny: zostało ${left} dni. Wybierz plan, aby pracować dalej bez przerwy.`, 'info');
-  else if (left <= 7 && !u.hasStripe) showMsg($('#notice'), `Subskrypcja kończy się za ${left} dni.`, 'info');
+  else if (friend) showMsg($('#notice'), 'Wersja dla przyjaciół — wszystko za darmo, opisy rozliczasz własnym kluczem API.', 'info');
+  else if (u.subUntil > 0 && left <= 7 && !u.hasStripe) showMsg($('#notice'), `Subskrypcja kończy się za ${left} dni.`, 'info');
   $('#verifyRow').hidden = me.access.code !== 'verify';
   renderPlans();
   $('#payments').innerHTML = me.payments.length
     ? me.payments.map((x) => `<tr><td>${fmtDate(x.ts)}</td><td>${esc(x.plan)}</td><td>${fmtDate(x.period_until)}</td><td>${esc(PROVIDER[x.provider] || x.provider)}</td><td class="num">${fmtPln(x.amount_pln, 2)}</td></tr>`).join('')
     : '<tr><td colspan="5" class="empty">Brak płatności</td></tr>';
   const f = $('#profileForm');
-  f.name.value = u.name; f.npwz.value = u.npwz; f.phone.value = u.phone; f.company.value = u.company; f.nip.value = u.nip;
+  f.name.value = u.name; f.phone.value = u.phone; f.company.value = u.company; f.nip.value = u.nip;
   $('#sessions').innerHTML = me.sessions.map((s) => `<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>${esc(deviceName(s.ua))}</b>${s.current ? ' <span class="pill ok">to urządzenie</span>' : ''}<span class="sub dim">ostatnio ${fmtDateTime(s.last_seen)}</span></div>`).join('');
   renderPrivacy();
   $('#devicesNote').textContent = `Plan pozwala na ${me.plan.devices} ${me.plan.devices === 1 ? 'zalogowane urządzenie' : 'zalogowane urządzenia'} jednocześnie — przy logowaniu na kolejnym najstarsze jest wylogowywane.`;
@@ -176,7 +188,7 @@ $('#profileForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    me = await api('/api/me/update', { method: 'POST', body: { name: f.name.value, npwz: f.npwz.value, phone: f.phone.value, company: f.company.value, nip: f.nip.value } });
+    me = await api('/api/me/update', { method: 'POST', body: { name: f.name.value, phone: f.phone.value, company: f.company.value, nip: f.nip.value } });
     render();
     toast('Zapisano', 'ok');
   } catch (err) { toast(err.message, 'err'); }
@@ -202,4 +214,14 @@ $('#resendVerify')?.addEventListener('click', async (e) => {
   e.target.disabled = true;
   try { await api('/api/me/resend-verify', { method: 'POST', body: {} }); toast('Wysłaliśmy nowy link — sprawdź skrzynkę (także SPAM).', 'ok', 5000); }
   catch (err) { toast(err.message, 'err'); e.target.disabled = false; }
+});
+
+$('#keyForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try { me = await api('/api/me/api-key', { method: 'POST', body: { key: $('#apiKey').value } }); $('#apiKey').value = ''; render(); toast('Klucz zapisany — możesz dyktować.', 'ok'); }
+  catch (err) { toast(err.message, 'err', 6000); }
+});
+$('#keyRemove')?.addEventListener('click', async () => {
+  if (!window.confirm('Usunąć zapisany klucz API? Bez klucza AI nie przygotuje opisów.')) return;
+  try { me = await api('/api/me/api-key', { method: 'DELETE' }); render(); toast('Klucz usunięty.', 'info'); } catch (err) { toast(err.message, 'err'); }
 });

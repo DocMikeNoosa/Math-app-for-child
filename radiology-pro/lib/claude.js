@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { enforceConsistency, placeRecommendations } from '../public/js/crosscheck.js';
 import { fidelityWarnings } from '../public/js/polish-text.js';
 import { applyEdits } from './edits.js';
-import { getClient, MODEL as AI_MODEL, SUPPORTS_FALLBACKS, SUPPORTS_FAST } from './ai-client.js';
+import { getClient, MODEL as AI_MODEL, currentModel, supportsFallbacks, supportsFast } from './ai-client.js';
 
 export const MODEL = AI_MODEL;
 // Speed modes chosen in the app: 'fast' (default, low effort), 'accurate' (medium effort),
@@ -14,7 +14,6 @@ export const MODES = {
   turbo: { effort: 'low', turbo: true },
 };
 // Server-side refusal fallback (beta, Anthropic API only). Set CLAUDE_FALLBACKS=0 to disable.
-const USE_FALLBACKS = SUPPORTS_FALLBACKS;
 
 export const SYSTEM_PROMPT = `You are a writing assistant for a Polish radiologist. You turn raw speech-recognition dictation into polished Polish radiology report text and merge it into the report, which started from one of the radiologist's own templates.
 
@@ -274,7 +273,7 @@ export class ClaudeError extends Error {
 export function buildRequest({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate, global = null, mode = 'fast' }) {
   const m = MODES[mode] || MODES.fast;
   const params = {
-    model: MODEL,
+    model: currentModel(),
     max_tokens: 16000,
     // the instructions never change → cached, so they aren't re-processed on every request
     system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
@@ -285,11 +284,11 @@ export function buildRequest({ template, report, dictation, instruction, style, 
     messages: [{ role: 'user', content: buildUserContent({ template, report, dictation, instruction, style, styleExamples, learned, keep, clinical, profile, samples, translations, inputLang, outputLang, translate, global }) }],
   };
   const betas = [];
-  if (USE_FALLBACKS) {
+  if (supportsFallbacks()) {
     betas.push('server-side-fallback-2026-07-01');
     params.fallbacks = 'default';
   }
-  if (m.turbo && SUPPORTS_FAST) {
+  if (m.turbo && supportsFast()) {
     betas.push('fast-mode-2026-02-01');
     params.speed = 'fast';
   }

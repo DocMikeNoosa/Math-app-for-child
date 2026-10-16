@@ -41,6 +41,17 @@
             </div>
           </div>
 
+          <div class="card" id="friendCard" hidden>
+            <div class="card-head"><h2>Twój klucz API</h2><span class="pill gold">wersja dla przyjaciół</span></div>
+            <p class="dim small" style="margin-top:0">Masz pełną wersję RadVox Pro za darmo. Opisy przygotowuje AI na Twoim własnym koncie Anthropic — płacisz za nie bezpośrednio Anthropic — koszt widzisz poniżej i w console.anthropic.com. Klucz założysz na <span class="mono">console.anthropic.com</span> → API keys; ustaw tam też miesięczny limit wydatków.</p>
+            <dl class="kv"><dt>Zapisany klucz</dt><dd id="keyMasked">—</dd><dt>Koszt AI w tym miesiącu</dt><dd id="ownCost">—</dd></dl>
+            <form id="keyForm" class="actions" style="margin-top:12px" autocomplete="off">
+              <input id="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off" aria-label="Klucz API Anthropic" style="flex:1;min-width:220px" />
+              <button class="btn btn-sm btn-primary" type="submit">Zapisz klucz</button>
+              <button class="btn btn-sm btn-ghost" type="button" id="keyRemove" hidden>Usuń klucz</button>
+            </form>
+            <p class="dim small" style="margin-bottom:0">Klucz jest zapisany w postaci zaszyfrowanej i nikt — także właściciel usługi — nie zobaczy go w całości.</p>
+          </div>
           <div class="card" id="choose">
             <div class="card-head"><h2 id="chooseTitle">Wybierz plan</h2>
               <div class="billing-toggle" role="group" aria-label="Okres rozliczenia" style="margin:0">
@@ -65,10 +76,7 @@
             <div class="card-head"><h2>Dane do faktury</h2></div>
             <form id="profileForm">
               <div class="field"><label for="pName">Imię i nazwisko</label><input id="pName" name="name" required /></div>
-              <div class="row">
-                <div class="field"><label for="pNpwz">Numer PWZ</label><input id="pNpwz" name="npwz" /></div>
-                <div class="field"><label for="pPhone">Telefon</label><input id="pPhone" name="phone" type="tel" /></div>
-              </div>
+              <div class="field"><label for="pPhone">Telefon</label><input id="pPhone" name="phone" type="tel" /></div>
               <div class="field"><label for="pCompany">Firma / praktyka lekarska</label><input id="pCompany" name="company" /></div>
               <div class="field"><label for="pNip">NIP</label><input id="pNip" name="nip" inputmode="numeric" /></div>
               <button class="btn" type="submit">Zapisz dane</button>

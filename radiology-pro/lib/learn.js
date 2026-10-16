@@ -3,7 +3,8 @@
 // request. When something is unclear it asks a few short questions, each with a suggested phrase
 // the radiologist rewrites in their own words.
 import Anthropic from '@anthropic-ai/sdk';
-import { ClaudeError, MODEL } from './claude.js';
+import { ClaudeError } from './claude.js';
+import { currentModel } from './ai-client.js';
 import { getClient } from './ai-client.js';
 
 export const LEARN_PROMPT = `You study how one radiologist writes radiology reports so that a reporting assistant can write exactly like them. The radiologist is a Polish EMERGENCY radiologist; reports are in Polish (sometimes English).
@@ -115,7 +116,7 @@ export async function analyzeStyle(input) {
   let response;
   try {
     response = await getClient().messages.create({
-      model: MODEL,
+      model: currentModel(),
       max_tokens: 8000,
       system: LEARN_PROMPT,
       output_config: { effort: 'medium', format: { type: 'json_schema', schema: LEARN_SCHEMA } },

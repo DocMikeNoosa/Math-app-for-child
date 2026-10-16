@@ -2,6 +2,7 @@
 //   AI_PROVIDER=anthropic (default) — Anthropic API (ANTHROPIC_API_KEY)
 //   AI_PROVIDER=bedrock             — Claude on Amazon Bedrock in an EU region (AWS_REGION, e.g. eu-central-1 =
 //                                     Frankfurt); data processed in the EU. Uses the standard AWS credentials.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import Anthropic from '@anthropic-ai/sdk';
 import { AnthropicBedrockMantle } from '@anthropic-ai/bedrock-sdk';
 
@@ -13,8 +14,20 @@ export const MODEL = PROVIDER === 'bedrock' && !BASE_MODEL.startsWith('anthropic
 export const SUPPORTS_FALLBACKS = PROVIDER === 'anthropic' && process.env.CLAUDE_FALLBACKS !== '0';
 export const SUPPORTS_FAST = PROVIDER === 'anthropic';
 
+// Friend accounts: their requests run with their own Anthropic API key (and pay for themselves).
+const scope = new AsyncLocalStorage();
+export function withOwnKey(apiKey, fn) {
+  return scope.run({ client: new Anthropic({ apiKey }), model: BASE_MODEL }, fn);
+}
+export const usingOwnKey = () => Boolean(scope.getStore()?.client);
+export const currentModel = () => scope.getStore()?.model || MODEL;
+export const supportsFallbacks = () => (usingOwnKey() ? process.env.CLAUDE_FALLBACKS !== '0' : SUPPORTS_FALLBACKS);
+export const supportsFast = () => usingOwnKey() || SUPPORTS_FAST;
+
 let client = null;
 export function getClient() {
+  const own = scope.getStore()?.client;
+  if (own) return own;
   if (!client) client = PROVIDER === 'bedrock' ? new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION || 'eu-central-1' }) : new Anthropic();
   return client;
 }

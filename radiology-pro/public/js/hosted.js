@@ -62,6 +62,8 @@ window.fetch = async (input, init = {}) => {
     else if (d && d.access && !d.access.ok) {
       if (d.access.code === 'pwd') location.href = '/change-password';
       else showBanner(d.access.reason, { error: true });
+    } else if (d?.access?.needKey) {
+      showBanner('Wersja dla przyjaciół: wklej swój klucz API Anthropic na stronie konta, a AI zacznie przygotowywać opisy.');
     } else if (d?.announcement && sessionStorage.getItem('radiopis.ann') !== d.announcement) {
       showBanner(d.announcement, { link: false, onClose: () => sessionStorage.setItem('radiopis.ann', d.announcement) });
     }

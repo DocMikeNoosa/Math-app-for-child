@@ -46,10 +46,11 @@ export const fmtUsd = (v) => `$${Number(v || 0).toFixed(Number(v) < 10 ? 3 : 2)}
 export const fmtNum = (v) => Number(v || 0).toLocaleString('pl-PL');
 export const daysLeft = (ms) => Math.ceil((ms - Date.now()) / 86400000);
 
-export const STATUS_LABEL = { verify: 'e-mail niepotwierdzony', pending: 'czeka na zatwierdzenie', trial: 'okres próbny', active: 'aktywna', past_due: 'zaległa płatność', canceled: 'anulowana', expired: 'wygasła' };
+export const STATUS_LABEL = { friend: 'przyjaciel', verify: 'e-mail niepotwierdzony', pending: 'czeka na zatwierdzenie', trial: 'okres próbny', active: 'aktywna', past_due: 'zaległa płatność', canceled: 'anulowana', expired: 'wygasła' };
 export function statusPill(u) {
   if (u.blocked) return '<span class="pill err">zablokowany</span>';
   const st = u.subStatus;
+  if (st === 'friend') return '<span class="pill gold">przyjaciel</span>';
   if (st === 'pending') return '<span class="pill warn">czeka na zatwierdzenie</span>';
   if (st === 'verify') return '<span class="pill warn">e-mail niepotwierdzony</span>';
   if (st === 'org') return u.subUntil > Date.now() ? '<span class="pill info">organizacja</span>' : '<span class="pill err">licencja org. wygasła</span>';

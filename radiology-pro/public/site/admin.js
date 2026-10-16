@@ -190,6 +190,7 @@ async function openUser(id) {
       <button class="btn btn-sm" data-act="reset-link">Link do zmiany hasła</button>
       <button class="btn btn-sm" data-act="logout">Wyloguj ze wszystkich urządzeń</button>
       ${u.twoFactor ? '<button class="btn btn-sm" data-act="reset2fa">Wyłącz logowanie dwuetapowe</button>' : ''}
+      ${u.orgId ? '' : `<button class="btn btn-sm" data-act="friend">${u.friend ? 'Zakończ wersję dla przyjaciół' : 'Zrób przyjacielem (za darmo, własny klucz API)'}</button>`}
       <button class="btn btn-sm ${u.blocked ? '' : 'btn-danger'}" data-act="block">${u.blocked ? 'Odblokuj' : 'Zablokuj'}</button>
       <button class="btn btn-sm btn-danger" data-act="delete">Usuń konto</button>
     </div>
@@ -251,6 +252,11 @@ async function openUser(id) {
         } else if (act === 'logout') {
           await api(`/api/admin/users/${id}/logout`, { method: 'POST', body: {} });
           toast('Wylogowano', 'ok');
+        } else if (act === 'friend') {
+          if (u.friend && !window.confirm(`Zakończyć wersję dla przyjaciół dla ${u.email}? Konto straci dostęp, a zapisany klucz API zostanie usunięty.`)) return;
+          await api(`/api/admin/users/${id}`, { method: 'PATCH', body: { friend: !u.friend } });
+          toast(u.friend ? 'Wersja dla przyjaciół zakończona' : 'To konto jest teraz przyjacielem — na stronie konta wklei swój klucz API', 'ok', 5000);
+          openUser(id); refreshCurrent();
         } else if (act === 'block') {
           await api(`/api/admin/users/${id}`, { method: 'PATCH', body: { blocked: !u.blocked } });
           openUser(id); refreshCurrent();
@@ -285,6 +291,7 @@ $('#addUser').addEventListener('click', async () => {
         <div class="field"><label>Kwota netto zł</label><input name="amountPln" type="number" step="0.01" min="0" placeholder="0 = bez płatności" /></div>
       </div>
       <div class="field"><label class="check"><input type="checkbox" name="sendEmail" checked /> Wyślij zaproszenie e-mailem</label></div>
+      <div class="field"><label class="check"><input type="checkbox" name="friend" /> Przyjaciel — za darmo, z własnym kluczem API (płaci sam za AI; złota ikona)</label></div>
       <div class="field"><label class="check"><input type="checkbox" name="admin" /> Administrator</label></div>
       <button class="btn btn-primary" type="submit">Utwórz konto</button>
     </form><div id="newLink" style="margin-top:12px" hidden></div>`;
@@ -295,7 +302,7 @@ $('#addUser').addEventListener('click', async () => {
     e.preventDefault();
     const f = e.target;
     try {
-      const r = await api('/api/admin/users', { method: 'POST', body: { name: f.name.value, email: f.email.value, npwz: f.npwz.value, phone: f.phone.value, company: f.company.value, nip: f.nip.value, plan: f.plan.value, interval: f.interval.value, amountPln: Number(f.amountPln.value) || 0, sendEmail: f.sendEmail.checked, role: f.admin.checked ? 'admin' : 'user' } });
+      const r = await api('/api/admin/users', { method: 'POST', body: { name: f.name.value, email: f.email.value, npwz: f.npwz.value, phone: f.phone.value, company: f.company.value, nip: f.nip.value, plan: f.plan.value, interval: f.interval.value, amountPln: Number(f.amountPln.value) || 0, sendEmail: f.sendEmail.checked, friend: f.friend.checked, role: f.admin.checked ? 'admin' : 'user' } });
       const box = $('#newLink');
       box.hidden = false;
       box.innerHTML = `<div class="msg ok">Konto utworzone. Link do ustawienia hasła (ważny 7 dni):</div><div class="copybox"><input readonly value="${esc(r.link)}" /><button class="btn btn-sm" type="button">Kopiuj</button></div>`;

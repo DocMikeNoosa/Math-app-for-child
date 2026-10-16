@@ -70,9 +70,19 @@ overall layout — add functionality in the existing style.
 - `client_events` (codes only, 30 days), `/api/me/event`, `EVENT_HELP` texts, `/api/it/users/:id/{details,unlock,reset-2fa,devices}`,
   `/check` page (public), owner `reset-2fa`.
 
+## Friends' version (1.3)
+- `sub_status = 'friend'` (plan `friend`): no quota, 3 devices, needs own key (`access().needKey`). Key: POST/DELETE
+  `/api/me/api-key`, sealed with `lib/secret-box.js` in `users.api_key_enc`; wiped on erase or when the owner turns
+  "friend" off (account becomes expired).
+- `lib/ai-client.js` `withOwnKey()` (AsyncLocalStorage) routes `/api/format` and `/api/learn` to the friend's key with
+  the direct Anthropic API; a 401 becomes 402 `own_key`. Cost goes to `usage.own_cost_usd` (not `cost_usd`).
+- Gold: `body.friend` class, `radvox-friend-*.png/.ico`, `app-friend.webmanifest` (index rewritten server-side).
+- Test account `przyjaciel@test.radvoxpro.local`. Tests: `test/friends.test.js`.
+- The account page no longer asks for the PWZ number (kept if already stored).
+
 ## Technical notes
 - Templates: 397 + 112 snippets (MR and X-ray libraries completed Oct 2026: mr-body-msk-2.js, mr-neuro-spine-2.js, xray-2.js).
-- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (134 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
+- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (175 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
   `NODE_ENV=production` serves `dist/`.
 - Report counting: the browser sends `reportId` (one per report); usage rows with the same id count once.
 - `background: true` marks pre-processing calls; capped per report by `maxBackgroundCalls` (settings).

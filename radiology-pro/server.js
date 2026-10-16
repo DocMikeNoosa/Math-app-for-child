@@ -36,7 +36,8 @@ import { extendSubscription, stripeEnabled, createCheckout, createPrepaidCheckou
 import { sendMail, adminEmail, mailConfigured } from './lib/mail.js';
 import { runJobs, startJobs } from './lib/jobs.js';
 import { BRAND } from './lib/brand.js';
-import { aiConfigured, PROVIDER } from './lib/ai-client.js';
+import { aiConfigured, PROVIDER, withOwnKey, usingOwnKey } from './lib/ai-client.js';
+import { seal, open as openSecret, maskKey } from './lib/secret-box.js';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(APP_DIR, 'public');
@@ -191,10 +192,21 @@ const sitePage = (res, name, req = null) => serveFile(res, SITE_ROOT(), `${name}
 // ---------------------------------------------------------------- AI usage metering
 function recordUsage(user, { kind, reportId = '', model = '', usage = null, ms = 0, ok = true, lang = '', globalVersion = null }) {
   const u = usage || {};
-  run(`INSERT INTO usage(user_id, ts, month, kind, report_id, model, input_tokens, output_tokens, cache_write, cache_read, cost_usd, ms, ok, lang, global_version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  const cost = usage ? costUsd(model, u) : 0;
+  const own = user.sub_status === 'friend'; // a friend pays with their own API key: never the owner's cost
+  run(`INSERT INTO usage(user_id, ts, month, kind, report_id, model, input_tokens, output_tokens, cache_write, cache_read, cost_usd, own_cost_usd, ms, ok, lang, global_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   user.id, Date.now(), monthOf(), kind, String(reportId).slice(0, 64), model || '', u.input_tokens || 0, u.output_tokens || 0,
-  u.cache_creation_input_tokens || 0, u.cache_read_input_tokens || 0, usage ? costUsd(model, u) : 0, ms, ok ? 1 : 0, lang, globalVersion);
+  u.cache_creation_input_tokens || 0, u.cache_read_input_tokens || 0, own ? 0 : cost, own ? cost : 0, ms, ok ? 1 : 0, lang, globalVersion);
+}
+
+/** Run an AI request: a friend's request goes out with their own API key, everyone else's with the service's. */
+function runAs(ctx, fn) {
+  if (ctx?.user.sub_status === 'friend' && ctx.user.api_key_enc) {
+    const key = openSecret(ctx.user.api_key_enc);
+    if (key) return withOwnKey(key, fn);
+  }
+  return fn();
 }
 
 function validReport(report) {
@@ -222,6 +234,7 @@ export function cleanLearned(l) {
 
 /** AI errors for the browser. A bad server API key (401) is the operator's problem, not the user's login. */
 function sendAiError(res, err) {
+  if (err.status === 401 && usingOwnKey()) return sendJson(res, 402, { error: 'Twój klucz API Anthropic nie działa (nieprawidłowy, wyłączony albo bez środków). Sprawdź go na stronie konta.', code: 'own_key' });
   if (err.status === 401) {
     console.error('AI: authentication failed — check the API key / AWS credentials');
     return sendJson(res, 503, { error: 'Usługa AI chwilowo niedostępna — administrator został powiadomiony.' });
@@ -236,7 +249,9 @@ function guardAi(res, ctx, reportId = null) {
   if (!ctx) { sendJson(res, 401, { error: 'Sesja wygasła — zaloguj się ponownie.', code: 'login' }); return null; }
   const a = access(ctx.user);
   if (!a.ok) { sendJson(res, 402, { error: a.reason, code: a.code }); return null; }
-  if (!aiAvailable()) { sendJson(res, 503, { error: 'AI chwilowo niedostępne.', code: 'no_api_key' }); return null; }
+  if (ctx.user.sub_status === 'friend') {
+    if (!ctx.user.api_key_enc) { sendJson(res, 402, { error: 'Dodaj swój klucz API Anthropic na stronie konta — wersja dla przyjaciół korzysta z Twojego klucza.', code: 'own_key' }); return null; }
+  } else if (!aiAvailable()) { sendJson(res, 503, { error: 'AI chwilowo niedostępne.', code: 'no_api_key' }); return null; }
   if (reportId !== null) {
     const q = quotaCheck(ctx.user, reportId);
     if (!q.ok) { sendJson(res, 402, { error: q.reason, code: q.code }); return null; }
@@ -342,7 +357,7 @@ function acceptTerms(userId, ip = '') {
 function eraseUser(u, actorId) {
   tx(() => {
     run(`UPDATE users SET email = ?, name = 'Usunięty użytkownik', npwz = '', phone = '', company = '', nip = '', note = '', pwd = '!',
-         blocked = 1, must_change_pwd = 0, totp_secret = '', totp_on = 0, stripe_customer = NULL WHERE id = ?`, `u${u.id}${DELETED_DOMAIN}`, u.id);
+         blocked = 1, must_change_pwd = 0, totp_secret = '', totp_on = 0, api_key_enc = '', stripe_customer = NULL WHERE id = ?`, `u${u.id}${DELETED_DOMAIN}`, u.id);
     run('DELETE FROM sessions WHERE user_id = ?', u.id);
     run('DELETE FROM user_data WHERE user_id = ?', u.id);
     run('DELETE FROM tokens WHERE user_id = ?', u.id);
@@ -405,9 +420,10 @@ function mePayload(ctx) {
     user: publicUser(u),
     org: org ? { name: org.name, status: org.status, subUntil: org.sub_until, contact: org.contact, devices: org.devices } : null,
     twoFactor: Boolean(u.totp_on), termsVersion: u.terms_version, termsAcceptedAt: u.terms_at,
-    plan: org ? { id: 'org', name: `Licencja: ${org.name}`, pricePln: 0, quota: quotaOf(u), devices: org.devices } : { id: p.id, name: p.name, pricePln: p.pricePln, quota: quotaOf(u), devices: p.devices },
+    plan: u.sub_status === 'friend' ? { id: 'friend', name: 'Wersja dla przyjaciół (własny klucz API)', pricePln: 0, quota: 0, devices: 3 } : org ? { id: 'org', name: `Licencja: ${org.name}`, pricePln: 0, quota: quotaOf(u), devices: org.devices } : { id: p.id, name: p.name, pricePln: p.pricePln, quota: quotaOf(u), devices: p.devices },
     usage: { month: monthOf(), reports: used.reports },
     access: access(u),
+    friend: u.sub_status === 'friend' ? { key: maskKey(openSecret(u.api_key_enc)), ownCostUsd: one('SELECT COALESCE(SUM(own_cost_usd),0) AS c FROM usage WHERE user_id = ? AND month = ?', u.id, monthOf()).c } : null,
     sessions: userSessions(u.id).map((s) => ({ ...s, current: s.id === ctx.sessionId, id: undefined })),
     payments: all('SELECT ts, amount_pln, provider, plan, period_until FROM payments WHERE user_id = ? ORDER BY ts DESC LIMIT 24', u.id),
     plans: plans().filter((x) => x.public).map(({ stripePrice, stripePriceYear, ...x }) => ({ ...x, online: Boolean(stripeEnabled() && stripePrice), onlineYear: Boolean(stripeEnabled() && stripePriceYear) })),
@@ -547,6 +563,15 @@ async function handleMe(req, res, ctx, route) {
   if (route === '' && req.method === 'GET') return sendJson(res, 200, mePayload(ctx));
   const body = await readJson(req, 20_000);
   const u = ctx.user;
+  if (route === 'api-key') {
+    if (u.sub_status !== 'friend') return sendJson(res, 403, { error: 'Własny klucz API jest tylko w wersji dla przyjaciół.' });
+    if (req.method === 'DELETE') { run("UPDATE users SET api_key_enc = '' WHERE id = ?", u.id); audit(u.id, 'apikey.remove', u.id); return sendJson(res, 200, mePayload({ ...ctx, user: getUser(u.id) })); }
+    const k = String(body.key || '').trim();
+    if (!/^sk-ant-[A-Za-z0-9_-]{20,200}$/.test(k)) return sendJson(res, 400, { error: 'To nie wygląda na klucz API Anthropic (zaczyna się od „sk-ant-”). Skopiuj go z console.anthropic.com → API keys.' });
+    run('UPDATE users SET api_key_enc = ? WHERE id = ?', seal(k), u.id);
+    audit(u.id, 'apikey.set', u.id, maskKey(k));
+    return sendJson(res, 200, mePayload({ ...ctx, user: getUser(u.id) }));
+  }
   if (route === 'resend-verify') {
     if (u.sub_status !== 'verify') return sendJson(res, 400, { error: 'Adres jest już potwierdzony.' });
     if (loginBlocked(u.email, clientIp(req))) return sendJson(res, 429, { error: 'Zbyt wiele prób. Spróbuj później.' });
@@ -556,7 +581,7 @@ async function handleMe(req, res, ctx, route) {
   }
   if (route === 'update') {
     run('UPDATE users SET name = ?, npwz = ?, company = ?, nip = ?, phone = ? WHERE id = ?',
-      str(body.name, 120) || u.name, str(body.npwz, 20), str(body.company, 200), String(body.nip || '').replace(/[^\d]/g, '').slice(0, 10), str(body.phone, 30), u.id);
+      str(body.name, 120) || u.name, typeof body.npwz === 'string' ? str(body.npwz, 20) : u.npwz, str(body.company, 200), String(body.nip || '').replace(/[^\d]/g, '').slice(0, 10), str(body.phone, 30), u.id);
     return sendJson(res, 200, mePayload({ ...ctx, user: getUser(u.id) }));
   }
   if (route === 'password') {
@@ -691,7 +716,7 @@ function adminUserRow(u, month = monthOf()) {
   const org = getOrg(u.org_id);
   return {
     id: u.id, email: u.email, name: u.name, role: u.role, blocked: Boolean(u.blocked), plan: u.plan, planName: org ? org.name : p.name,
-    subStatus: org ? 'org' : u.sub_status, subUntil: org ? org.sub_until : u.sub_until, quota: quotaOf(u), quotaOverride: u.quota_override, trialReports: u.trial_reports, trialFlags: u.trial_flags || '',
+    subStatus: org ? 'org' : u.sub_status, subUntil: org ? org.sub_until : u.sub_until, quota: quotaOf(u), quotaOverride: u.quota_override, trialReports: u.trial_reports, trialFlags: u.trial_flags || '', friend: u.sub_status === 'friend', ownKey: Boolean(u.api_key_enc),
     orgId: org?.id || null, orgName: org?.name || '', mustChangePwd: Boolean(u.must_change_pwd), twoFactor: Boolean(u.totp_on),
     reports: used.reports, calls: used.calls, costUsd: used.costUsd, costPln: used.costUsd * usdPln(), pricePln: org ? org.price_per_seat : p.pricePln,
     lastLogin: u.last_login, createdAt: u.created_at, npwz: u.npwz, company: u.company, nip: u.nip, phone: u.phone, note: u.note,
@@ -800,6 +825,7 @@ async function handleAdmin(req, res, ctx, parts) {
     if (q) users = users.filter((u) => `${u.email} ${u.name} ${u.npwz} ${u.company} ${u.nip}`.toLowerCase().includes(q));
     const f = {
       pending: (u) => u.sub_status === 'pending',
+      friend: (u) => u.sub_status === 'friend',
       active: (u) => u.sub_status === 'active' && u.sub_until > now,
       trial: (u) => u.sub_status === 'trial' && u.sub_until > now,
       expiring: (u) => u.sub_until > now && u.sub_until - now < 7 * 86400000,
@@ -822,10 +848,13 @@ async function handleAdmin(req, res, ctx, parts) {
     const tempPassword = `${crypto.randomUUID()}A1`;
     const plan = plans().some((p) => p.id === body.plan) ? body.plan : 'trial';
     let user = await createUser({ email, password: tempPassword, name: str(body.name, 120), role: body.role === 'admin' ? 'admin' : 'user', plan: plan === 'trial' ? 'trial' : plan, npwz: str(body.npwz, 20), company: str(body.company, 200), nip: str(body.nip, 20), phone: str(body.phone, 30) }, me);
-    if (plan !== 'trial') user = extendSubscription(user.id, { plan, interval: body.interval === 'year' ? 'year' : 'month', count: Number(body.count) || 1, amountPln: Number(body.amountPln) || 0, provider: 'manual', note: 'utworzono przez administratora' }, me);
+    if (body.friend === true) { run("UPDATE users SET plan = 'friend', sub_status = 'friend', sub_until = 0 WHERE id = ?", user.id); user = getUser(user.id); audit(me, 'user.friend', user.id, 'utworzono jako przyjaciel'); }
+    else if (plan !== 'trial') user = extendSubscription(user.id, { plan, interval: body.interval === 'year' ? 'year' : 'month', count: Number(body.count) || 1, amountPln: Number(body.amountPln) || 0, provider: 'manual', note: 'utworzono przez administratora' }, me);
     const t = createOneTimeToken(user.id, 'invite', 24 * 7);
     const link = `${baseUrl(req)}/reset?token=${t}`;
-    if (body.sendEmail !== false) await sendMail(user.email, `Zaproszenie do ${BRAND.name}`, `Dzień dobry,\n\nzałożyliśmy dla Ciebie konto w ${BRAND.name}. Ustaw hasło (link ważny 7 dni):\n${link}`);
+    if (body.sendEmail !== false) await sendMail(user.email, `Zaproszenie do ${BRAND.name}`, body.friend === true
+      ? `Cześć,\n\nzałożyłem dla Ciebie bezpłatne konto w ${BRAND.name} (wersja dla przyjaciół). Ustaw hasło (link ważny 7 dni):\n${link}\n\nPotem na stronie konta wklej swój klucz API Anthropic (console.anthropic.com → API keys) — opisy rozliczają się z Twojego konta Anthropic, zwykle kilkadziesiąt groszy za opis.`
+      : `Dzień dobry,\n\nzałożyliśmy dla Ciebie konto w ${BRAND.name}. Ustaw hasło (link ważny 7 dni):\n${link}`);
     return sendJson(res, 200, { user: adminUserRow(user), link });
   }
 
@@ -876,6 +905,8 @@ async function handleAdmin(req, res, ctx, parts) {
         set('role', b.role, `rola ${b.role}`);
       }
       for (const k of ['npwz', 'company', 'nip', 'phone']) if (typeof b[k] === 'string') set(k, str(b[k], 200), k);
+      if (b.friend === true && u.sub_status !== 'friend' && !u.org_id) { set('plan', 'friend', 'plan przyjaciel'); set('sub_status', 'friend', 'wersja dla przyjaciół'); set('sub_until', 0, 'bez terminu'); }
+      if (b.friend === false && u.sub_status === 'friend') { set('plan', 'trial', 'plan trial'); set('sub_status', 'expired', 'koniec wersji dla przyjaciół'); set('api_key_enc', '', 'klucz usunięty'); }
       audit(me, 'user.update', u.id, changes.join(', '));
       return sendJson(res, 200, { user: adminUserRow(getUser(u.id)) });
     }
@@ -1505,7 +1536,7 @@ export function createServer() {
         res.uid = ctx?.user.id;
         if (p === '/api/status') {
           const a = ctx ? access(ctx.user) : { ok: false, code: 'login' };
-          return sendJson(res, 200, { ai: aiAvailable() && a.ok, model: aiAvailable() ? MODEL : null, version: VERSION, hosted: true, user: ctx ? publicUser(ctx.user) : null, access: a, brand: BRAND, announcement: settings().announcement || '' });
+          return sendJson(res, 200, { ai: (ctx?.user.sub_status === 'friend' ? Boolean(ctx.user.api_key_enc) : aiAvailable()) && a.ok, friend: ctx?.user.sub_status === 'friend', model: aiAvailable() ? MODEL : null, version: VERSION, hosted: true, user: ctx ? publicUser(ctx.user) : null, access: a, brand: BRAND, announcement: settings().announcement || '' });
         }
         if (p === '/api/plans' && method === 'GET') {
           return sendJson(res, 200, { plans: plans().filter((x) => x.public).map(({ stripePrice, stripePriceYear, ...x }) => x), trialDays: settings().trialDays, annualMonths: settings().annualMonths, registrationOpen: settings().registrationOpen, requireNpwz: settings().requireNpwz, brand: BRAND });
@@ -1513,8 +1544,8 @@ export function createServer() {
         if (p.startsWith('/api/auth/') && method === 'POST') return await handleAuth(req, res, p.slice('/api/auth/'.length));
         if (p === '/api/me' || p.startsWith('/api/me/')) return await handleMe(req, res, ctx, p.slice('/api/me'.length).replace(/^\//, ''));
         if (p === '/api/sync' || p.startsWith('/api/sync/')) return await handleSync(req, res, ctx, decodeURIComponent(p.slice('/api/sync'.length).replace(/^\//, '')));
-        if (p === '/api/format' && method === 'POST') return await handleFormat(req, res, ctx);
-        if (p === '/api/learn' && method === 'POST') return await handleLearn(req, res, ctx);
+        if (p === '/api/format' && method === 'POST') return await runAs(ctx, () => handleFormat(req, res, ctx));
+        if (p === '/api/learn' && method === 'POST') return await runAs(ctx, () => handleLearn(req, res, ctx));
         if (p.startsWith('/api/admin/')) return await handleAdmin(req, res, ctx, p.slice('/api/admin/'.length).split('/').filter(Boolean));
         if (p.startsWith('/api/it/')) return await handleIt(req, res, ctx, p.slice('/api/it/'.length).split('/').filter(Boolean));
         return sendJson(res, 404, { error: 'Nie znaleziono.' });
@@ -1544,7 +1575,7 @@ export function createServer() {
       if (p.startsWith('/site/')) return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'public, max-age=3600', req });
       if (p.startsWith('/fonts/') || p.startsWith('/icons/')) return serveFile(res, PUBLIC, p.slice(1), { cache: 'public, max-age=604800', req });
       // installable desktop app (manifest + service worker must be public: the browser fetches them without the login cookie)
-      if (p === '/app.webmanifest' || p === '/admin.webmanifest' || p === '/sw.js') return serveFile(res, PUBLIC, p.slice(1), { cache: 'no-cache', req });
+      if (p === '/app.webmanifest' || p === '/app-friend.webmanifest' || p === '/admin.webmanifest' || p === '/sw.js') return serveFile(res, PUBLIC, p.slice(1), { cache: 'no-cache', req });
       if (p === '/favicon.ico') return serveFile(res, PUBLIC, 'icons/radvox.ico', { cache: 'public, max-age=604800', req });
 
       // logged-in pages
@@ -1592,6 +1623,13 @@ export function createServer() {
         let rel = p.slice('/app/'.length) || 'index.html';
         if (rel === 'index.html' || rel === '') rel = 'index.html';
         if (rel.startsWith('site/') || rel.startsWith('js/templates-pro/BRIEF') || rel.includes('check.mjs')) { res.writeHead(404, headers()); return res.end(); }
+        if (rel === 'index.html' && ctx.user.sub_status === 'friend') {
+          // the friends' version: same app, gold icon and its own installable app
+          const html = readFileSync(path.join(APP_ROOT(), 'index.html'), 'utf8')
+            .replace('href="/app.webmanifest"', 'href="/app-friend.webmanifest"').replaceAll('icons/radvox-192.png', 'icons/radvox-friend-192.png').replace('<body>', '<body class="friend">');
+          res.writeHead(200, headers({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-cache' }));
+          return res.end(req.method === 'HEAD' ? undefined : html);
+        }
         return serveFile(res, APP_ROOT(), rel, { cache: 'private, no-cache', req });
       }
       res.writeHead(404, headers({ 'Content-Type': 'text/plain; charset=utf-8' }));
