@@ -52,7 +52,7 @@ export const DEFAULT_SETTINGS = {
   maxBackgroundCalls: 4,     // background pre-processing calls per report (cost guard); "Przygotuj opis" is never limited
   // RODO / terms: users must accept this version of the terms + privacy notice before working ('' = not required).
   // Raise it whenever the documents change: everybody accepts again at the next visit (proof kept per user).
-  termsVersion: process.env.TERMS_VERSION ?? '1.0',
+  termsVersion: process.env.TERMS_VERSION ?? '1.1',
   sessionIdleDays: 7,        // log out a device unused for this many days (RODO art. 32: unattended sessions)
   auditRetentionDays: 730,   // security / change log kept for 2 years, then deleted
   outboxRetentionDays: 90,   // copies of sent e-mails
@@ -106,14 +106,14 @@ export function devicesOf(user) {
 export function access(user, now = Date.now()) {
   if (!user) return { ok: false, code: 'login', reason: 'Zaloguj się.' };
   if (user.role === 'admin') return { ok: true };
-  if (user.blocked) return { ok: false, code: 'blocked', reason: 'Konto zablokowane — skontaktuj się z administratorem.' };
-  // friends: free, with their own API key (they pay for their own reports)
-  if (user.sub_status === 'friend') return user.api_key_enc ? { ok: true, friend: true } : { ok: true, friend: true, needKey: true };
+  if (user.blocked) return { ok: false, code: 'blocked', reason: user.sub_status === 'friend' ? 'Twój dostęp (wersja dla przyjaciół) jest wstrzymany — skontaktuj się z osobą, która Cię zaprosiła.' : 'Konto zablokowane — skontaktuj się z administratorem.' };
   if (user.sub_status === 'verify') return { ok: false, code: 'verify', reason: `Potwierdź adres e-mail: kliknij link, który wysłaliśmy na ${user.email}. Okres próbny zacznie się od razu po potwierdzeniu.` };
   if (user.sub_status === 'pending') return { ok: false, code: 'pending', reason: 'Twoje konto czeka na zatwierdzenie okresu próbnego. Dostaniesz e-mail, gdy będzie gotowe.' };
   if (user.must_change_pwd) return { ok: false, code: 'pwd', reason: 'Ustaw własne hasło, aby rozpocząć pracę.' };
   const tv = settings().termsVersion;
-  if (tv && user.terms_version !== tv) return { ok: false, code: 'terms', reason: 'Zaakceptuj regulamin i informację o przetwarzaniu danych, aby rozpocząć pracę.' };
+  if (tv && user.terms_version !== tv) return { ok: false, code: 'terms', reason: 'Potwierdź zasady korzystania (odpowiedzialność lekarza, regulamin), aby rozpocząć pracę.' };
+  // friends: free, with their own API key (they pay for their own reports) — after the terms, like everyone else
+  if (user.sub_status === 'friend') return user.api_key_enc ? { ok: true, friend: true } : { ok: true, friend: true, needKey: true };
   const org = orgOf(user);
   if (org) {
     // members of an organisation: the organisation's licence decides (no personal subscription, no payments)

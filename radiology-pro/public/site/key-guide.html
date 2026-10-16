@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Klucz API krok po kroku — RadVox Pro</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-friend-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="legal" class="friend">
+  <nav class="nav"><div class="wrap"><a class="brand" href="/"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span>RadVox Pro</span></a><span class="grow"></span><a class="btn btn-sm" href="/account">Moje konto</a></div></nav>
+  <main class="shell"><div class="wrap legal">
+    <h1>Twój klucz API Claude — krok po kroku</h1>
+    <div id="guide">
+      <p>Klucz API działa jak hasło: dzięki niemu RadVox Pro korzysta ze sztucznej inteligencji <b>Claude</b> na <b>Twoim</b> koncie w firmie Anthropic (twórcy Claude). Aplikacja jest dla Ciebie za darmo — Anthropic pobiera tylko opłatę za to, co przygotuje AI, ze środków, które sam wpłacisz. Zajmuje to około 10 minut; najwygodniej na komputerze.</p>
+      <p class="dim small">Strona Anthropic jest po angielsku — podajemy dokładne nazwy przycisków (stan: październik 2026; mogą się nieznacznie zmienić).</p>
+      <ol class="steps">
+        <li><b class="t">Załóż konto w Anthropic</b>
+          Otwórz stronę Claude Console i załóż konto (adresem e-mail albo kontem Google). Jeśli przyjdzie e-mail z linkiem — kliknij go. Jeśli strona zapyta o nazwę organizacji, wpisz po prostu swoje imię i nazwisko.<br />
+          <a class="btn btn-sm" href="https://platform.claude.com/" target="_blank" rel="noopener">Otwórz platform.claude.com ↗</a></li>
+        <li><b class="t">Wpłać środki</b>
+          Wejdź w <span class="kbd">Settings</span> → <span class="kbd">Billing</span> i kliknij <span class="kbd">Buy credits</span>. Podaj kartę i wybierz kwotę — na początek wystarczy niewielka. Automatyczne doładowanie (<span class="kbd">auto-reload</span>) możesz zostawić wyłączone: wtedy nigdy nie wydasz więcej, niż wpłaciłeś.<br />
+          <a class="btn btn-sm" href="https://platform.claude.com/settings/billing" target="_blank" rel="noopener">Otwórz Billing ↗</a></li>
+        <li><b class="t">Utwórz klucz</b>
+          Wejdź w <span class="kbd">API keys</span> i kliknij <span class="kbd">Create key</span>. Wypełnij:
+          <ul>
+            <li>nazwa (<span class="kbd">Name</span>): <span class="kbd">RadVox</span></li>
+            <li>ważność (<span class="kbd">Expiration</span>): <b><span class="kbd">Never</span></b> — ważne! Przy krótszej ważności (np. 30 dni) klucz sam przestanie działać.</li>
+            <li><span class="kbd">Workspace</span>: <span class="kbd">Default</span> (jeśli strona o to pyta)</li>
+            <li><span class="kbd">Linked account</span>: zostaw siebie</li>
+          </ul>
+          i zatwierdź przyciskiem tworzenia klucza.<br />
+          <a class="btn btn-sm" href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">Otwórz API keys ↗</a></li>
+        <li><b class="t">Skopiuj klucz</b>
+          Pojawi się długi tekst zaczynający się od <span class="kbd">sk-ant-</span>. Kliknij <span class="kbd">Copy</span> (ikona kopiowania). Anthropic pokazuje go <b>tylko raz</b> — jeśli zamkniesz okno za wcześnie, po prostu utwórz nowy klucz.</li>
+        <li><b class="t">Wklej go w RadVox Pro</b>
+          Na stronie konta RadVox Pro wklej klucz w pole <b>„Twój klucz API”</b> (Ctrl+V) i kliknij <b>Zapisz klucz</b>. Aplikacja od razu sprawdzi, czy klucz działa, a jeśli nie — napisze, co poprawić. Gotowe, możesz dyktować.</li>
+      </ol>
+      <div class="tipbox"><b>Bezpieczeństwo.</b> Klucz jest jak hasło do Twoich środków w Anthropic — nie wysyłaj go nikomu (także osobie, która Cię zaprosiła), wklejasz go tylko w RadVox Pro. Zapisujemy go zaszyfrowany i nikt nie widzi go w całości. Wydatki sprawdzisz w Anthropic (<span class="kbd">Settings</span> → <span class="kbd">Billing</span>); klucz możesz w każdej chwili wyłączyć tam (<span class="kbd">Disable</span>) albo usunąć z RadVox Pro.</div>
+      <h3>Gdy coś nie działa</h3>
+      <ul class="small">
+        <li><b>„Brak środków”</b> — wróć do kroku 2 i doładuj konto.</li>
+        <li><b>„Klucz jest błędny, wyłączony albo wygasł”</b> — utwórz nowy klucz (krok 3, ważność <span class="kbd">Never</span>) i wklej go ponownie. Sprawdź, czy skopiowałeś go w całości.</li>
+        <li><b>„Klucz nie jest przypisany do jednego workspace”</b> — utwórz nowy klucz i wybierz workspace <span class="kbd">Default</span>.</li>
+        <li><b>Przycisk <span class="kbd">Create key</span> jest nieaktywny</b> — konto w Anthropic założył ktoś inny i Twoja rola nie pozwala tworzyć kluczy; poproś tę osobę albo załóż własne konto.</li>
+      </ul>
+    </div>
+  </div></main>
+</body>
+</html>

@@ -36,3 +36,29 @@ export function aiConfigured() {
   if (PROVIDER === 'bedrock') return Boolean(process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE || process.env.AWS_WEB_IDENTITY_TOKEN_FILE || process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI);
   return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 }
+
+/**
+ * What is wrong with a friend's own key, in plain Polish (null = not a key problem: busy, network, our side).
+ * Anthropic answers 401 for a wrong / disabled / expired key, 400 for no credit or a key that needs a workspace,
+ * 403 when the key's account may not use the API.
+ */
+export function ownKeyProblem(err) {
+  const msg = String(err?.error?.error?.message || err?.message || '').toLowerCase();
+  if (err?.status === 401) return 'Anthropic nie przyjmuje tego klucza — jest błędny, wyłączony albo wygasł. Utwórz nowy klucz (ważność: „Never”) i wklej go ponownie.';
+  if (err?.status === 400 && /credit|balance|billing/.test(msg)) return 'Na Twoim koncie Anthropic nie ma środków. Doładuj je: platform.claude.com → Settings → Billing.';
+  if (err?.status === 400 && /workspace/.test(msg)) return 'Ten klucz nie jest przypisany do jednego workspace. Utwórz nowy klucz i przy tworzeniu wybierz workspace „Default”.';
+  if (err?.status === 403) return 'Konto Anthropic tego klucza nie ma uprawnień do API. Sprawdź konto na platform.claude.com albo utwórz klucz jako jego właściciel.';
+  if (err?.status === 404 && /model/.test(msg)) return 'Konto Anthropic tego klucza nie ma dostępu do modelu używanego przez aplikację. Sprawdź konto na platform.claude.com.';
+  return null;
+}
+
+/** Try a friend's key with the smallest possible request (1 token, a fraction of a cent on their account). */
+export async function checkOwnKey(apiKey) {
+  try {
+    await new Anthropic({ apiKey, maxRetries: 0, timeout: 20_000 }).messages.create({ model: BASE_MODEL, max_tokens: 1, messages: [{ role: 'user', content: 'OK' }] });
+    return { ok: true };
+  } catch (err) {
+    const problem = ownKeyProblem(err);
+    return problem ? { ok: false, problem } : { ok: true, unchecked: true };
+  }
+}

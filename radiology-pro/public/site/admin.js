@@ -9,7 +9,7 @@ const LANG = { 'pl>pl': 'PL → PL', 'en>pl': 'EN → PL', 'en>en': 'EN → EN',
 const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '—');
 
 // ---------------------------------------------------------------- tabs
-const loaders = { dash: loadDash, trials: loadTrials, users: loadUsers, orgs: loadOrgs, learning: loadLearning, tickets: loadTickets, usage: loadUsage, payments: loadPayments, plans: loadPlans, settings: loadSettings, log: loadLog };
+const loaders = { dash: loadDash, trials: loadTrials, friends: loadFriends, users: loadUsers, orgs: loadOrgs, learning: loadLearning, tickets: loadTickets, usage: loadUsage, payments: loadPayments, plans: loadPlans, settings: loadSettings, log: loadLog };
 function openTab(name) {
   for (const b of $$('.admin-tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const p of $$('[data-panel]')) p.hidden = p.dataset.panel !== name;
@@ -190,7 +190,7 @@ async function openUser(id) {
       <button class="btn btn-sm" data-act="reset-link">Link do zmiany hasła</button>
       <button class="btn btn-sm" data-act="logout">Wyloguj ze wszystkich urządzeń</button>
       ${u.twoFactor ? '<button class="btn btn-sm" data-act="reset2fa">Wyłącz logowanie dwuetapowe</button>' : ''}
-      ${u.orgId ? '' : `<button class="btn btn-sm" data-act="friend">${u.friend ? 'Zakończ wersję dla przyjaciół' : 'Zrób przyjacielem (za darmo, własny klucz API)'}</button>`}
+      ${u.orgId || u.role !== 'user' ? '' : `<button class="btn btn-sm" data-act="access">${u.friend ? '★ Zmień dostęp przyjaciela…' : '★ Zrób przyjacielem / zmień dostęp…'}</button>`}
       <button class="btn btn-sm ${u.blocked ? '' : 'btn-danger'}" data-act="block">${u.blocked ? 'Odblokuj' : 'Zablokuj'}</button>
       <button class="btn btn-sm btn-danger" data-act="delete">Usuń konto</button>
     </div>
@@ -252,11 +252,8 @@ async function openUser(id) {
         } else if (act === 'logout') {
           await api(`/api/admin/users/${id}/logout`, { method: 'POST', body: {} });
           toast('Wylogowano', 'ok');
-        } else if (act === 'friend') {
-          if (u.friend && !window.confirm(`Zakończyć wersję dla przyjaciół dla ${u.email}? Konto straci dostęp, a zapisany klucz API zostanie usunięty.`)) return;
-          await api(`/api/admin/users/${id}`, { method: 'PATCH', body: { friend: !u.friend } });
-          toast(u.friend ? 'Wersja dla przyjaciół zakończona' : 'To konto jest teraz przyjacielem — na stronie konta wklei swój klucz API', 'ok', 5000);
-          openUser(id); refreshCurrent();
+        } else if (act === 'access') {
+          openAccessModal(u, async () => { await openUser(id); refreshCurrent(); });
         } else if (act === 'block') {
           await api(`/api/admin/users/${id}`, { method: 'PATCH', body: { blocked: !u.blocked } });
           openUser(id); refreshCurrent();
@@ -715,3 +712,143 @@ $('#tSend').addEventListener('click', async () => {
 
 // the owner's panel installs as its own app on a phone or computer (same server: always up to date)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
+// ---------------------------------------------------------------- friends (free, own API key)
+const FRIEND_STATE = {
+  ready: ['ok', 'gotowy — ma klucz'],
+  nokey: ['warn', 'czeka na klucz API'],
+  invited: ['warn', 'zaproszony — jeszcze nie wszedł'],
+  suspended: ['err', 'zawieszony'],
+};
+let friendsList = [];
+async function loadFriends() {
+  const d = await api('/api/admin/friends');
+  friendsList = d.friends;
+  const k = d.kpis;
+  $('#friendKpis').innerHTML = [
+    kpi('Przyjaciele', fmtNum(k.total), 'wszystkie konta'),
+    kpi('Gotowi', fmtNum(k.ready), 'mają działający klucz', 'ok'),
+    kpi('W trakcie', fmtNum(k.waiting), 'jeszcze bez klucza', k.waiting ? 'warn' : ''),
+    kpi('Zawieszeni', fmtNum(k.suspended), ''),
+    kpi('Opisy (mies.)', fmtNum(k.reports), 'na ich koszt, nie Twój'),
+  ].join('');
+  $('#friendRows').innerHTML = d.friends.length ? d.friends.map((f) => {
+    const [cls, label] = FRIEND_STATE[f.state] || ['', f.state];
+    return `<tr>
+      <td><a href="#" data-open-user="${f.id}"><b>${esc(f.name || '—')}</b></a><span class="sub">${esc(f.email)}</span></td>
+      <td><span class="pill ${cls}">${label}</span></td>
+      <td class="num">${f.reports}</td>
+      <td class="num">${fmtUsd(f.ownCostUsd)}</td>
+      <td>${f.lastLogin ? fmtDateTime(f.lastLogin) : '—'}</td>
+      <td><div class="btn-row" style="margin:0">
+        <button class="btn btn-sm" data-f="invite" data-id="${f.id}">${f.state === 'invited' ? 'Nowy link' : 'Wyślij link'}</button>
+        <button class="btn btn-sm${f.state === 'suspended' ? ' btn-primary' : ''}" data-f="${f.state === 'suspended' ? 'restore' : 'suspend'}" data-id="${f.id}">${f.state === 'suspended' ? 'Przywróć' : 'Zawieś'}</button>
+        <button class="btn btn-sm" data-f="access" data-id="${f.id}">Zmień dostęp</button>
+      </div></td></tr>`;
+  }).join('') : '<tr><td colspan="6" class="empty">Nie masz jeszcze przyjaciół w aplikacji — dodaj pierwszego powyżej.</td></tr>';
+  $('#friendNote').textContent = `${d.friends.length} · miesiąc ${d.month}`;
+}
+
+function showInvite(box, r, title) {
+  const wa = `https://wa.me/?text=${encodeURIComponent(r.message)}`;
+  const mail = `mailto:${encodeURIComponent(r.email || '')}?subject=${encodeURIComponent('Zaproszenie do RadVox Pro')}&body=${encodeURIComponent(r.message)}`;
+  box.hidden = false;
+  box.innerHTML = `<div class="msg ok">${title}</div>
+    <label class="small dim">Gotowa wiadomość — wyślij ją przyjacielowi (WhatsApp, SMS, e-mail). Możesz ją poprawić przed wysłaniem:</label>
+    <textarea>${esc(r.message)}</textarea>
+    <div class="btn-row">
+      <button class="btn btn-sm btn-primary" type="button" data-copy="msg">Kopiuj wiadomość</button>
+      <button class="btn btn-sm" type="button" data-copy="link">Kopiuj sam link</button>
+      <a class="btn btn-sm" href="${esc(wa)}" target="_blank" rel="noopener">Wyślij przez WhatsApp</a>
+      <a class="btn btn-sm" href="${esc(mail)}">Otwórz w poczcie</a>
+    </div>`;
+  const ta = box.querySelector('textarea');
+  box.querySelector('[data-copy="msg"]').addEventListener('click', () => { navigator.clipboard.writeText(ta.value); toast('Wiadomość skopiowana — wklej ją przyjacielowi', 'ok'); });
+  box.querySelector('[data-copy="link"]').addEventListener('click', () => { navigator.clipboard.writeText(r.link); toast('Link skopiowany', 'ok'); });
+  ta.addEventListener('input', () => {
+    box.querySelector('a[href^="https://wa.me"]').href = `https://wa.me/?text=${encodeURIComponent(ta.value)}`;
+    box.querySelector('a[href^="mailto:"]').href = `mailto:${encodeURIComponent(r.email || '')}?subject=${encodeURIComponent('Zaproszenie do RadVox Pro')}&body=${encodeURIComponent(ta.value)}`;
+  });
+}
+
+$('#friendForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const btn = f.querySelector('button[type=submit]');
+  const body = { name: f.name.value.trim(), email: f.email.value.trim(), sendEmail: f.sendEmail.checked };
+  btn.disabled = true;
+  try {
+    let r;
+    try { r = await api('/api/admin/friends', { method: 'POST', body }); } catch (err) {
+      if (!err.data?.exists) throw err;
+      if (!window.confirm(`${err.message}\n\nZrobić z tego konta konto przyjaciela (za darmo, z jego własnym kluczem API)?`)) return;
+      r = await api('/api/admin/friends', { method: 'POST', body: { ...body, convert: true } });
+    }
+    showInvite($('#inviteOut'), { ...r, email: r.user.email }, r.converted
+      ? `Gotowe — ${esc(r.user.email)} jest teraz przyjacielem. Zaloguje się swoim dotychczasowym hasłem.`
+      : `Gotowe — konto ${esc(r.user.email)} utworzone${r.mailed ? ' i zaproszenie wysłane e-mailem' : ''}. Link jest ważny 7 dni.`);
+    f.reset();
+    loadFriends().catch(() => {});
+  } catch (err) { toast(err.message, 'err', 6000); }
+  finally { btn.disabled = false; }
+});
+
+document.addEventListener('click', async (e) => {
+  const open = e.target.closest('[data-open-user]');
+  if (open) { e.preventDefault(); openUser(Number(open.dataset.openUser)); return; }
+  const b = e.target.closest('[data-f]');
+  if (!b) return;
+  const id = Number(b.dataset.id);
+  const fr = friendsList.find((x) => x.id === id);
+  if (!fr) return;
+  try {
+    if (b.dataset.f === 'invite') {
+      const r = await api(`/api/admin/users/${id}/invite-link`, { method: 'POST', body: {} });
+      showInvite($('#inviteOut'), { ...r, email: fr.email }, `Zaproszenie dla ${esc(fr.name || fr.email)}${r.link.includes('/reset?') ? ' — nowy link, ważny 7 dni' : ' — konto już aktywne, link prowadzi do logowania'}.`);
+      $('#inviteOut').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else if (b.dataset.f === 'suspend') {
+      if (!window.confirm(`Zawiesić ${fr.name || fr.email}? Zostanie wylogowany i nie zaloguje się, dopóki go nie przywrócisz. Jego klucz zostaje zapisany.`)) return;
+      await api(`/api/admin/users/${id}`, { method: 'PATCH', body: { blocked: true } });
+      toast('Zawieszono', 'ok'); loadFriends();
+    } else if (b.dataset.f === 'restore') {
+      await api(`/api/admin/users/${id}`, { method: 'PATCH', body: { blocked: false } });
+      toast('Przywrócono — może znowu korzystać z aplikacji', 'ok'); loadFriends();
+    } else if (b.dataset.f === 'access') openAccessModal(fr);
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+/** Change what a friend gets: trial on the owner's cost, must pay, a paid plan for free. */
+async function openAccessModal(fr, after = loadFriends) {
+  if (!plansData.length) plansData = (await api('/api/admin/plans')).plans;
+  const paid = plansData.filter((p) => p.id !== 'trial');
+  const planOpts = paid.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} (${fmtPln(p.pricePln)}/mies.)</option>`).join('');
+  const m = $('#modal');
+  m.innerHTML = `<div class="drawer-head"><div><h2>Zmień dostęp</h2><div class="dim small">${esc(fr.name || '')} · ${esc(fr.email)}</div></div><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
+    <form id="accessForm">
+      ${fr.friend ? '' : `<label class="radio-card"><input type="radio" name="mode" value="friend" checked /><div><b>Przyjaciel</b> — za darmo, z jego własnym kluczem API<div class="dim small">Złota ikona, bez limitu opisów; Ty nic nie płacisz.</div></div></label>`}
+      <label class="radio-card"><input type="radio" name="mode" value="trial"${fr.friend ? ' checked' : ''} /><div><b>Okres próbny</b> — na Twój koszt, z limitem
+        <div class="row"><div class="field"><label>Dni</label><input name="days" type="number" min="1" max="90" value="14" /></div><div class="field"><label>Opisy</label><input name="reports" type="number" min="1" max="10000" value="60" /></div></div></div></label>
+      <label class="radio-card"><input type="radio" name="mode" value="pay" /><div><b>Musi wykupić subskrypcję</b>
+        <div class="dim small">Przy następnym wejściu zobaczy cennik i zapłaci sam (BLIK, karta, przelew).</div>
+        <div class="row"><div class="field"><label>Proponowany plan</label><select name="payPlan">${planOpts}</select></div></div></div></label>
+      <label class="radio-card"><input type="radio" name="mode" value="gift" /><div><b>Płatny plan gratis</b> — AI na Twój koszt, bez jego klucza
+        <div class="row"><div class="field"><label>Plan</label><select name="giftPlan">${planOpts}</select></div><div class="field" style="flex:0 1 110px"><label>Miesięcy</label><input name="months" type="number" min="1" max="36" value="1" /></div></div></div></label>
+      <div class="field"><label class="check"><input type="checkbox" name="notify" checked /> Powiadom go e-mailem o zmianie</label></div>
+      ${fr.friend ? '<p class="dim small">Zapisany klucz API przyjaciela zostanie usunięty (nie będzie już potrzebny). W każdej chwili możesz go znowu zrobić przyjacielem.</p>' : ''}
+      <div class="btn-row"><button class="btn btn-primary" type="submit">Zapisz zmianę</button><button class="btn" type="button" data-close>Anuluj</button></div>
+    </form>`;
+  $('#overlay').hidden = false;
+  m.hidden = false;
+  for (const c of m.querySelectorAll('[data-close]')) c.addEventListener('click', closeLayers);
+  $('#accessForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const mode = f.mode.value;
+    const body = { mode, notify: f.notify.checked, days: Number(f.days.value), reports: Number(f.reports.value), plan: mode === 'pay' ? f.payPlan.value : f.giftPlan.value, months: Number(f.months.value) };
+    try {
+      await api(`/api/admin/users/${fr.id}/change-access`, { method: 'POST', body });
+      toast({ friend: 'To konto jest teraz przyjacielem', trial: 'Okres próbny ustawiony', pay: 'Gotowe — przy następnym wejściu zobaczy cennik', gift: 'Plan gratis ustawiony' }[mode], 'ok', 5000);
+      closeLayers(); after().catch(() => {});
+    } catch (err) { toast(err.message, 'err'); }
+  });
+}

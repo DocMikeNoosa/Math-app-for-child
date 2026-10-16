@@ -36,7 +36,7 @@ import { extendSubscription, stripeEnabled, createCheckout, createPrepaidCheckou
 import { sendMail, adminEmail, mailConfigured } from './lib/mail.js';
 import { runJobs, startJobs } from './lib/jobs.js';
 import { BRAND } from './lib/brand.js';
-import { aiConfigured, PROVIDER, withOwnKey, usingOwnKey } from './lib/ai-client.js';
+import { aiConfigured, PROVIDER, withOwnKey, usingOwnKey, ownKeyProblem, checkOwnKey } from './lib/ai-client.js';
 import { seal, open as openSecret, maskKey } from './lib/secret-box.js';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -234,7 +234,10 @@ export function cleanLearned(l) {
 
 /** AI errors for the browser. A bad server API key (401) is the operator's problem, not the user's login. */
 function sendAiError(res, err) {
-  if (err.status === 401 && usingOwnKey()) return sendJson(res, 402, { error: 'Twój klucz API Anthropic nie działa (nieprawidłowy, wyłączony albo bez środków). Sprawdź go na stronie konta.', code: 'own_key' });
+  if (usingOwnKey()) {
+    const problem = ownKeyProblem(err);
+    if (problem) return sendJson(res, 402, { error: `${problem} (strona konta → „Twój klucz API”)`, code: 'own_key' });
+  }
   if (err.status === 401) {
     console.error('AI: authentication failed — check the API key / AWS credentials');
     return sendJson(res, 503, { error: 'Usługa AI chwilowo niedostępna — administrator został powiadomiony.' });
@@ -408,6 +411,7 @@ function homeFor(user) {
   if (user.role !== 'admin' && access(user).code === 'terms') return '/accept';
   if (user.role === 'admin') return '/admin';
   if (user.role === 'orgadmin') return '/it';
+  if (user.sub_status === 'friend' && !user.api_key_enc && !user.blocked) return '/account?klucz=1';
   return access(user).ok ? '/app/' : '/account';
 }
 
@@ -448,7 +452,7 @@ async function handleAuth(req, res, route) {
       noteFailure(email, ip);
       return sendJson(res, 401, { error: 'Nieprawidłowy e-mail lub hasło.' });
     }
-    if (user.blocked) return sendJson(res, 403, { error: 'Konto zablokowane — skontaktuj się z administratorem.' });
+    if (user.blocked) return sendJson(res, 403, { error: access(user).reason || 'Konto zablokowane — skontaktuj się z administratorem.' });
     clearFailures(email);
     if (user.totp_on) return sendJson(res, 200, { need2fa: true, ticket: create2faTicket(user.id) });
     const token = createSession(user, { ip, ua });
@@ -567,10 +571,13 @@ async function handleMe(req, res, ctx, route) {
     if (u.sub_status !== 'friend') return sendJson(res, 403, { error: 'Własny klucz API jest tylko w wersji dla przyjaciół.' });
     if (req.method === 'DELETE') { run("UPDATE users SET api_key_enc = '' WHERE id = ?", u.id); audit(u.id, 'apikey.remove', u.id); return sendJson(res, 200, mePayload({ ...ctx, user: getUser(u.id) })); }
     const k = String(body.key || '').trim();
-    if (!/^sk-ant-[A-Za-z0-9_-]{20,200}$/.test(k)) return sendJson(res, 400, { error: 'To nie wygląda na klucz API Anthropic (zaczyna się od „sk-ant-”). Skopiuj go z console.anthropic.com → API keys.' });
+    if (!/^sk-ant-[A-Za-z0-9_-]{20,200}$/.test(k)) return sendJson(res, 400, { error: 'To nie wygląda na klucz API Anthropic — klucz zaczyna się od „sk-ant-”. Skopiuj go jeszcze raz (platform.claude.com → API keys) i wklej w całości.' });
+    // a quick test with Anthropic first, so a friend learns at once what is wrong instead of during dictation
+    const check = await checkOwnKey(k);
+    if (!check.ok) { audit(u.id, 'apikey.rejected', u.id, maskKey(k)); return sendJson(res, 400, { error: check.problem, code: 'own_key' }); }
     run('UPDATE users SET api_key_enc = ? WHERE id = ?', seal(k), u.id);
     audit(u.id, 'apikey.set', u.id, maskKey(k));
-    return sendJson(res, 200, mePayload({ ...ctx, user: getUser(u.id) }));
+    return sendJson(res, 200, { ...mePayload({ ...ctx, user: getUser(u.id) }), keyChecked: !check.unchecked });
   }
   if (route === 'resend-verify') {
     if (u.sub_status !== 'verify') return sendJson(res, 400, { error: 'Adres jest już potwierdzony.' });
@@ -710,6 +717,24 @@ async function handleSync(req, res, ctx, key) {
 // ---------------------------------------------------------------- administrator
 const usdPln = () => settings().usdPln;
 
+/** The ready-to-send invitation for a friend (e-mail, WhatsApp, SMS): link + what to do, in plain words. */
+function friendMessage(req, user, link) {
+  const first = String(user.name || '').replace(/^(lek\.|dr n\. med\.|dr|prof\.)\s+/i, '').split(/\s+/)[0];
+  return `Cześć${first ? ` ${first}` : ''}!\n\nZałożyłem Ci darmowe konto w ${BRAND.name} (wersja dla przyjaciół). Trzy kroki:\n\n`
+    + `1. Otwórz link i ${link.includes('/reset?') ? 'ustaw swoje hasło (link ważny 7 dni)' : 'zaloguj się swoim hasłem'}:\n${link}\n\n`
+    + `2. Zaznacz jedną zgodę (sprawdzasz każdy opis przed użyciem).\n\n`
+    + `3. Wklej swój klucz API Anthropic (Claude) — aplikacja poprowadzi Cię krok po kroku. Instrukcja: ${baseUrl(req)}/klucz-api\n\n`
+    + `Aplikacja jest dla Ciebie za darmo. Za AI płacisz sam, bezpośrednio w Anthropic, tylko za to, co zużyjesz.`;
+}
+
+/** One friend for the owner's "Przyjaciele" tab. */
+function friendRow(u, month = monthOf()) {
+  const row = adminUserRow(u, month);
+  const own = one('SELECT COALESCE(SUM(own_cost_usd), 0) AS c FROM usage WHERE user_id = ? AND month = ?', u.id, month).c;
+  const state = u.blocked ? 'suspended' : !u.last_login ? 'invited' : !u.api_key_enc ? 'nokey' : 'ready';
+  return { ...row, state, ownCostUsd: own, ownCostPln: own * usdPln() };
+}
+
 function adminUserRow(u, month = monthOf()) {
   const used = monthUsage(u.id, month);
   const p = planById(u.plan);
@@ -840,6 +865,39 @@ async function handleAdmin(req, res, ctx, parts) {
     return sendJson(res, 200, { users: users.map((u) => adminUserRow(u, month)), month });
   }
 
+  if (section === 'friends' && !idStr && method === 'GET') {
+    const month = monthOf();
+    const friends = all("SELECT * FROM users WHERE sub_status = 'friend' AND role = 'user' ORDER BY blocked, name COLLATE NOCASE").map((u) => friendRow(u, month));
+    const count = (st) => friends.filter((f) => f.state === st).length;
+    return sendJson(res, 200, { friends, month, kpis: { total: friends.length, ready: count('ready'), waiting: count('nokey') + count('invited'), suspended: count('suspended'), reports: friends.reduce((a, f) => a + f.reports, 0) } });
+  }
+  if (section === 'friends' && !idStr && method === 'POST') {
+    // add a friend: a new account with an invitation link, or (after the owner confirms) an existing account
+    const body = await readJson(req, 10_000);
+    const email = str(body.email, 254).toLowerCase();
+    if (!EMAIL_RE.test(email)) return sendJson(res, 400, { error: 'Wpisz poprawny adres e-mail.' });
+    let user = getUserByEmail(email);
+    let link;
+    if (user) {
+      if (user.sub_status === 'friend') return sendJson(res, 409, { error: 'Ta osoba już jest przyjacielem — znajdziesz ją w tabeli poniżej.' });
+      if (user.org_id || user.role !== 'user') return sendJson(res, 409, { error: 'To konto należy do organizacji albo jest kontem administratora — nie może być kontem przyjaciela.' });
+      if (body.convert !== true) return sendJson(res, 409, { error: `Konto ${email} już istnieje (${user.name || 'bez nazwy'}).`, exists: true });
+      run("UPDATE users SET plan = 'friend', sub_status = 'friend', sub_until = 0, blocked = 0 WHERE id = ?", user.id);
+      audit(me, 'user.friend', user.id, 'istniejące konto → przyjaciel');
+      link = `${baseUrl(req)}/login`;
+    } else {
+      user = await createUser({ email, password: `${crypto.randomUUID()}A1`, name: str(body.name, 120) }, me);
+      run("UPDATE users SET plan = 'friend', sub_status = 'friend', sub_until = 0 WHERE id = ?", user.id);
+      audit(me, 'user.friend', user.id, 'utworzono jako przyjaciel');
+      link = `${baseUrl(req)}/reset?token=${createOneTimeToken(user.id, 'invite', 24 * 7)}`;
+    }
+    user = getUser(user.id);
+    const message = friendMessage(req, user, link);
+    let mailed = false;
+    if (body.sendEmail === true) { await sendMail(user.email, `Zaproszenie do ${BRAND.name} — wersja dla przyjaciół`, message); mailed = true; }
+    return sendJson(res, 200, { user: friendRow(user), link, message, mailed, converted: link.endsWith('/login') });
+  }
+
   if (section === 'users' && !idStr && method === 'POST') {
     const body = await readJson(req, 20_000);
     const email = str(body.email, 254).toLowerCase();
@@ -853,7 +911,7 @@ async function handleAdmin(req, res, ctx, parts) {
     const t = createOneTimeToken(user.id, 'invite', 24 * 7);
     const link = `${baseUrl(req)}/reset?token=${t}`;
     if (body.sendEmail !== false) await sendMail(user.email, `Zaproszenie do ${BRAND.name}`, body.friend === true
-      ? `Cześć,\n\nzałożyłem dla Ciebie bezpłatne konto w ${BRAND.name} (wersja dla przyjaciół). Ustaw hasło (link ważny 7 dni):\n${link}\n\nPotem na stronie konta wklej swój klucz API Anthropic (console.anthropic.com → API keys) — opisy rozliczają się z Twojego konta Anthropic, zwykle kilkadziesiąt groszy za opis.`
+      ? friendMessage(req, user, link)
       : `Dzień dobry,\n\nzałożyliśmy dla Ciebie konto w ${BRAND.name}. Ustaw hasło (link ważny 7 dni):\n${link}`);
     return sendJson(res, 200, { user: adminUserRow(user), link });
   }
@@ -937,6 +995,44 @@ async function handleAdmin(req, res, ctx, parts) {
         provider: ['transfer', 'manual', 'stripe', 'free'].includes(b.provider) ? b.provider : 'manual', ref: str(b.ref, 120), note: str(b.note, 500),
       }, me);
       return sendJson(res, 200, { user: adminUserRow(updated) });
+    }
+    if (action === 'invite-link' && method === 'POST') {
+      // a fresh invitation for a friend (the old link expired or got lost); a friend who already logged in gets the login page
+      const link = u.last_login ? `${baseUrl(req)}/login` : `${baseUrl(req)}/reset?token=${createOneTimeToken(u.id, 'invite', 24 * 7)}`;
+      audit(me, 'user.invite_link', u.id);
+      return sendJson(res, 200, { link, message: friendMessage(req, u, link) });
+    }
+    if (action === 'change-access' && method === 'POST') {
+      // the owner moves a friend (or any individual account) to a trial, to "must pay", gives a paid plan free, or back to friend
+      if (u.org_id || u.role !== 'user') return sendJson(res, 400, { error: 'Tylko konta indywidualne.' });
+      const b = await readJson(req, 4_000);
+      const app = `${baseUrl(req)}/app/`;
+      let mail = '';
+      if (b.mode === 'trial') {
+        const days = Math.round(Math.min(90, Math.max(1, Number(b.days) || settings().trialDays)));
+        const reports = Math.round(Math.min(10000, Math.max(1, Number(b.reports) || settings().trialReports)));
+        run("UPDATE users SET plan = 'trial', sub_status = 'trial', sub_until = ?, trial_reports = ?, blocked = 0, api_key_enc = '' WHERE id = ?", Date.now() + days * 86400000, reports, u.id);
+        audit(me, 'user.access', u.id, `okres próbny ${days} dni, ${reports} opisów`);
+        mail = `Dzień dobry,\n\nTwoje konto ${BRAND.name} działa teraz w okresie próbnym: ${days} dni, do ${reports} opisów. Nie potrzebujesz już własnego klucza API.\nAplikacja: ${app}`;
+      } else if (b.mode === 'pay') {
+        const paid = plans().filter((p) => p.id !== 'trial' && p.pricePln > 0);
+        const plan = paid.find((p) => p.id === b.plan) || paid[0];
+        run("UPDATE users SET plan = ?, sub_status = 'expired', sub_until = 0, blocked = 0, api_key_enc = '' WHERE id = ?", plan?.id || 'trial', u.id);
+        audit(me, 'user.access', u.id, `wymaga subskrypcji (${plan?.id || '—'})`);
+        mail = `Dzień dobry,\n\nwersja dla przyjaciół na Twoim koncie ${BRAND.name} została zakończona. Aby dalej korzystać z aplikacji, wybierz plan na stronie konta: ${baseUrl(req)}/account`;
+      } else if (b.mode === 'gift') {
+        const plan = plans().find((p) => p.id === b.plan && p.id !== 'trial') || plans().find((p) => p.id !== 'trial');
+        const months = Math.round(Math.min(36, Math.max(1, Number(b.months) || 1)));
+        run("UPDATE users SET sub_until = 0, blocked = 0, api_key_enc = '' WHERE id = ?", u.id);
+        extendSubscription(u.id, { plan: plan.id, interval: 'month', count: months, amountPln: 0, provider: 'free', note: 'gratis od administratora' }, me);
+        mail = `Dzień dobry,\n\nmasz teraz plan ${plan.name} w ${BRAND.name} gratis na ${months} mies. Nie potrzebujesz już własnego klucza API — AI jest wliczone.\nAplikacja: ${app}`;
+      } else if (b.mode === 'friend') {
+        run("UPDATE users SET plan = 'friend', sub_status = 'friend', sub_until = 0, blocked = 0 WHERE id = ?", u.id);
+        audit(me, 'user.friend', u.id, 'wersja dla przyjaciół');
+        mail = `Cześć,\n\nmasz wersję dla przyjaciół w ${BRAND.name} — za darmo, z własnym kluczem API. Jeśli aplikacja poprosi o klucz, wklej go na stronie konta: ${baseUrl(req)}/account (instrukcja: ${baseUrl(req)}/klucz-api)`;
+      } else return sendJson(res, 400, { error: 'Wybierz, co zrobić z kontem.' });
+      if (b.notify === true) await sendMail(u.email, `${BRAND.name}: zmiana dostępu`, mail);
+      return sendJson(res, 200, { ok: true, user: adminUserRow(getUser(u.id)) });
     }
     if (action === 'reset-link' && method === 'POST') {
       const t = createOneTimeToken(u.id, 'reset', 24);
@@ -1569,6 +1665,7 @@ export function createServer() {
         if (!allowed) { res.writeHead(404, headers()); return res.end(); }
         return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'private, no-cache', req });
       }
+      if (p === '/klucz-api') return sitePage(res, 'key-guide', req); // friends: how to get an Anthropic API key (public, can be shared)
       if (p === '/check') return sitePage(res, 'check', req); // workstation check: public, so IT can test before accounts exist
       // the check page imports the (generic) microphone-button module; in production it is bundled into check.js
       if (p === '/js/mic-button.js' && !PROD) return serveFile(res, PUBLIC, 'js/mic-button.js', { req });

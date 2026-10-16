@@ -79,10 +79,19 @@ overall layout — add functionality in the existing style.
 - Gold: `body.friend` class, `radvox-friend-*.png/.ico`, `app-friend.webmanifest` (index rewritten server-side).
 - Test account `przyjaciel@test.radvoxpro.local`. Tests: `test/friends.test.js`.
 - The account page no longer asks for the PWZ number (kept if already stored).
+- Owner tab **★ Przyjaciele** (`/api/admin/friends` GET/POST, `/users/:id/invite-link`, `/users/:id/change-access`
+  modes trial | pay | gift | friend): add a friend → ready message (link + `/klucz-api`) to copy / WhatsApp / e-mail;
+  states invited / nokey / ready / suspended; suspend = `blocked` (key kept); change access wipes the key.
+- `/klucz-api` (public `key-guide.html`): step-by-step Anthropic key guide (platform.claude.com; Expiration **Never**,
+  Workspace **Default** — a key without a workspace gets 400 from Anthropic). Also loaded into the account page.
+- The key is tested with a 1-token request before it is saved (`checkOwnKey`); `ownKeyProblem()` turns 401 / no credit /
+  workspace / 403 into plain Polish, also during dictation.
+- Disclaimer (terms 1.1): one tick on `/accept` after the first login — doctor reads the whole report, own clinical
+  judgment, own risk; full text `terms.html#odpowiedzialnosc`. Friends now go through it too (access() order fixed).
 
 ## Technical notes
 - Templates: 397 + 112 snippets (MR and X-ray libraries completed Oct 2026: mr-body-msk-2.js, mr-neuro-spine-2.js, xray-2.js).
-- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (175 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
+- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (182 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
   `NODE_ENV=production` serves `dist/`.
 - Report counting: the browser sends `reportId` (one per report); usage rows with the same id count once.
 - `background: true` marks pre-processing calls; capped per report by `maxBackgroundCalls` (settings).

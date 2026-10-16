@@ -15,6 +15,7 @@ export async function api(path, { method = 'GET', body } = {}) {
     const err = new Error(data.error || `Błąd ${res.status}`);
     err.status = res.status;
     err.code = data.code;
+    err.data = data;
     throw err;
   }
   return data;

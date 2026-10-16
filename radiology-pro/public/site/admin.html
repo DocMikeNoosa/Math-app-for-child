@@ -25,6 +25,7 @@
       <div class="admin-tabs" role="tablist">
         <button role="tab" data-tab="dash" aria-selected="true">Pulpit</button>
         <button role="tab" data-tab="trials" aria-selected="false">Okresy próbne</button>
+        <button role="tab" data-tab="friends" aria-selected="false" class="gold-tab">★ Przyjaciele</button>
         <button role="tab" data-tab="users" aria-selected="false">Użytkownicy</button>
         <button role="tab" data-tab="orgs" aria-selected="false">Organizacje</button>
         <button role="tab" data-tab="learning" aria-selected="false">Nauka globalna AI</button>
@@ -98,6 +99,32 @@
         <div class="card">
           <div class="card-head"><h3>Kto próbuje</h3><span class="dim small" id="trialCount"></span></div>
           <div class="table-wrap"><table><thead><tr><th></th><th>Użytkownik</th><th>Status</th><th>Opisy</th><th>Koszt AI</th><th>Zgoda</th><th>Ostatnia wiad.</th></tr></thead><tbody id="trialRows"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- friends: free accounts that use their own API key -->
+      <section data-panel="friends" style="padding:0" hidden>
+        <div class="friend-hero friend">
+          <span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span>
+          <div style="flex:1;min-width:240px"><h2>Przyjaciele</h2><p class="dim small">Pełna aplikacja za darmo, ze złotą ikoną. Za AI każdy przyjaciel płaci sam — swoim kluczem API, który wkleja sam. <b>Ty nie płacisz nic.</b></p></div>
+        </div>
+        <div class="kpis" id="friendKpis"></div>
+        <div class="card">
+          <div class="card-head"><h3>1. Dodaj przyjaciela</h3></div>
+          <form id="friendForm" autocomplete="off">
+            <div class="row">
+              <div class="field"><label for="fName">Imię i nazwisko</label><input id="fName" name="name" placeholder="np. Anna Kowalska" /></div>
+              <div class="field"><label for="fEmail">E-mail</label><input id="fEmail" name="email" type="email" required placeholder="anna@example.com" /></div>
+            </div>
+            <div class="field"><label class="check"><input type="checkbox" name="sendEmail" /> Wyślij też zaproszenie e-mailem (link i tak pojawi się poniżej)</label></div>
+            <button class="btn btn-primary" type="submit">Utwórz konto i pokaż zaproszenie</button>
+          </form>
+          <div id="inviteOut" class="invite-out" style="margin-top:14px" hidden></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>2. Twoi przyjaciele</h3><span class="dim small" id="friendNote"></span></div>
+          <div class="table-wrap"><table><thead><tr><th>Przyjaciel</th><th>Stan</th><th class="num">Opisy (mies.)</th><th class="num">Ich koszt AI</th><th>Ostatnio</th><th>Co możesz zrobić</th></tr></thead><tbody id="friendRows"></tbody></table></div>
+          <p class="dim small" style="margin:10px 0 0"><b>Zawieś</b> — przyjaciel nie może się zalogować, klucz zostaje (przywrócisz jednym kliknięciem). <b>Zmień dostęp</b> — okres próbny, płatna subskrypcja albo plan gratis. Kliknij imię, aby zobaczyć wszystkie szczegóły konta.</p>
         </div>
       </section>
 
