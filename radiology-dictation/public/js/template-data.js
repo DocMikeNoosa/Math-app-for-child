@@ -20,7 +20,7 @@ export const TEMPLATE_DATA = [
   },
   {
     "id": "ct_head_old",
-    "title": "CT Head normal OLD",
+    "title": "CT Head normal – zaniki",
     "group": "Non-trauma",
     "section": "CT Head",
     "priority": 3,
@@ -36,7 +36,7 @@ export const TEMPLATE_DATA = [
   },
   {
     "id": "ct_head_trauma_old",
-    "title": "CT Head trauma OLD",
+    "title": "CT Head trauma – zaniki",
     "group": "Trauma",
     "section": "CT Head",
     "priority": 2,
@@ -52,7 +52,7 @@ export const TEMPLATE_DATA = [
   },
   {
     "id": "ct_head_face_trauma_old",
-    "title": "CT Head + Facial bones trauma OLD",
+    "title": "CT Head + Facial bones trauma – zaniki",
     "group": "Trauma",
     "section": "Combined",
     "priority": 2,
@@ -68,7 +68,7 @@ export const TEMPLATE_DATA = [
   },
   {
     "id": "ct_head_cspine_trauma_old",
-    "title": "CT Head + C-spine trauma OLD",
+    "title": "CT Head + C-spine trauma – zaniki",
     "group": "Trauma",
     "section": "Combined",
     "priority": 4,
@@ -84,7 +84,7 @@ export const TEMPLATE_DATA = [
   },
   {
     "id": "ct_head_face_cspine_trauma_old",
-    "title": "CT Head + Facial bones + C-spine trauma OLD",
+    "title": "CT Head + Facial bones + C-spine trauma – zaniki",
     "group": "Trauma",
     "section": "Combined",
     "priority": 6,

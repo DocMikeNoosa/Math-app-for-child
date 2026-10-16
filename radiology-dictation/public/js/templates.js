@@ -84,11 +84,16 @@ export function cleanRaw(t) {
  * Apply the user's templates: { edited: { id: raw }, custom: [raw], deleted: [id] }.
  * Edited built-ins replace the originals; custom ones are added; deleted built-ins are hidden.
  */
+// Names retired because they could offend ("OLD" for a head CT with age-related atrophy). A copy the user
+// edited before the rename takes the current name, unless they had renamed it themselves.
+const RETIRED_TITLES = new Set(["CT Head + C-spine trauma OLD", "CT Head + Facial bones + C-spine trauma OLD", "CT Head + Facial bones trauma OLD", "CT Head normal OLD", "CT Head trauma OLD"]);
+
 export function setUserTemplates(user = {}) {
   const edited = user.edited || {};
   const deleted = new Set(user.deleted || []);
   const list = BUILTIN.filter((t) => !deleted.has(t.id)).map((t) => {
     const e = cleanRaw(edited[t.id]);
+    if (e && RETIRED_TITLES.has(e.title)) e.title = t.title;
     return parseTemplate(e ? { ...e, id: t.id, edited: true } : t);
   });
   for (const c of user.custom || []) {
