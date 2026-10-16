@@ -168,6 +168,9 @@ function migrate(d) {
   add('signup_ip', "TEXT NOT NULL DEFAULT ''");                      // self-registration: where from (repeat-trial check)
   add('signup_device', "TEXT NOT NULL DEFAULT ''");                  // self-registration: browser id (repeat-trial check)
   add('trial_flags', "TEXT NOT NULL DEFAULT ''");                    // why a trial waits for approval
+  add('marketing_ok', 'INTEGER NOT NULL DEFAULT 0');                  // agreed to receive offers by e-mail (consent at sign-up)
+  add('last_message_at', 'INTEGER');                                 // last offer e-mail sent by the owner (no repeats within 7 days)
+  add('end_mailed', 'INTEGER NOT NULL DEFAULT 0');                   // "your trial has ended" e-mail sent
   const ucols = new Set(d.prepare('PRAGMA table_info(usage)').all().map((c) => c.name));
   // which published version of the global (central) knowledge was used for this AI call — traceability
   if (!ucols.has('global_version')) d.exec('ALTER TABLE usage ADD COLUMN global_version INTEGER');

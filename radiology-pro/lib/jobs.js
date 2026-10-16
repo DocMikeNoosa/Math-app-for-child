@@ -20,6 +20,11 @@ export async function runJobs(now = Date.now(), baseUrl = process.env.PUBLIC_URL
       run("UPDATE users SET sub_status = 'expired' WHERE id = ?", u.id);
       audit(null, 'subscription.expired', u.id, u.plan);
       done.expired++;
+      // one e-mail when a free trial ends (information about the account, sent to everybody)
+      if (u.sub_status === 'trial' && !u.end_mailed && !u.blocked) {
+        await sendMail(u.email, `${BRAND.name}: okres próbny zakończył się`, `Dzień dobry,\n\nTwój bezpłatny okres próbny ${BRAND.name} zakończył się ${fmtDate(u.sub_until)}. Twoje szablony i wszystko, czego program się nauczył, czekają na koncie — aby pracować dalej, wybierz plan:\n${baseUrl}/account\n\nDziękujemy za wypróbowanie!`);
+        run('UPDATE users SET end_mailed = 1 WHERE id = ?', u.id);
+      }
     }
   }
 

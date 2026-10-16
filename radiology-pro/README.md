@@ -42,12 +42,16 @@ Test accounts (created by the starter, or `node scripts/create-test-accounts.mjs
 `pro@`, `start@`, `proba@` (trial), `wygasly@` (expired), and a test hospital with `it@`, `radiolog1@`, `radiolog2@`
 — all `@test.radvoxpro.local`. Never run the script on the real server with customers.
 
-**Free trials (e.g. from adverts) without repeat trials:** no licence number needed (optional; checked only when
-given). The trial starts when the e-mail address is confirmed (link, 48 h; throwaway mailboxes refused). It waits in
-Admin → Pulpit instead when it looks like a repeat trial — same browser (`rv_dev` cookie + page storage), same phone,
-same licence number, or more than `trialsPerIp` sign-ups from one internet address in 30 days — or when the owner
-approves every trial (setting). Limits: `trialReports` for the whole trial and `trialDailyReports` per day.
-Without a mail provider (local test), the e-mails with links are in Admin → Dziennik i poczta.
+**Free trials (e.g. from adverts) without repeat trials:** no licence number. The trial starts when the e-mail
+address is confirmed (link, 48 h; throwaway mailboxes refused). It waits in Admin → Pulpit instead (with the reason) when:
+more than `trialsPerDevice` (3) trials from one computer in 90 days — colleagues sharing a hospital computer are fine
+up to that —, more than `trialsPerIp` (5) from one internet address in 30 days, the same phone number as another trial,
+more than `trialsPerDay` (15) new trials in 24 h, or the monthly AI cost of trials reached `trialBudgetPln` (300 zł).
+Limits per trial: `trialReports` (60) in total and `trialDailyReports` (20) per day. Optional: approve every trial.
+Admin → Okresy próbne: who is trying, reports, AI cost, conversions, and a standard e-mail (only to people who agreed
+to offers at sign-up, never twice in 7 days). The "trial ended" e-mail is sent automatically. The admin panel installs
+as an app on a phone or computer (`/admin.webmanifest`). Without a mail provider (local test), e-mails with links are
+in Admin → Dziennik i poczta.
 
 **Desktop app:** the app is installable from Chrome / Edge (`/app.webmanifest`, `/sw.js`, nothing cached). The
 installed app is the same web app on the same server and account, so templates, learning and settings stay synced.

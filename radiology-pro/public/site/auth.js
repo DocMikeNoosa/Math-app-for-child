@@ -68,7 +68,6 @@ if (page === 'register') {
   const form = $('#form');
   api('/api/plans').then((d) => {
     $('#trialDays').textContent = d.trialDays;
-    if (d.requireNpwz) { form.npwz.required = true; $('#npwzHint').textContent = '(7 cyfr)'; }
     if (!d.registrationOpen) {
       showMsg(msg, 'Rejestracja jest chwilowo zamknięta. Napisz do nas, a założymy konto.', 'info');
       busy(form, true);
@@ -82,7 +81,7 @@ if (page === 'register') {
     try {
       const d = await api('/api/auth/register', {
         method: 'POST',
-        body: { name: form.name.value, email: form.email.value, npwz: form.npwz.value, phone: form.phone.value, password: form.password.value, accept: form.accept.checked, device: deviceId() },
+        body: { name: form.name.value, email: form.email.value, phone: form.phone.value, password: form.password.value, accept: form.accept.checked, marketing: form.marketing.checked, device: deviceId() },
       });
       location.href = d.next || '/app/';
     } catch (err) {

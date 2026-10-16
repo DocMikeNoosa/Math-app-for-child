@@ -6,6 +6,9 @@
   <meta name="color-scheme" content="dark" />
   <title>Administrator — RadVox Pro</title>
   <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="manifest" href="/admin.webmanifest" />
+  <meta name="theme-color" content="#05070a" />
+  <link rel="apple-touch-icon" href="/icons/radvox-192.png" />
   <link rel="stylesheet" href="/site/site.css" />
 </head>
 <body data-page="admin">
@@ -21,6 +24,7 @@
     <div class="wrap">
       <div class="admin-tabs" role="tablist">
         <button role="tab" data-tab="dash" aria-selected="true">Pulpit</button>
+        <button role="tab" data-tab="trials" aria-selected="false">Okresy próbne</button>
         <button role="tab" data-tab="users" aria-selected="false">Użytkownicy</button>
         <button role="tab" data-tab="orgs" aria-selected="false">Organizacje</button>
         <button role="tab" data-tab="learning" aria-selected="false">Nauka globalna AI</button>
@@ -75,6 +79,25 @@
               <ul class="config-list" id="config"></ul>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- trials: who is trying the app, what it costs, and a standard e-mail to invite them to a paid plan -->
+      <section data-panel="trials" style="padding:0" hidden>
+        <div class="kpis" id="trialKpis"></div>
+        <div class="card">
+          <div class="card-head"><h3>Wiadomość do użytkowników okresu próbnego</h3></div>
+          <div class="field"><label for="tAudience">Do kogo</label>
+            <select id="tAudience"><option value="ending">Okres próbny kończy się w ciągu 3 dni</option><option value="ended">Okres próbny zakończył się (ostatnie 60 dni), bez zakupu</option><option value="active">Wszyscy w trakcie okresu próbnego</option><option value="ids">Zaznaczeni w tabeli poniżej</option></select></div>
+          <div class="field"><label for="tSubject">Temat</label><input id="tSubject" maxlength="200" /></div>
+          <div class="field"><label for="tBody">Treść <span class="dim small">— {imię}, {okres} i {link} uzupełnią się same</span></label><textarea id="tBody" rows="9"></textarea></div>
+          <div class="field"><label class="check"><input type="checkbox" id="tConsent" checked /> Tylko do osób, które przy rejestracji zgodziły się na informacje o ofercie (wymóg prawa — przed wyłączeniem zapytaj prawnika)</label></div>
+          <div class="actions"><button class="btn btn-sm" id="tPreview">Sprawdź odbiorców</button><button class="btn btn-sm btn-primary" id="tSend">Wyślij</button><span class="dim small" id="tInfo"></span></div>
+          <p class="dim small" style="margin:8px 0 0">Ta sama osoba nie dostanie dwóch takich wiadomości w ciągu 7 dni. E-mail o końcu okresu próbnego wysyła się sam.</p>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Kto próbuje</h3><span class="dim small" id="trialCount"></span></div>
+          <div class="table-wrap"><table><thead><tr><th></th><th>Użytkownik</th><th>Status</th><th>Opisy</th><th>Koszt AI</th><th>Zgoda</th><th>Ostatnia wiad.</th></tr></thead><tbody id="trialRows"></tbody></table></div>
         </div>
       </section>
 
@@ -211,12 +234,14 @@
               <div class="field"><label for="sBankName">Odbiorca przelewu (nazwa firmy)</label><input id="sBankName" name="bankName" /></div>
               <div class="field"><label for="sBank">Numer konta do przelewów</label><input id="sBank" name="bankAccount" placeholder="PL00 0000 0000 0000 0000 0000 0000" /></div>
               <div class="field"><label class="check"><input type="checkbox" name="registrationOpen" /> Rejestracja otwarta (nowi użytkownicy mogą sami założyć konto próbne)</label></div>
-              <div class="field"><label class="check"><input type="checkbox" name="requireNpwz" /> Wymagaj numeru PWZ przy rejestracji (jeden okres próbny na lekarza)</label></div>
               <div class="field"><label class="check"><input type="checkbox" name="verifyEmail" /> Okres próbny startuje po potwierdzeniu adresu e-mail (link w wiadomości)</label></div>
               <div class="field"><label class="check"><input type="checkbox" name="trialApproval" /> Każdy okres próbny wymaga mojego zatwierdzenia (wyłączone: start automatyczny, a podejrzane konta czekają w Pulpicie)</label></div>
               <div class="field"><label for="sTrialReports">Opisy na cały okres próbny</label><input id="sTrialReports" name="trialReports" type="number" min="1" max="10000" /></div>
               <div class="field"><label for="sTrialDaily">Opisy dziennie w okresie próbnym</label><input id="sTrialDaily" name="trialDailyReports" type="number" min="1" max="10000" /></div>
-              <div class="field"><label for="sTrialsIp">Rejestracje z jednego adresu internetowego w 30 dni, po których kolejne czekają na zatwierdzenie</label><input id="sTrialsIp" name="trialsPerIp" type="number" min="1" max="1000" /></div>
+              <div class="field"><label for="sTrialsDev">Okresy próbne z jednego komputera w 90 dni (koledzy w szpitalu dzielą komputer), potem kolejne czekają</label><input id="sTrialsDev" name="trialsPerDevice" type="number" min="1" max="1000" /></div>
+              <div class="field"><label for="sTrialsIp">Okresy próbne z jednego adresu internetowego w 30 dni (szpital ma jeden), potem kolejne czekają</label><input id="sTrialsIp" name="trialsPerIp" type="number" min="1" max="1000" /></div>
+              <div class="field"><label for="sTrialsDay">Nowe automatyczne okresy próbne na dobę, potem kolejne czekają</label><input id="sTrialsDay" name="trialsPerDay" type="number" min="1" max="10000" /></div>
+              <div class="field"><label for="sTrialBudget">Miesięczny budżet AI na okresy próbne (zł; po przekroczeniu nowe czekają; 0 = bez limitu)</label><input id="sTrialBudget" name="trialBudgetPln" type="number" min="0" max="1000000" /></div>
               <h3 style="margin-top:18px">RODO, bezpieczeństwo, nauka</h3>
               <div class="row">
                 <div class="field"><label for="sTerms">Wersja regulaminu / informacji RODO <span class="faint">(zmiana = wszyscy akceptują ponownie)</span></label><input id="sTerms" name="termsVersion" maxlength="20" /></div>

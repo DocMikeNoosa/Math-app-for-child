@@ -468,7 +468,7 @@ async function handleAuth(req, res, route) {
     const cookies = parseCookies(req.headers.cookie);
     const device = /^[\w-]{16,64}$/.test(cookies.rv_dev || '') ? cookies.rv_dev : /^[\w-]{16,64}$/.test(String(body.device || '')) ? String(body.device) : crypto.randomUUID();
     let user = await createUser({ email, password: body.password, name: body.name, npwz: npwz.slice(0, 20), phone: str(body.phone, 30) });
-    run("UPDATE users SET sub_status = 'verify', sub_until = 0, signup_ip = ?, signup_device = ? WHERE id = ?", ip, device, user.id);
+    run("UPDATE users SET sub_status = 'verify', sub_until = 0, signup_ip = ?, signup_device = ?, marketing_ok = ? WHERE id = ?", ip, device, body.marketing === true ? 1 : 0, user.id);
     acceptTerms(user.id, ip);
     if (settings().verifyEmail) await sendVerifyMail(getUser(user.id), req);
     else await startOrQueueTrial(getUser(user.id), req);
@@ -526,7 +526,7 @@ async function sendVerifyMail(user, req) {
  */
 async function startOrQueueTrial(user, req) {
   const s = settings();
-  const flags = trialFlags(user, { trialsPerIp: s.trialsPerIp });
+  const flags = trialFlags(user, { trialsPerIp: s.trialsPerIp, trialsPerDevice: s.trialsPerDevice, trialsPerDay: s.trialsPerDay, trialBudgetPln: s.trialBudgetPln, usdPln: s.usdPln });
   const base = baseUrl(req);
   if (s.trialApproval || flags.length) {
     run("UPDATE users SET sub_status = 'pending', sub_until = 0, trial_flags = ? WHERE id = ?", flags.join('; '), user.id);
@@ -953,6 +953,63 @@ async function handleAdmin(req, res, ctx, parts) {
     }
   }
 
+  if (section === 'trials') {
+    const now = Date.now();
+    const DAY = 86400000;
+    const rows = all("SELECT * FROM users WHERE role = 'user' AND org_id IS NULL AND plan = 'trial' AND blocked = 0 ORDER BY created_at DESC LIMIT 1000");
+    const totalOf = (id) => one("SELECT COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN report_id END) AS reports, COALESCE(SUM(cost_usd),0) AS cost FROM usage WHERE user_id = ?", id);
+    const statusOf = (u) => (u.sub_status === 'verify' ? 'verify' : u.sub_status === 'pending' ? 'pending' : u.sub_status === 'trial' && u.sub_until > now ? 'active' : 'ended');
+    const recipients = (b) => {
+      const ids = new Set((Array.isArray(b.ids) ? b.ids : []).map(Number));
+      return rows.filter((u) => {
+        const st = statusOf(u);
+        if (b.audience === 'ids') { if (!ids.has(u.id)) return false; }
+        else if (b.audience === 'ending') { if (!(st === 'active' && u.sub_until - now <= 3 * DAY)) return false; }
+        else if (b.audience === 'ended') { if (!(st === 'ended' && now - u.sub_until <= 60 * DAY)) return false; }
+        else if (b.audience === 'active') { if (st !== 'active') return false; }
+        else return false;
+        if (b.onlyConsent !== false && !u.marketing_ok) return false;
+        if (u.last_message_at && now - u.last_message_at < 7 * DAY) return false; // never twice in a week
+        return true;
+      });
+    };
+    if (!idStr && method === 'GET') {
+      const self = one("SELECT COUNT(*) AS n FROM users WHERE role = 'user' AND org_id IS NULL AND signup_device <> ''").n;
+      const converted = one("SELECT COUNT(*) AS n FROM users WHERE role = 'user' AND org_id IS NULL AND signup_device <> '' AND plan <> 'trial'").n;
+      const costMonth = one("SELECT COALESCE(SUM(g.cost_usd),0) AS c FROM usage g JOIN users u ON u.id = g.user_id WHERE g.month = ? AND u.plan = 'trial' AND u.org_id IS NULL", monthOf()).c;
+      const list = rows.map((u) => {
+        const t = totalOf(u.id);
+        return { id: u.id, name: u.name, email: u.email, phone: u.phone, status: statusOf(u), subUntil: u.sub_until, createdAt: u.created_at, reports: t.reports, limit: u.trial_reports ?? settings().trialReports, costPln: t.cost * usdPln(), marketingOk: Boolean(u.marketing_ok), lastMessageAt: u.last_message_at, flags: u.trial_flags || '' };
+      });
+      const count = (st) => list.filter((u) => u.status === st).length;
+      return sendJson(res, 200, {
+        summary: { active: count('active'), verify: count('verify'), pending: count('pending'), ended: list.filter((u) => u.status === 'ended' && now - u.subUntil <= 60 * DAY).length, converted, selfRegistered: self, costMonthPln: costMonth * usdPln(), budgetPln: settings().trialBudgetPln },
+        users: list,
+        template: {
+          subject: `Jak Ci idzie z ${BRAND.name}?`,
+          body: `Dzień dobry {imię},\n\ndziękujemy, że wypróbowujesz ${BRAND.name}. {okres}\n\nJeśli program przyspiesza Twoje opisy, możesz pracować dalej bez przerwy — wybierz plan na stronie konta:\n{link}\n\nMasz pytania albo uwagi? Odpowiedz na tę wiadomość.\n\nPozdrawiam,\nzespół ${BRAND.name}`,
+        },
+      });
+    }
+    if (idStr === 'message' && method === 'POST') {
+      const b = await readJson(req, 50_000);
+      const list = recipients(b).slice(0, 500);
+      if (b.preview) return sendJson(res, 200, { count: list.length, emails: list.map((u) => u.email) });
+      const subject = str(b.subject, 200), text = String(b.body || '').slice(0, 10_000);
+      if (!subject || !text.trim()) return sendJson(res, 400, { error: 'Wpisz temat i treść wiadomości.' });
+      const fmt = (ms) => new Date(ms).toLocaleDateString('pl-PL', { timeZone: 'Europe/Warsaw' });
+      for (const u of list) {
+        const first = String(u.name || '').replace(/^(lek\.|dr\.?|dr n\. med\.|prof\.)\s*/i, '').split(/\s+/)[0] || '';
+        const okres = statusOf(u) === 'active' ? `Twój okres próbny trwa do ${fmt(u.sub_until)}.` : u.sub_until ? `Twój okres próbny zakończył się ${fmt(u.sub_until)}, a szablony i wszystko, czego program się nauczył, nadal czekają na koncie.` : '';
+        const fill = (t) => t.replaceAll('{imię}', first).replaceAll('{okres}', okres).replaceAll('{link}', `${baseUrl(req)}/account`);
+        await sendMail(u.email, fill(subject), fill(text));
+        run('UPDATE users SET last_message_at = ? WHERE id = ?', now, u.id);
+      }
+      audit(me, 'trials.message', null, `${list.length} odbiorców: ${subject}`);
+      return sendJson(res, 200, { sent: list.length });
+    }
+  }
+
   if (section === 'settings') {
     if (method === 'GET') return sendJson(res, 200, { settings: settings(), defaults: DEFAULT_SETTINGS });
     if (method === 'PUT') {
@@ -966,6 +1023,9 @@ async function handleAdmin(req, res, ctx, parts) {
         trialApproval: typeof b.trialApproval === 'boolean' ? b.trialApproval : cur.trialApproval,
         verifyEmail: typeof b.verifyEmail === 'boolean' ? b.verifyEmail : cur.verifyEmail,
         trialsPerIp: Math.round(num(b.trialsPerIp, cur.trialsPerIp, 1, 1000)),
+        trialsPerDevice: Math.round(num(b.trialsPerDevice, cur.trialsPerDevice, 1, 1000)),
+        trialsPerDay: Math.round(num(b.trialsPerDay, cur.trialsPerDay, 1, 10000)),
+        trialBudgetPln: Math.round(num(b.trialBudgetPln, cur.trialBudgetPln, 0, 1000000)),
         trialDailyReports: Math.round(num(b.trialDailyReports, cur.trialDailyReports, 1, 10000)),
         trialReports: Math.round(num(b.trialReports, cur.trialReports, 1, 10000)),
         graceRatio: num(b.graceRatio, cur.graceRatio, 0, 1), costAlertRatio: num(b.costAlertRatio, cur.costAlertRatio, 0.05, 5),
@@ -1484,7 +1544,7 @@ export function createServer() {
       if (p.startsWith('/site/')) return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'public, max-age=3600', req });
       if (p.startsWith('/fonts/') || p.startsWith('/icons/')) return serveFile(res, PUBLIC, p.slice(1), { cache: 'public, max-age=604800', req });
       // installable desktop app (manifest + service worker must be public: the browser fetches them without the login cookie)
-      if (p === '/app.webmanifest' || p === '/sw.js') return serveFile(res, PUBLIC, p.slice(1), { cache: 'no-cache', req });
+      if (p === '/app.webmanifest' || p === '/admin.webmanifest' || p === '/sw.js') return serveFile(res, PUBLIC, p.slice(1), { cache: 'no-cache', req });
       if (p === '/favicon.ico') return serveFile(res, PUBLIC, 'icons/radvox.ico', { cache: 'public, max-age=604800', req });
 
       // logged-in pages

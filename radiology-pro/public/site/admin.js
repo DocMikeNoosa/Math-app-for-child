@@ -9,7 +9,7 @@ const LANG = { 'pl>pl': 'PL → PL', 'en>pl': 'EN → PL', 'en>en': 'EN → EN',
 const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '—');
 
 // ---------------------------------------------------------------- tabs
-const loaders = { dash: loadDash, users: loadUsers, orgs: loadOrgs, learning: loadLearning, tickets: loadTickets, usage: loadUsage, payments: loadPayments, plans: loadPlans, settings: loadSettings, log: loadLog };
+const loaders = { dash: loadDash, trials: loadTrials, users: loadUsers, orgs: loadOrgs, learning: loadLearning, tickets: loadTickets, usage: loadUsage, payments: loadPayments, plans: loadPlans, settings: loadSettings, log: loadLog };
 function openTab(name) {
   for (const b of $$('.admin-tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const p of $$('[data-panel]')) p.hidden = p.dataset.panel !== name;
@@ -409,9 +409,8 @@ $('#pendingRows').addEventListener('click', async (e) => {
 async function loadSettings() {
   const { settings: s } = await api('/api/admin/settings');
   const f = $('#settingsForm');
-  for (const k of ['usdPln', 'trialDays', 'trialReports', 'trialDailyReports', 'trialsPerIp', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount', 'announcement', 'termsVersion', 'sessionIdleDays', 'auditRetentionDays', 'outboxRetentionDays']) f[k].value = s[k] ?? '';
+  for (const k of ['usdPln', 'trialDays', 'trialReports', 'trialDailyReports', 'trialsPerIp', 'trialsPerDevice', 'trialsPerDay', 'trialBudgetPln', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount', 'announcement', 'termsVersion', 'sessionIdleDays', 'auditRetentionDays', 'outboxRetentionDays']) f[k].value = s[k] ?? '';
   f.registrationOpen.checked = s.registrationOpen;
-  f.requireNpwz.checked = s.requireNpwz !== false;
   f.trialApproval.checked = Boolean(s.trialApproval);
   f.verifyEmail.checked = s.verifyEmail !== false;
   f.globalLearning.checked = s.globalLearning;
@@ -421,7 +420,7 @@ $('#settingsForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), trialReports: Number(f.trialReports.value), trialDailyReports: Number(f.trialDailyReports.value), trialsPerIp: Number(f.trialsPerIp.value), trialApproval: f.trialApproval.checked, verifyEmail: f.verifyEmail.checked, graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, requireNpwz: f.requireNpwz.checked, announcement: f.announcement.value, termsVersion: f.termsVersion.value, sessionIdleDays: Number(f.sessionIdleDays.value), auditRetentionDays: Number(f.auditRetentionDays.value), outboxRetentionDays: Number(f.outboxRetentionDays.value), globalLearning: f.globalLearning.checked, itShowUsage: f.itShowUsage.checked } });
+    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), trialReports: Number(f.trialReports.value), trialDailyReports: Number(f.trialDailyReports.value), trialsPerIp: Number(f.trialsPerIp.value), trialsPerDevice: Number(f.trialsPerDevice.value), trialsPerDay: Number(f.trialsPerDay.value), trialBudgetPln: Number(f.trialBudgetPln.value), trialApproval: f.trialApproval.checked, verifyEmail: f.verifyEmail.checked, graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, announcement: f.announcement.value, termsVersion: f.termsVersion.value, sessionIdleDays: Number(f.sessionIdleDays.value), auditRetentionDays: Number(f.auditRetentionDays.value), outboxRetentionDays: Number(f.outboxRetentionDays.value), globalLearning: f.globalLearning.checked, itShowUsage: f.itShowUsage.checked } });
     toast('Ustawienia zapisane', 'ok');
   } catch (err) { toast(err.message, 'err'); }
 });
@@ -667,3 +666,45 @@ window.addEventListener('hashchange', () => { const t = location.hash.slice(1); 
 brand();
 const start = location.hash.slice(1);
 openTab(start in loaders ? start : 'dash');
+
+// ---------------------------------------------------------------- trials (also the owner's phone view)
+const TRIAL_STATUS = { active: ['ok', 'trwa'], ending: ['warn', 'kończy się'], ended: ['err', 'zakończony'], pending: ['warn', 'czeka na Ciebie'], verify: ['info', 'e-mail niepotwierdzony'] };
+let trialTemplateSet = false;
+async function loadTrials() {
+  const d = await api('/api/admin/trials');
+  const s = d.summary;
+  const conv = s.selfRegistered ? Math.round((s.converted / s.selfRegistered) * 100) : 0;
+  $('#trialKpis').innerHTML = [
+    kpi('Trwające okresy próbne', fmtNum(s.active), `${s.pending} czeka na Ciebie · ${s.verify} bez potwierdzonego e-maila`),
+    kpi('Zakończone bez zakupu (60 dni)', fmtNum(s.ended), 'warto do nich napisać'),
+    kpi('Kupili po okresie próbnym', fmtNum(s.converted), `${conv}% z ${s.selfRegistered} rejestracji`, conv >= 10 ? 'good' : ''),
+    kpi('Koszt AI okresów próbnych (miesiąc)', fmtPln(s.costMonthPln), s.budgetPln ? `budżet ${fmtPln(s.budgetPln)} — po przekroczeniu nowe czekają` : 'bez limitu', s.budgetPln && s.costMonthPln > s.budgetPln * 0.8 ? 'bad' : ''),
+  ].join('');
+  if (!trialTemplateSet) { $('#tSubject').value = d.template.subject; $('#tBody').value = d.template.body; trialTemplateSet = true; }
+  const now = Date.now();
+  $('#trialCount').textContent = `${d.users.length} kont`;
+  $('#trialRows').innerHTML = d.users.length ? d.users.map((u) => {
+    const st = u.status === 'active' && u.subUntil - now < 3 * 86400000 ? 'ending' : u.status;
+    const [cls, label] = TRIAL_STATUS[st] || ['info', st];
+    const when = u.status === 'active' || u.status === 'ended' ? `<span class="sub">${u.status === 'active' ? 'do' : 'od'} ${fmtDate(u.subUntil)}</span>` : u.flags ? `<span class="sub">⚠ ${esc(u.flags)}</span>` : '';
+    return `<tr><td><input type="checkbox" data-tid="${u.id}" aria-label="Zaznacz ${esc(u.email)}" /></td><td><b>${esc(u.name || u.email)}</b><span class="sub">${esc(u.email)}</span></td><td><span class="pill ${cls}">${label}</span>${when}</td><td class="num">${u.reports} / ${u.limit}</td><td class="num">${fmtPln(u.costPln, 2)}</td><td>${u.marketingOk ? 'tak' : '—'}</td><td>${u.lastMessageAt ? fmtDate(u.lastMessageAt) : '—'}</td></tr>`;
+  }).join('') : '<tr><td colspan="7" class="empty">Nikt jeszcze nie próbuje</td></tr>';
+}
+function trialMessage(preview) {
+  return api('/api/admin/trials/message', { method: 'POST', body: { audience: $('#tAudience').value, ids: $$('[data-tid]:checked').map((c) => Number(c.dataset.tid)), subject: $('#tSubject').value, body: $('#tBody').value, onlyConsent: $('#tConsent').checked, preview } });
+}
+$('#tPreview').addEventListener('click', async () => {
+  try { const r = await trialMessage(true); $('#tInfo').textContent = r.count ? `Odbiorcy (${r.count}): ${r.emails.slice(0, 5).join(', ')}${r.count > 5 ? '…' : ''}` : 'Brak odbiorców (bez zgody, już pisaliśmy w tym tygodniu, albo nikt nie pasuje).'; } catch (err) { toast(err.message, 'err'); }
+});
+$('#tSend').addEventListener('click', async () => {
+  try {
+    const p = await trialMessage(true);
+    if (!p.count) { $('#tInfo').textContent = 'Brak odbiorców.'; return; }
+    if (!window.confirm(`Wysłać wiadomość? Odbiorcy: ${p.count}.`)) return;
+    const r = await trialMessage(false);
+    toast(`Wysłano: ${r.sent}`, 'ok'); $('#tInfo').textContent = ''; loadTrials();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// the owner's panel installs as its own app on a phone or computer (same server: always up to date)
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

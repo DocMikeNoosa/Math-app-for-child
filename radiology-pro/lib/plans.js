@@ -39,7 +39,10 @@ export const DEFAULT_SETTINGS = {
   requireNpwz: false,        // licence number (NPWZ) at self-registration: optional; checked only when given
   verifyEmail: true,         // a trial starts only after the e-mail address is confirmed (link in an e-mail)
   trialApproval: false,      // true: every trial waits for the owner; false: automatic, only suspicious ones wait
-  trialsPerIp: 2,            // more self-registrations than this from one internet address in 30 days → owner approves
+  trialsPerIp: 5,            // trials from one internet address in 30 days before further ones wait (a hospital shares one)
+  trialsPerDevice: 3,        // trials from one computer in 90 days before further ones wait (colleagues share computers)
+  trialsPerDay: 15,          // new automatic trials per 24 h before further ones wait (protects the AI bill from a flood)
+  trialBudgetPln: 300,       // monthly AI cost of all trials; above it new trials wait for the owner (0 = no limit)
   trialReports: 60,          // reports for a whole trial (the owner can change it per account)
   trialDailyReports: 20,     // reports per day during a trial (limits what one trial can cost)
   graceRatio: 0.1,           // reports allowed above the quota before blocking (10 %)
