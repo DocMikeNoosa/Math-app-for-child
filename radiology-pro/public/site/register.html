@@ -20,7 +20,7 @@
           <div class="field"><label for="name">Imię i nazwisko</label><input id="name" name="name" autocomplete="name" required autofocus /></div>
           <div class="field"><label for="email">E-mail</label><input id="email" name="email" type="email" autocomplete="email" required /></div>
           <div class="row">
-            <div class="field"><label for="npwz">Numer PWZ <span class="faint">(opcjonalnie)</span></label><input id="npwz" name="npwz" inputmode="numeric" maxlength="20" /></div>
+            <div class="field"><label for="npwz">Numer prawa wykonywania zawodu <span class="faint" id="npwzHint">(7 cyfr)</span></label><input id="npwz" name="npwz" inputmode="numeric" maxlength="7" pattern="[0-9]{7}" required /></div>
             <div class="field"><label for="phone">Telefon <span class="faint">(opcjonalnie)</span></label><input id="phone" name="phone" type="tel" autocomplete="tel" /></div>
           </div>
           <div class="field"><label for="password">Hasło <span class="faint">(min. 10 znaków, litera i cyfra)</span></label><input id="password" name="password" type="password" autocomplete="new-password" required /></div>

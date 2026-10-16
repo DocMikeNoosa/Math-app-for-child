@@ -54,7 +54,7 @@ function webhook(event) {
 }
 
 test('an individual radiologist registers, gets a trial, pays 12 months in advance by BLIK / Przelewy24', async () => {
-  const reg = await call('POST', '/api/auth/register', { email: 'lekarz@example.com', password: 'lekarzhaslo2026', name: 'Lek. Przykładowy', npwz: '1234567', accept: true });
+  const reg = await call('POST', '/api/auth/register', { email: 'lekarz@example.com', password: 'lekarzhaslo2026', name: 'Lek. Przykładowy', npwz: '7107919', accept: true });
   assert.equal(reg.res.status, 200);
   const cookie = reg.cookie;
   let me = await call('GET', '/api/me', undefined, cookie);
@@ -94,7 +94,7 @@ test('an individual radiologist registers, gets a trial, pays 12 months in advan
 });
 
 test('monthly one-off payment, card subscription, and company members cannot buy individually', async () => {
-  const reg = await call('POST', '/api/auth/register', { email: 'drugi@example.com', password: 'drugihaslo2026', name: 'Drugi Lekarz', accept: true });
+  const reg = await call('POST', '/api/auth/register', { email: 'drugi@example.com', password: 'drugihaslo2026', name: 'Drugi Lekarz', npwz: '3115838', accept: true });
   const m = await call('POST', '/api/me/checkout', { plan: 'start', interval: 'month', mode: 'prepaid' }, reg.cookie);
   assert.equal(m.res.status, 200);
   assert.equal(stripeCalls.at(-1).params.get('line_items[0][price_data][unit_amount]'), '30627'); // 249 × 1.23

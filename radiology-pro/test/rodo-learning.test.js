@@ -232,7 +232,7 @@ test('RODO: data export, erasure keeps anonymous lessons, IT removal, retention,
   assert.match(gone.email, /usuniety\.invalid$/);
   assert.equal(one("SELECT COUNT(*) AS n FROM audit WHERE detail LIKE ?", `%${rads[1].email}%`).n, 0, 'the e-mail is not kept in the log');
   // an individual (non-organisation) account can delete itself
-  const reg = await call('POST', '/api/auth/register', { email: 'solo@example.com', password: 'solohaslo2026', name: 'Solo Radiolog', accept: true });
+  const reg = await call('POST', '/api/auth/register', { email: 'solo@example.com', password: 'solohaslo2026', name: 'Solo Radiolog', npwz: '6131676', accept: true });
   assert.equal(reg.res.status, 200);
   assert.equal((await call('POST', '/api/me/delete', { password: 'zle-haslo-1' }, reg.cookie)).res.status, 400);
   assert.equal((await call('POST', '/api/me/delete', { password: 'solohaslo2026' }, reg.cookie)).res.status, 200);

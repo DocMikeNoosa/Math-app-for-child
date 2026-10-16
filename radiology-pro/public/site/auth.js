@@ -56,6 +56,7 @@ if (page === 'register') {
   const form = $('#form');
   api('/api/plans').then((d) => {
     $('#trialDays').textContent = d.trialDays;
+    if (d.requireNpwz === false) { form.npwz.required = false; $('#npwzHint').textContent = '(opcjonalnie)'; }
     if (!d.registrationOpen) {
       showMsg(msg, 'Rejestracja jest chwilowo zamknięta. Napisz do nas, a założymy konto.', 'info');
       busy(form, true);

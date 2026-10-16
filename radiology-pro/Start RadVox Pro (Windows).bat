@@ -73,6 +73,8 @@ if not exist "node_modules" (
     exit /b 1
   )
 )
+rem test accounts for trying the app (created once, kept afterwards)
+node --disable-warning=ExperimentalWarning scripts\create-test-accounts.mjs
 echo.
 echo ===============================================================
 echo  RadVox Pro is running:  http://127.0.0.1:3100

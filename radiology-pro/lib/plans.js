@@ -36,6 +36,7 @@ export const DEFAULT_SETTINGS = {
   usdPln: 3.65,              // exchange rate used for cost reports
   trialDays: 14,
   registrationOpen: true,
+  requireNpwz: true,         // self-registration needs a valid licence number (NPWZ); one free trial per number
   graceRatio: 0.1,           // reports allowed above the quota before blocking (10 %)
   costAlertRatio: 0.5,       // e-mail the admin when a user's AI cost exceeds 50 % of the plan price
   graceDaysPastDue: 3,       // access kept after a failed payment

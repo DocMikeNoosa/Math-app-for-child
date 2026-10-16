@@ -27,6 +27,7 @@ import { openLearningDb, closeLearningDb, captureLearning, forgetContributor, ar
 import { createGlobalVersion, guidanceFor, invalidateGlobal, publishedId, cleanGlobal, GLOBAL_DEFAULTS } from './lib/global-learning.js';
 import { getOrg, listOrgs, seatsUsed, orgUsers, createOrg, updateOrg, tempPassword, parseUserList, ORG_STATUS, TEMP_PASSWORD_RE } from './lib/orgs.js';
 import { aiLimiter, BusyError } from './lib/limiter.js';
+import { validNpwz, cleanNpwz } from './lib/npwz.js';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { lastBackup, backupNow } from './lib/backup.js';
 import { plans, planById, settings, access, quotaCheck, quotaOf, monthUsage, costUsd, DEFAULT_PLANS, DEFAULT_SETTINGS } from './lib/plans.js';
@@ -456,10 +457,19 @@ async function handleAuth(req, res, route) {
     const problem = passwordProblem(body.password);
     if (problem) return sendJson(res, 400, { error: problem });
     if (!str(body.name)) return sendJson(res, 400, { error: 'Podaj imię i nazwisko.' });
+    const npwz = cleanNpwz(body.npwz);
+    if (settings().requireNpwz) {
+      if (!validNpwz(npwz)) return sendJson(res, 400, { error: 'Podaj prawidłowy numer prawa wykonywania zawodu (7 cyfr).' });
+      // one free trial per doctor: a second self-registered account with the same licence number is refused
+      if (one('SELECT id FROM users WHERE npwz = ? AND org_id IS NULL LIMIT 1', npwz)) {
+        noteFailure(email, ip);
+        return sendJson(res, 409, { error: 'Konto z tym numerem PWZ już istnieje — zaloguj się na nie albo skontaktuj się z nami.' });
+      }
+    }
     if (body.accept !== true) return sendJson(res, 400, { error: 'Zaakceptuj regulamin i politykę prywatności.' });
     if (loginBlocked(email, ip)) return sendJson(res, 429, { error: 'Zbyt wiele prób. Spróbuj później.' });
     if (getUserByEmail(email)) { noteFailure(email, ip); return sendJson(res, 409, { error: 'Konto z tym adresem już istnieje — zaloguj się.' }); }
-    const user = await createUser({ email, password: body.password, name: body.name, npwz: str(body.npwz, 20), phone: str(body.phone, 30) });
+    const user = await createUser({ email, password: body.password, name: body.name, npwz: npwz.slice(0, 20), phone: str(body.phone, 30) });
     acceptTerms(user.id, ip);
     const token = createSession(user, { ip, ua });
     await sendMail(user.email, `Witamy w ${BRAND.name}`, `Dzień dobry,\n\ndziękujemy za rejestrację. Okres próbny trwa ${settings().trialDays} dni.\nAplikacja: ${baseUrl(req)}/app/\nKonto i subskrypcja: ${baseUrl(req)}/account`);
@@ -896,6 +906,7 @@ async function handleAdmin(req, res, ctx, parts) {
       const next = {
         usdPln: num(b.usdPln, cur.usdPln, 1, 20), trialDays: Math.round(num(b.trialDays, cur.trialDays, 0, 90)),
         registrationOpen: typeof b.registrationOpen === 'boolean' ? b.registrationOpen : cur.registrationOpen,
+        requireNpwz: typeof b.requireNpwz === 'boolean' ? b.requireNpwz : cur.requireNpwz,
         graceRatio: num(b.graceRatio, cur.graceRatio, 0, 1), costAlertRatio: num(b.costAlertRatio, cur.costAlertRatio, 0.05, 5),
         graceDaysPastDue: Math.round(num(b.graceDaysPastDue, cur.graceDaysPastDue, 0, 30)), annualMonths: num(b.annualMonths, cur.annualMonths, 1, 12),
         maxBackgroundCalls: Math.round(num(b.maxBackgroundCalls, cur.maxBackgroundCalls, 0, 20)),
@@ -1376,7 +1387,7 @@ export function createServer() {
           return sendJson(res, 200, { ai: aiAvailable() && a.ok, model: aiAvailable() ? MODEL : null, version: VERSION, hosted: true, user: ctx ? publicUser(ctx.user) : null, access: a, brand: BRAND, announcement: settings().announcement || '' });
         }
         if (p === '/api/plans' && method === 'GET') {
-          return sendJson(res, 200, { plans: plans().filter((x) => x.public).map(({ stripePrice, stripePriceYear, ...x }) => x), trialDays: settings().trialDays, annualMonths: settings().annualMonths, registrationOpen: settings().registrationOpen, brand: BRAND });
+          return sendJson(res, 200, { plans: plans().filter((x) => x.public).map(({ stripePrice, stripePriceYear, ...x }) => x), trialDays: settings().trialDays, annualMonths: settings().annualMonths, registrationOpen: settings().registrationOpen, requireNpwz: settings().requireNpwz, brand: BRAND });
         }
         if (p.startsWith('/api/auth/') && method === 'POST') return await handleAuth(req, res, p.slice('/api/auth/'.length));
         if (p === '/api/me' || p.startsWith('/api/me/')) return await handleMe(req, res, ctx, p.slice('/api/me'.length).replace(/^\//, ''));

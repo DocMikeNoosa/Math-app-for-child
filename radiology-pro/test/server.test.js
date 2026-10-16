@@ -45,7 +45,7 @@ before(async () => {
   // every AI endpoint needs a logged-in user with access: register one (trial)
   const reg = await fetch(`${appUrl}/api/auth/register`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Radiopis': '1' },
-    body: JSON.stringify({ email: 'lekarz@example.com', password: 'tajnehaslo123', name: 'Test Lekarz', accept: true }),
+    body: JSON.stringify({ email: 'lekarz@example.com', password: 'tajnehaslo123', name: 'Test Lekarz', npwz: '4195028', accept: true }),
   });
   assert.equal(reg.status, 200, await reg.clone().text());
   cookie = reg.headers.get('set-cookie').split(';')[0];

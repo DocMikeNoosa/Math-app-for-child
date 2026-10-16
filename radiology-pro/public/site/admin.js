@@ -379,6 +379,7 @@ async function loadSettings() {
   const f = $('#settingsForm');
   for (const k of ['usdPln', 'trialDays', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount', 'announcement', 'termsVersion', 'sessionIdleDays', 'auditRetentionDays', 'outboxRetentionDays']) f[k].value = s[k] ?? '';
   f.registrationOpen.checked = s.registrationOpen;
+  f.requireNpwz.checked = s.requireNpwz !== false;
   f.globalLearning.checked = s.globalLearning;
   f.itShowUsage.checked = s.itShowUsage;
 }
@@ -386,7 +387,7 @@ $('#settingsForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, announcement: f.announcement.value, termsVersion: f.termsVersion.value, sessionIdleDays: Number(f.sessionIdleDays.value), auditRetentionDays: Number(f.auditRetentionDays.value), outboxRetentionDays: Number(f.outboxRetentionDays.value), globalLearning: f.globalLearning.checked, itShowUsage: f.itShowUsage.checked } });
+    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, requireNpwz: f.requireNpwz.checked, announcement: f.announcement.value, termsVersion: f.termsVersion.value, sessionIdleDays: Number(f.sessionIdleDays.value), auditRetentionDays: Number(f.auditRetentionDays.value), outboxRetentionDays: Number(f.outboxRetentionDays.value), globalLearning: f.globalLearning.checked, itShowUsage: f.itShowUsage.checked } });
     toast('Ustawienia zapisane', 'ok');
   } catch (err) { toast(err.message, 'err'); }
 });

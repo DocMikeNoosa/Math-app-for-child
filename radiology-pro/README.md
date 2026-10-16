@@ -38,6 +38,9 @@ Administrator: `admin@radvoxpro.local` / `RadVoxPro2026` (local test only — ch
 `%USERPROFILE%\.radvoxpro\.env` before any real use). Data: `%USERPROFILE%\.radvoxpro\data`.
 An older install in `%USERPROFILE%\.radiopis` is moved there automatically, and its administrator
 `admin@radiopis.local` becomes `admin@radvoxpro.local`.
+Test accounts (created by the starter, or `node scripts/create-test-accounts.mjs`; password `TestRadVox2026`):
+`pro@`, `start@`, `proba@` (trial), `wygasly@` (expired), and a test hospital with `it@`, `radiolog1@`, `radiolog2@`
+— all `@test.radvoxpro.local`. Never run the script on the real server with customers.
 
 ## Run locally (development)
 

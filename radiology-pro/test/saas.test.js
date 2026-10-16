@@ -61,11 +61,11 @@ const report = () => reportFromTemplate(getTemplate('ct_head_normal'));
 const format = (cookie, reportId) => call('POST', '/api/format', { templateId: 'ct_head_normal', report: report(), dictation: 'krwiak podtwardówkowy', reportId }, cookie);
 
 test('registration creates a trial account and logs in; weak passwords and duplicates are refused', async () => {
-  let r = await call('POST', '/api/auth/register', { email: 'a@example.com', password: 'krotkie', name: 'A', accept: true });
+  let r = await call('POST', '/api/auth/register', { email: 'a@example.com', password: 'krotkie', name: 'A', npwz: '8139595', accept: true });
   assert.equal(r.res.status, 400);
-  r = await call('POST', '/api/auth/register', { email: 'a@example.com', password: 'dobrehaslo123', name: 'A' });
+  r = await call('POST', '/api/auth/register', { email: 'a@example.com', password: 'dobrehaslo123', name: 'A', npwz: '8187109' });
   assert.equal(r.res.status, 400, 'terms must be accepted');
-  r = await call('POST', '/api/auth/register', { email: 'A@Example.com', password: 'dobrehaslo123', name: 'Anna Nowak', npwz: '1234567', accept: true });
+  r = await call('POST', '/api/auth/register', { email: 'A@Example.com', password: 'dobrehaslo123', name: 'Anna Nowak', npwz: '2147514', accept: true });
   assert.equal(r.res.status, 200);
   assert.match(r.cookie, /^radiopis_sid=/);
   const me = await call('GET', '/api/me', undefined, r.cookie);
@@ -74,7 +74,7 @@ test('registration creates a trial account and logs in; weak passwords and dupli
   assert.equal(me.data.access.ok, true);
   assert.ok(me.data.user.subUntil > Date.now() + 13 * 86400000);
   assert.ok(!('pwd' in me.data.user), 'no password hash leaves the server');
-  r = await call('POST', '/api/auth/register', { email: 'a@example.com', password: 'dobrehaslo123', name: 'A', accept: true });
+  r = await call('POST', '/api/auth/register', { email: 'a@example.com', password: 'dobrehaslo123', name: 'A', npwz: '9155433', accept: true });
   assert.equal(r.res.status, 409);
 });
 
@@ -113,7 +113,7 @@ test('AI calls are metered per report; several calls for one report count once',
 
 test('monthly quota with 10 % grace; admin override lifts it', async () => {
   const admin = await login('admin@example.com', 'adminhaslo123');
-  const r0 = await call('POST', '/api/auth/register', { email: 'q@example.com', password: 'dobrehaslo123', name: 'Q', accept: true });
+  const r0 = await call('POST', '/api/auth/register', { email: 'q@example.com', password: 'dobrehaslo123', name: 'Q', npwz: '5163352', accept: true });
   const cookie = r0.cookie;
   const id = (await call('GET', '/api/admin/users?q=q@example', undefined, admin)).data.users[0].id;
   await call('PATCH', `/api/admin/users/${id}`, { quotaOverride: 2 }, admin);
@@ -132,7 +132,7 @@ test('monthly quota with 10 % grace; admin override lifts it', async () => {
 
 test('expired subscription: no AI, app redirects to the account page; extension restores access', async () => {
   const admin = await login('admin@example.com', 'adminhaslo123');
-  const r0 = await call('POST', '/api/auth/register', { email: 'e@example.com', password: 'dobrehaslo123', name: 'E', accept: true });
+  const r0 = await call('POST', '/api/auth/register', { email: 'e@example.com', password: 'dobrehaslo123', name: 'E', npwz: '1171271', accept: true });
   const cookie = r0.cookie;
   const id = (await call('GET', '/api/admin/users?q=e@example', undefined, admin)).data.users[0].id;
   await call('PATCH', `/api/admin/users/${id}`, { subUntil: Date.now() - 1000 }, admin);
@@ -154,7 +154,7 @@ test('expired subscription: no AI, app redirects to the account page; extension 
 
 test('blocked user is logged out and cannot log in', async () => {
   const admin = await login('admin@example.com', 'adminhaslo123');
-  const r0 = await call('POST', '/api/auth/register', { email: 'b@example.com', password: 'dobrehaslo123', name: 'B', accept: true });
+  const r0 = await call('POST', '/api/auth/register', { email: 'b@example.com', password: 'dobrehaslo123', name: 'B', npwz: '3179190', accept: true });
   const id = (await call('GET', '/api/admin/users?q=b@example', undefined, admin)).data.users[0].id;
   await call('PATCH', `/api/admin/users/${id}`, { blocked: true }, admin);
   assert.equal((await call('GET', '/api/me', undefined, r0.cookie)).res.status, 401);
@@ -315,4 +315,20 @@ test('cost guard: background pre-processing is capped per report; "Przygotuj opi
   assert.equal(fifth.res.status, 429);
   assert.equal(fifth.data.code, 'bg_limit');
   assert.equal((await format(cookie, 'bg-1')).res.status, 200, 'the explicit request still works');
+});
+
+test('self-registration: a valid licence number (NPWZ) is required and gives one free trial per doctor', async () => {
+  const { validNpwz } = await import('../lib/npwz.js');
+  assert.ok(validNpwz('5425740'));
+  assert.ok(!validNpwz('1234567'), 'wrong check digit');
+  assert.ok(!validNpwz('0123456') && !validNpwz('542574') && !validNpwz('abcdefg'));
+  let r = await call('POST', '/api/auth/register', { email: 'npwz1@example.com', password: 'dobrehaslo123', name: 'N1', accept: true });
+  assert.equal(r.res.status, 400, 'missing number');
+  r = await call('POST', '/api/auth/register', { email: 'npwz1@example.com', password: 'dobrehaslo123', name: 'N1', npwz: '1234567', accept: true });
+  assert.equal(r.res.status, 400, 'invalid number');
+  r = await call('POST', '/api/auth/register', { email: 'npwz1@example.com', password: 'dobrehaslo123', name: 'N1', npwz: '5425740', accept: true });
+  assert.equal(r.res.status, 200);
+  r = await call('POST', '/api/auth/register', { email: 'npwz2@example.com', password: 'dobrehaslo123', name: 'N2', npwz: '5425740', accept: true });
+  assert.equal(r.res.status, 409, 'second free trial with the same number refused');
+  assert.match(r.data.error, /PWZ/);
 });
