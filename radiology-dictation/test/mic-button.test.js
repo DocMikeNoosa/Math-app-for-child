@@ -341,3 +341,87 @@ test('a release reported in the status message does not swallow the next press (
   assert.ok(mic.diagnose().events.some((e) => /NACIŚNIĘCIE/.test(e)), 'the timeline is in the report');
   assert.ok(mic.diagnose().events.some((e) => /puszczenie \(z wiadomości innego typu\)/.test(e)));
 });
+
+// ---- a PowerMic 4 shows up as several parts; the part with the button and light must be opened, whatever the order
+function pm4Parts({ vendorFails = false } = {}) {
+  const part = (name, collections, extra = {}) => {
+    const listeners = [];
+    return {
+      opened: false, vendorId: 0x0554, productId: 0x0064, productName: 'PowerMic 4', collections, name,
+      async open() { if (extra.fails) throw Object.assign(new Error('busy'), { name: 'NotAllowedError' }); this.opened = true; },
+      addEventListener(_, fn) { listeners.push(fn); }, removeEventListener() {}, sendReport: async () => {},
+      send(...bytes) { const data = new DataView(Uint8Array.from(bytes).buffer); for (const fn of listeners) fn({ reportId: 0, data }); },
+    };
+  };
+  const keyboard = part('keyboard', [{ usagePage: 0x01, usage: 0x06, inputReports: [{ reportId: 1 }] }]);
+  const media = part('media', [{ usagePage: 0x0c, usage: 0x01, inputReports: [{ reportId: 2 }] }]);
+  const vendor = part('vendor', [{ usagePage: 0xffa0, usage: 0x01, inputReports: [{ reportId: 0 }], outputReports: [{ reportId: 0 }] }], { fails: vendorFails });
+  return { keyboard, media, vendor };
+}
+
+test('the parts of a PowerMic are ranked: the button-and-light part first, keyboard-only never', async () => {
+  const { interfaceScore, rankInterfaces } = await import('../public/js/mic-button.js');
+  const { keyboard, media, vendor } = pm4Parts();
+  assert.ok(interfaceScore(vendor) > interfaceScore(media));
+  assert.equal(interfaceScore(keyboard), -10);
+  assert.deepEqual(rankInterfaces([keyboard, media, vendor]).map((d) => d.name), ['vendor', 'media']);
+});
+
+test('reopening on start: the right part is opened even when Windows lists the media-keys part first', async () => {
+  localStorage.setItem('radvox.mic.v1', JSON.stringify({ vendorId: 0x0554, productId: 0x0064, productName: 'PowerMic 4', binding: { ...KNOWN_BUTTONS['0554:0064'] }, led: { ...KNOWN_LEDS['0554:0064'], known: true } }));
+  const { keyboard, media, vendor } = pm4Parts();
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [media, keyboard, vendor] }, configurable: true });
+  let presses = 0;
+  const mic = new MicButton({ onPress: () => presses++ });
+  await mic.restore();
+  assert.equal(mic.device.name, 'vendor');
+  assert.equal(media.opened, false, 'the media-keys part is not opened');
+  await new Promise((r) => setTimeout(r, 550)); // the light was switched on reopening: its 0,5 s echo window passes
+  // the record button works on that part (PowerMic 4 message: 80 .. .. 20, byte 8 bit 0)
+  vendor.send(0x80, 0, 0, 0x20, 0, 0, 0, 0, 0x01);
+  vendor.send(0x80, 0, 0, 0x20, 0, 0, 0, 0, 0x00);
+  assert.equal(presses, 1);
+  assert.match(mic.diagnose().opened, /0xffa0/);
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
+});
+
+test('"Wykryj mikrofon" with an allowed PowerMic and the browser chooser both open the right part', async () => {
+  localStorage.removeItem('radvox.mic.v1');
+  let parts = pm4Parts();
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [parts.media, parts.keyboard, parts.vendor] }, configurable: true });
+  const a = new MicButton({ onPress: () => {} });
+  assert.equal(await a.openAllowed(), true);
+  assert.equal(a.device.name, 'vendor');
+  assert.equal(a.bound, true, 'PowerMic 4 button is built in');
+  parts = pm4Parts();
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [], requestDevice: async () => [parts.keyboard, parts.media, parts.vendor] }, configurable: true });
+  const b = new MicButton({ onPress: () => {} });
+  assert.equal(await b.connect(), true);
+  assert.equal(b.device.name, 'vendor');
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
+});
+
+test('if the best part cannot be opened, the next part is tried and the reason is kept for the report', async () => {
+  localStorage.removeItem('radvox.mic.v1');
+  const parts = pm4Parts({ vendorFails: true });
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [parts.vendor, parts.media] }, configurable: true });
+  const mic = new MicButton({ onPress: () => {} });
+  assert.equal(await mic.openAllowed(), true);
+  assert.equal(mic.device.name, 'media');
+  assert.ok(mic.diagnose().events.some((e) => /nie otwarto części/.test(e)));
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
+});
+
+test('a better part of the same PowerMic arriving later replaces the worse one', async () => {
+  localStorage.setItem('radvox.mic.v1', JSON.stringify({ vendorId: 0x0554, productId: 0x0064, productName: 'PowerMic 4', binding: { ...KNOWN_BUTTONS['0554:0064'] } }));
+  const { media, vendor } = pm4Parts();
+  const hid = { listeners: {}, addEventListener(t, f) { (this.listeners[t] ||= []).push(f); }, getDevices: async () => [media] };
+  Object.defineProperty(globalThis.navigator, 'hid', { value: hid, configurable: true });
+  const mic = new MicButton({ onPress: () => {} });
+  await mic.restore();
+  assert.equal(mic.device.name, 'media');
+  for (const f of hid.listeners.connect) f({ device: vendor });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(mic.device.name, 'vendor');
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
+});

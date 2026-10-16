@@ -198,6 +198,31 @@ const knownLed = (d) => KNOWN_LEDS[`${Number(d?.vendorId).toString(16).padStart(
 
 /** A dictation microphone (Nuance PowerMic, Philips SpeechMike) whose buttons a web page can read. */
 export const isDictationMic = (d) => [NUANCE_VENDOR_ID, PHILIPS_VENDOR_ID].includes(d?.vendorId) && (d.collections || []).some((c) => !PROTECTED(c));
+const sameModel = (a, b) => Boolean(a && b) && a.vendorId === b.vendorId && a.productId === b.productId;
+const allCollections = (cols, out = []) => { for (const c of cols || []) { out.push(c); allCollections(c.children, out); } return out; };
+
+/**
+ * One microphone shows up in the browser as SEVERAL parts (HID interfaces): a keyboard part, a media-keys part and
+ * the maker's own part, where the record button and the red light are (PowerMic 4: usage page 0xFFA0, with the
+ * light's output report). Which part the browser lists first can change (another USB port, a restart) — so the
+ * parts are ranked and the best one is opened, never simply the first. Higher = better; keyboard / mouse only = -10.
+ * Pure, for tests.
+ */
+export function interfaceScore(d) {
+  const cols = allCollections(d?.collections);
+  if (!cols.length) return -1;
+  if (cols.every((c) => PROTECTED(c))) return -10;
+  let s = 0;
+  if (cols.some((c) => c.usagePage >= 0xff00)) s += 10; // the maker's own part: buttons and light
+  if (cols.some((c) => (c.outputReports || []).length)) s += 3; // can switch a light
+  const known = KNOWN_BUTTONS[modelKey(d)];
+  if (known && cols.some((c) => (c.inputReports || []).some((r) => r.reportId === known.reportId) && c.usagePage >= 0xff00)) s += 2;
+  if (cols.some((c) => !PROTECTED(c) && (c.inputReports || []).length)) s += 1;
+  return s;
+}
+/** The parts of a microphone, best first (keyboard / mouse-only parts left out). */
+export const rankInterfaces = (devices) => [...(devices || [])].filter((d) => d && interfaceScore(d) > -10).sort((a, b) => interfaceScore(b) - interfaceScore(a));
+const describeInterface = (d) => `${d.productName || '?'} · ${allCollections(d.collections).map((c) => `0x${Number(c.usagePage || 0).toString(16)}/0x${Number(c.usage || 0).toString(16)}${(c.outputReports || []).length ? ' (wyjście)' : ''}`).join(', ') || '—'} · ocena ${interfaceScore(d)}`;
 
 export class MicButton {
   constructor({ onPress, onRelease, onChange, onRaw, persist = true }) {
@@ -319,18 +344,20 @@ export class MicButton {
     const exact = (x) => this.config && x.vendorId === this.config.vendorId && x.productId === this.config.productId;
     try {
       const devices = await navigator.hid.getDevices();
-      const d = devices.find(exact);
-      const other = !d && this.config?.vendorId ? devices.find(isDictationMic) : null;
-      if (d) await this.open(d);
-      else if (other) { await this.open(other); this.adopt(other); }
-    } catch { /* ignore */ }
+      const mine = devices.filter(exact);
+      const others = !mine.length && this.config?.vendorId ? devices.filter(isDictationMic) : [];
+      if (mine.length) await this.openBest(mine);
+      else if (others.length) this.adopt(await this.openBest(others));
+    } catch (err) { this.openError = err?.message || String(err); }
     navigator.hid.addEventListener?.('disconnect', (e) => {
       if (e.device === this.device) { this.device = null; this.onChange(); }
     });
     navigator.hid.addEventListener?.('connect', (e) => {
-      if (this.device || !this.config) return;
+      if (!this.config) return;
+      // each part of the microphone arrives as its own event: a better part of the same microphone replaces a worse one
+      if (this.device && !(sameModel(e.device, this.device) && interfaceScore(e.device) > interfaceScore(this.device))) return;
       if (exact(e.device)) this.open(e.device).catch(() => {});
-      else if (isDictationMic(e.device)) this.open(e.device).then(() => this.adopt(e.device)).catch(() => {});
+      else if (isDictationMic(e.device) && interfaceScore(e.device) > -10) this.open(e.device).then(() => this.adopt(e.device)).catch(() => {});
     });
     return this.connected;
   }
@@ -341,14 +368,35 @@ export class MicButton {
     const filters = any ? [] : [{ vendorId: NUANCE_VENDOR_ID }, { vendorId: PHILIPS_VENDOR_ID }];
     const devices = await navigator.hid.requestDevice({ filters });
     if (!devices.length) return false;
-    // a microphone often shows up as several HID interfaces: prefer one that is not a keyboard / mouse
-    const d = devices.find((x) => x.collections?.some((c) => !PROTECTED(c))) || devices[0];
-    await this.open(d);
+    // a microphone shows up as several parts: open the one with the record button and the light (see interfaceScore)
+    const d = await this.openBest(devices.some((x) => interfaceScore(x) > -10) ? devices : devices.slice(0, 1));
     const same = this.config && this.config.vendorId === d.vendorId && this.config.productId === d.productId;
     this.config = { vendorId: d.vendorId, productId: d.productId, productName: d.productName, binding: same ? this.config.binding : null, led: same ? this.config.led || null : null };
     this.save(this.config);
     this.applyKnownButton();
     this.onChange();
+    return true;
+  }
+
+  /** Open the best part of a microphone; when it cannot be opened, the next best. Returns the part opened. */
+  async openBest(devices) {
+    const list = rankInterfaces(devices);
+    if (!list.length && devices?.length) list.push(devices[0]);
+    this.parts = list.map(describeInterface);
+    let lastErr = null;
+    for (const d of list) {
+      try { await this.open(d); this.openError = ''; return d; } catch (err) { lastErr = err; this.logEvent(`nie otwarto części: ${describeInterface(d)} — ${err.message}`); }
+    }
+    this.openError = lastErr?.message || '';
+    throw lastErr || new Error('Brak urządzenia.');
+  }
+  /** Open a dictation microphone the browser already allows (no prompt): the remembered model first, its best part. */
+  async openAllowed() {
+    if (!this.supported) return false;
+    const all = (await navigator.hid.getDevices()).filter(isDictationMic);
+    if (!all.length) return false;
+    const mine = this.config ? all.filter((x) => sameModel(x, this.config)) : [];
+    this.adopt(await this.openBest(mine.length ? mine : all));
     return true;
   }
 
@@ -499,7 +547,7 @@ export class MicButton {
       }
     };
     walk(d?.collections);
-    return { events: this.events || [], layout, ledLog: this.ledLog || [], leds: leds.length, ledsStandard: leds.filter((c) => c.led).length, led: this.led, ledError: this.ledError || '', supported: this.supported, connected: this.connected, product: d?.productName || this.config?.productName || '', vendorId: hex(d?.vendorId ?? this.config?.vendorId), productId: hex(d?.productId ?? this.config?.productId), collections, reportsReceived: this.reports, binding: this.config?.binding || null, mode: this.mode, hint };
+    return { parts: this.parts || [], opened: d ? describeInterface(d) : '', openError: this.openError || '', events: this.events || [], layout, ledLog: this.ledLog || [], leds: leds.length, ledsStandard: leds.filter((c) => c.led).length, led: this.led, ledError: this.ledError || '', supported: this.supported, connected: this.connected, product: d?.productName || this.config?.productName || '', vendorId: hex(d?.vendorId ?? this.config?.vendorId), productId: hex(d?.productId ?? this.config?.productId), collections, reportsReceived: this.reports, binding: this.config?.binding || null, mode: this.mode, hint };
   }
 }
 

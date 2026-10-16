@@ -1893,6 +1893,8 @@ function micReport() {
     `Przeglądarka: ${navigator.userAgent}`,
     `WebHID: ${d.supported ? 'tak' : 'NIE'} · połączony: ${d.connected ? 'tak' : 'nie'} · tryb: ${d.mode === 'hold' ? 'przytrzymaj' : 'naciśnij'}`,
     `Urządzenie: ${d.product || '—'} (vendor ${d.vendorId}, product ${d.productId})`,
+    `Otwarta część mikrofonu: ${d.opened || '—'}${d.openError ? ` · błąd otwarcia: ${d.openError}` : ''}`,
+    `Części mikrofonu (od najlepszej): ${d.parts.length ? `\n  ${d.parts.join('\n  ')}` : '—'}`,
     `Kolekcje HID: ${d.collections.map((c) => `${c.usagePage}/${c.usage}${c.protected ? ' (zablokowana przez przeglądarkę)' : ''}`).join(', ') || '—'}`,
     `Odebrane raporty: ${d.reportsReceived} · przycisk: ${d.binding ? `raport ${d.binding.reportId}, bajt ${d.binding.byte}, maska 0x${d.binding.mask.toString(16)}` : 'nienauczony'}`,
     `Ostatnie dane: ${rawReports.length ? `\n  ${rawReports.join('\n  ')}` : '—'}`,
@@ -1990,8 +1992,8 @@ async function discoverMic() {
     await renderInputs();
     const audioDictation = lastInputs.find((d) => DICTATION_MIC_NAME.test(d.label || ''));
     if (mic.supported && !mic.connected) {
-      const allowed = (await navigator.hid.getDevices()).find(isDictationMic);
-      if (allowed) { await mic.open(allowed); mic.adopt(allowed); mic.autoLed(); renderMic(); if (!mic.bound) await learnMicButton(); }
+      // an already-allowed microphone is opened without asking — its best part (button + light), not just the first
+      if (await mic.openAllowed()) { mic.autoLed(); renderMic(); if (!mic.bound) await learnMicButton(); }
       else await connectMic(false); // the browser shows its list once; connecting continues with the button
     } else if (mic.connected && !mic.bound) await learnMicButton();
     const voiceHint = audioDictation && defaultInputLabel && !DICTATION_MIC_NAME.test(defaultInputLabel)
