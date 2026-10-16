@@ -613,6 +613,15 @@
             <label class="led-code-row">włącz <input id="ledCodeOn" class="mono" spellcheck="false" placeholder="np. 00 01 00 00 00 00 00 00 00" /></label>
             <label class="led-code-row">wyłącz <input id="ledCodeOff" class="mono" spellcheck="false" placeholder="puste = same zera" /></label>
             <div class="btn-row"><button class="btn btn-small" id="ledCodeTest">Test (3 s)</button><button class="btn btn-small btn-primary" id="ledCodeSave">Zapisz kod</button></div>
+            <div class="led-sweep">
+              <p class="hint">Nie masz kodu? <b>Szukanie automatyczne</b>: RadVox wysyła po kolei możliwe polecenia, a Ty klikasz, gdy dioda mignie (ok. 3–5 min).</p>
+              <button class="btn btn-small" id="ledSweep">Szukaj kodu automatycznie</button>
+              <div class="sweep-box" id="ledSweepBox" hidden>
+                <p id="ledSweepQ"></p>
+                <div class="sweep-bar"><div id="ledSweepBar"></div></div>
+                <div class="btn-row"><button class="btn btn-small btn-primary" id="ledSweepHit">Mignęła!</button><button class="btn btn-small" id="ledSweepNo" hidden>Nie</button><button class="btn btn-small" id="ledSweepStop">Przerwij</button></div>
+              </div>
+            </div>
           </div>
         </details>
         <div class="field-head key-head">

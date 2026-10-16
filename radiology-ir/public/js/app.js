@@ -32,7 +32,7 @@ const els = Object.fromEntries(
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
-    'chimeStyle', 'chimeTest', 'ledCodeOn', 'ledCodeOff', 'ledCodeTest', 'ledCodeSave', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
+    'chimeStyle', 'chimeTest', 'ledCodeOn', 'ledCodeOff', 'ledCodeTest', 'ledCodeSave', 'ledSweep', 'ledSweepBox', 'ledSweepQ', 'ledSweepBar', 'ledSweepHit', 'ledSweepNo', 'ledSweepStop', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
     'menuLang', 'procBtn', 'anatomy', 'anatSide', 'closeAnatomy', 'anatParts', 'anatTargets', 'anatProcs', 'anatTpls', 'anatSummary', 'anatCancel', 'anatApply',
   ].map((id) => [id, $(id)]),
 );
@@ -2124,6 +2124,103 @@ async function ledDone(found) {
   return ledEnd(null);
 }
 
+// automatic search for a light command (PowerMic 4: one vendor report, the first byte selects the command): every
+// command is sent briefly with an "on" value, then with zeros; the user clicks when the light flashes, and the last
+// few commands are then checked one by one. Run only after the user confirmed (the commands are undocumented).
+const SWEEP_FILLS = [(n) => [1, ...new Array(n - 2).fill(0)], (n) => new Array(n - 1).fill(0xff)];
+let sweep = null;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function sweepCode(s, cmd) {
+  const n = s.group.length;
+  return { type: 'output', reportId: s.group.reportId, length: n, on: [cmd, ...SWEEP_FILLS[s.pass](n)], off: [cmd, ...new Array(n - 1).fill(0)], led: false, found: 'sweep' };
+}
+function renderSweep() {
+  const s = sweep;
+  els.ledSweepBox.hidden = !s;
+  els.ledSweep.hidden = Boolean(s);
+  if (!s) return;
+  els.ledSweepNo.hidden = s.phase !== 'check';
+  els.ledSweepHit.textContent = s.phase === 'check' ? 'Tak, świeci' : 'Mignęła!';
+  const done = s.pass * 256 + s.cmd;
+  els.ledSweepBar.style.width = `${Math.min(100, Math.round((done / (256 * SWEEP_FILLS.length)) * 100))}%`;
+  els.ledSweepQ.textContent = s.phase === 'check'
+    ? `Sprawdzam polecenie ${s.idx + 1} z ${s.cands.length}: czy czerwona dioda świeci TERAZ?`
+    : `Patrz na mikrofon. Próba ${done + 1} z ${256 * SWEEP_FILLS.length} — kliknij „Mignęła!”, gdy dioda mignie lub się zapali.`;
+}
+async function endSweep(found, message) {
+  const s = sweep;
+  sweep = null;
+  if (s?.current) await mic.setLed(false, s.current);
+  if (found) { mic.saveLed(found); toast('Znaleziono kod diody — będzie świecić podczas dyktowania. Sprawdź: naciśnij przycisk nagrywania.', 'ok', 7000); }
+  else if (message) toast(message, 'warn', 8000);
+  await mic.setLed(state.recording);
+  renderSweep();
+  renderMicDiag();
+  renderLed();
+}
+async function startSweep() {
+  if (!mic.connected) { toast('Najpierw podłącz i połącz mikrofon (Wykryj mikrofon).', 'warn'); return; }
+  const group = mic.ledReports().find((g) => g.type === 'output' && g.length >= 2);
+  if (!group) { toast('Ten mikrofon nie ma miejsca na polecenia diody, które przeglądarka może wysłać.', 'warn', 6000); return; }
+  const ok = await askConfirm('Automatyczne szukanie kodu czerwonej diody\nRadVox wyśle do mikrofonu po kolei możliwe polecenia (ok. 3–5 minut). Patrz na mikrofon i kliknij „Mignęła!”, gdy czerwona dioda mignie albo się zapali.\nUwaga: tych poleceń producent nie opisuje. Zmiana wewnętrznych ustawień mikrofonu jest mało prawdopodobna, ale nie można jej wykluczyć. Jeśli coś zacznie działać inaczej, odłącz i podłącz mikrofon.', { ok: 'Szukaj' });
+  if (!ok) return;
+  if (state.recording) await stopRecording();
+  sweep = { group, pass: 0, cmd: 0, recent: [], phase: 'scan', idx: 0, cands: [], current: null, run: 0 };
+  sweepScan();
+}
+async function sweepScan() {
+  const s = sweep;
+  if (!s) return;
+  const run = ++s.run; // a newer loop (after a check) replaces this one
+  while (sweep === s && s.phase === 'scan' && s.run === run) {
+    if (s.cmd > 255) {
+      s.pass++; s.cmd = 0;
+      if (s.pass >= SWEEP_FILLS.length) return endSweep(null, 'Nie znaleziono kodu diody — ten mikrofon prawdopodobnie potrzebuje polecenia, którego nie da się zgadnąć. Pozostaje odczyt z oprogramowania Nuance (instrukcja dla IT).');
+    }
+    renderSweep();
+    const code = sweepCode(s, s.cmd);
+    s.current = code;
+    await mic.setLed(true, code);
+    s.recent.push(code);
+    if (s.recent.length > 10) s.recent.shift();
+    await sleep(380);
+    if (sweep !== s || s.phase !== 'scan' || s.run !== run) return;
+    await mic.setLed(false, code);
+    await sleep(170);
+    s.cmd++;
+  }
+}
+async function sweepCheck() {
+  const s = sweep;
+  if (!s) return;
+  if (s.idx >= s.cands.length) {
+    // none of the recent ones: continue searching where it stopped
+    toast('To nie było żadne z ostatnich poleceń — szukam dalej.', 'info', 3000);
+    s.phase = 'scan';
+    return sweepScan();
+  }
+  const c = s.cands[s.idx];
+  if (s.current) await mic.setLed(false, s.current);
+  await sleep(250);
+  s.current = c;
+  await mic.setLed(true, c);
+  renderSweep();
+}
+async function sweepAnswer(yes) {
+  const s = sweep;
+  if (!s) return;
+  if (s.phase === 'scan') {
+    // the flash came from one of the last few commands (reaction time): check them one by one, newest first
+    s.phase = 'check';
+    s.cands = s.recent.slice().reverse();
+    s.idx = 0;
+    return sweepCheck();
+  }
+  if (yes) return endSweep(s.cands[s.idx]);
+  s.idx++;
+  return sweepCheck();
+}
+
 // microphones on this computer: list + level test (dictation itself uses the browser's default microphone)
 const inputTester = new InputTester();
 let inputTestTimer = 0;
@@ -2415,6 +2512,10 @@ function bind() {
     setTimeout(async () => { await mic.setLed(false, led); await mic.setLed(state.recording); renderMicDiag(); }, 3000);
     renderMicDiag();
   });
+  els.ledSweep.addEventListener('click', startSweep);
+  els.ledSweepHit.addEventListener('click', () => sweepAnswer(true));
+  els.ledSweepNo.addEventListener('click', () => sweepAnswer(false));
+  els.ledSweepStop.addEventListener('click', () => endSweep(null));
   els.ledCodeSave.addEventListener('click', () => {
     const led = readLedCode();
     if (!led) return;

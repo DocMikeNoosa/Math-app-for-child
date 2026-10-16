@@ -860,3 +860,8 @@ body.target-clinical.recording .rec-state::after { content: ' · dane kliniczne'
 .led-code { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .led-code-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
 .led-code-row input { flex: 1; min-width: 0; }
+.led-sweep { margin-top: 10px; }
+.sweep-box { margin-top: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255, 181, 71, 0.45); background: rgba(255, 181, 71, 0.06); }
+.sweep-box p { margin: 0 0 8px; font-size: 13px; }
+.sweep-bar { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; margin-bottom: 8px; }
+.sweep-bar > div { height: 100%; width: 0; background: #ffb547; transition: width 0.3s; }
