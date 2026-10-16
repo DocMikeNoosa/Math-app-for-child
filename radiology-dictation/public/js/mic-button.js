@@ -224,6 +224,40 @@ export function interfaceScore(d) {
 export const rankInterfaces = (devices) => [...(devices || [])].filter((d) => d && interfaceScore(d) > -10).sort((a, b) => interfaceScore(b) - interfaceScore(a));
 const describeInterface = (d) => `${d.productName || '?'} · ${allCollections(d.collections).map((c) => `0x${Number(c.usagePage || 0).toString(16)}/0x${Number(c.usage || 0).toString(16)}${(c.outputReports || []).length ? ' (wyjście)' : ''}`).join(', ') || '—'} · ocena ${interfaceScore(d)}`;
 
+/**
+ * "Find the red colour": light commands to try, one at a time, built from the command that lights the diode in a mixed
+ * colour (PowerMic 4: [02 ff ff ff ff ff ff ff ff] = orange = red + green). The first byte (the command) is kept;
+ * single channels, pairs, odd / even, halves, a value in the first channel, then other command bytes. Pure, for tests.
+ */
+export function colorCandidates(on) {
+  const base = Array.from(on || []);
+  const n = base.length;
+  if (n < 2) return [];
+  const head = base[0];
+  const lit = (idx, h = head) => [h, ...Array.from({ length: n - 1 }, (_, i) => (idx.includes(i + 1) ? 0xff : 0))];
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const out = [];
+  for (let i = 1; i < n; i++) out.push({ on: lit([i]), why: `kanał ${i}` });
+  for (let i = 1; i + 1 < n; i += 2) out.push({ on: lit([i, i + 1]), why: `kanały ${i}+${i + 1}` });
+  out.push({ on: lit(range(1, n - 1).filter((i) => i % 2)), why: 'kanały nieparzyste' });
+  out.push({ on: lit(range(1, n - 1).filter((i) => !(i % 2))), why: 'kanały parzyste' });
+  const half = Math.floor((n - 1) / 2);
+  out.push({ on: lit(range(1, half)), why: 'pierwsza połowa' });
+  out.push({ on: lit(range(half + 1, n - 1)), why: 'druga połowa' });
+  for (let v = 1; v <= 8; v++) out.push({ on: [head, v, ...new Array(n - 2).fill(0)], why: `wartość ${v} w kanale 1` });
+  for (const h of [1, 3, 4]) if (h !== head) out.push({ on: [h, ...new Array(n - 1).fill(0xff)], why: `polecenie 0x0${h}` });
+  const seen = new Set([base.join(',')]);
+  return out.filter((c) => { const k = c.on.join(','); if (seen.has(k)) return false; seen.add(k); return true; });
+}
+/** The mixed colour without the channels that gave GREEN: what is left of orange should be red. Pure, for tests. */
+export function withoutChannels(base, green) {
+  const b = Array.from(base || []);
+  const g = Array.from(green || []);
+  if (g[0] !== b[0]) return null;
+  const on = b.map((v, i) => (i > 0 && g[i] ? 0 : v));
+  return on.some((v, i) => i > 0 && v) && on.join(',') !== b.join(',') ? on : null;
+}
+
 export class MicButton {
   constructor({ onPress, onRelease, onChange, onRaw, persist = true }) {
     this.persist = persist; // false: test pages that must not change the saved button

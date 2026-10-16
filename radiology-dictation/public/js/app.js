@@ -4,7 +4,7 @@ import { localMerge, findConflicts, applyConflicts, splitSentences, analyseFindi
 import { Dictation, LevelMeter, speechSupported } from './speech.js';
 import { parseVoiceCommands, dropLastSentence, dropLastWord, COMMAND_LABELS } from './voice-commands.js';
 import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, addUnique, similarity } from './style-learning.js';
-import { MicButton, ledPattern, isDictationMic, parseLedCode } from './mic-button.js';
+import { MicButton, ledPattern, isDictationMic, parseLedCode, colorCandidates, withoutChannels } from './mic-button.js';
 import { chime, chimeStyle, setChimeStyle, styleOptions } from './chime.js';
 import { listInputs, InputTester, inputError } from './audio-input.js';
 import { ERROR_TYPES, makeEntry, summarize, stats, statsPage, toCSV, typeLabel, loadLocal, saveLocal, removeLocal, clearLocal } from './speech-log.js';
@@ -1447,7 +1447,8 @@ const dictationEngine = new Dictation({
     onDictationChanged();
   },
   onInterim: (text) => { els.interim.textContent = text; },
-  onStateChange: (on) => { if (!on && state.recording) stopRecording(); },
+  // the speech service ended by itself (not while we are already stopping — that is not a second press)
+  onStateChange: (on) => { if (!on && state.recording && !stopping) stopRecording(); },
   onError: (msg) => toast(msg, 'err', 5000),
 });
 
@@ -1478,25 +1479,31 @@ function startRecording() {
 }
 
 let stopping = false;
+let restartAfterStop = false; // the button was pressed again while stopping
 // Stopping only ends the dictation; the report is made with "Przygotuj opis".
 async function stopRecording() {
-  if (!state.recording || stopping) return;
+  // pressed again while the last words are still coming in: start again as soon as they are in
+  if (stopping) { restartAfterStop = !restartAfterStop; return; }
+  if (!state.recording) return;
   stopping = true;
+  // the radiologist hears, sees and feels the stop at once (light off, sound, button); the speech service still
+  // delivers the last words in the background (up to ~2 s) — before, the light and sound waited for them
+  mic.setLed(false);
+  chime('stop'); // soft falling chime: stopped
+  document.body.classList.remove('recording');
+  els.recBtn.setAttribute('aria-pressed', 'false');
+  els.recBtn.setAttribute('aria-label', 'Rozpocznij dyktowanie');
   els.recState.textContent = 'Kończenie…';
   await dictationEngine.stop();
   meter.stop();
   clearInterval(timerId);
   state.recording = false;
   stopping = false;
-  mic.setLed(false);
-  chime('stop'); // soft falling chime: stopped
-  document.body.classList.remove('recording');
-  els.recBtn.setAttribute('aria-pressed', 'false');
-  els.recBtn.setAttribute('aria-label', 'Rozpocznij dyktowanie');
   els.recState.textContent = 'Naciśnij, aby dyktować';
   els.interim.textContent = '';
   setSpeechTarget('dictation');
   schedulePrefetch(300);
+  if (restartAfterStop) { restartAfterStop = false; startRecording(); }
 }
 const toggleRecording = () => (state.recording ? stopRecording() : startRecording());
 // end of a press-and-hold: stop only what is running (never start)
@@ -1716,7 +1723,7 @@ const rawReports = [];
 const mic = new MicButton({
   onPress: () => {
     if (state.busy) return;
-    if (mic.mode === 'hold') holdStarted = !state.recording;
+    if (mic.mode === 'hold') holdStarted = !state.recording || stopping; // pressed while stopping = start again
     toggleRecording();
   },
   onRelease: () => { if (holdStarted) { holdStarted = false; releaseRecording(); } },
@@ -1739,6 +1746,7 @@ function micReport() {
     `Odebrane raporty: ${d.reportsReceived} · przycisk: ${d.binding ? `raport ${d.binding.reportId}, bajt ${d.binding.byte}, maska 0x${d.binding.mask.toString(16)}` : 'nienauczony'}`,
     `Ostatnie dane: ${rawReports.length ? `\n  ${rawReports.join('\n  ')}` : '—'}`,
     `Dioda: ${d.led ? `${d.led.type} ${d.led.reportId}, ${d.led.on ? `wzór [${d.led.on.map((b) => b.toString(16)).join(' ')}]` : `bajt ${d.led.byte}, maska 0x${d.led.mask.toString(16)}`}` : 'nieustawiona'} · możliwe miejsca: ${d.leds} (standardowe: ${d.ledsStandard})${d.ledError ? ` · błąd: ${d.ledError}` : ''}`,
+    `Szukanie czerwonego koloru: ${colorLog.length ? `\n  ${colorLog.join('\n  ')}` : '—'}`,
     `Ostatnie próby diody: ${d.ledLog.length ? `\n  ${d.ledLog.join('\n  ')}` : '—'}`,
     `Przebieg (przycisk i dioda, od najstarszego): ${d.events.length ? `\n  ${d.events.join('\n  ')}` : '—'}`,
     `Budowa urządzenia: ${d.layout.length ? `\n  ${d.layout.join('\n  ')}` : '—'}`,
@@ -2125,43 +2133,56 @@ function stepStart() {
 // the light shows a mixed colour (e.g. orange = red + green): light one channel of the found command at a time and
 // keep the one the radiologist sees as red
 let colorStep = null;
+let colorLog = []; // what was seen for each try, for the diagnostic report (and for me to build the code in)
+const hexes = (a) => a.map((b) => b.toString(16).padStart(2, '0')).join(' ');
 async function colorShow() {
   const c = colorStep;
   if (c.current) await mic.setLed(false, c.current);
   await sleep(250);
-  if (c.k >= c.base.length) {
+  const next = c.queue.shift();
+  if (!next) {
     colorStep = null;
     els.ledColorAsk.hidden = true;
     await mic.setLed(state.recording);
-    toast('Żaden pojedynczy kanał nie dał czerwonego. Wyślij raport z Diagnostyki — dobiorę kombinację.', 'warn', 8000);
+    toast('Żadna z prób nie dała czystego czerwonego. Skopiuj raport z Diagnostyki i wyślij go — z odpowiedzi „zielony” / „inny” dobiorę kod.', 'warn', 9000);
+    renderMicDiag();
     return;
   }
-  const on = c.base.map((v, i) => (i === 0 ? v : i === c.k ? 0xff : 0));
-  c.current = { type: c.led.type, reportId: c.led.reportId, length: c.led.length, on, off: c.led.off || [c.base[0], ...new Array(c.led.length - 1).fill(0)], led: false };
+  c.n++;
+  c.current = { type: c.led.type, reportId: c.led.reportId, length: c.led.length, on: next.on, off: c.led.off || [c.base[0], ...new Array(c.led.length - 1).fill(0)], led: false, why: next.why };
   await mic.setLed(true, c.current);
-  els.ledColorNum.textContent = `Kanał ${c.k} z ${c.base.length - 1}`;
+  els.ledColorNum.textContent = `Próba ${c.n} z ${c.n + c.queue.length} (${next.why})`;
   els.ledColorAsk.hidden = false;
 }
 function colorStart() {
   const led = mic.led;
   if (!mic.connected || !led || !Array.isArray(led.on) || led.length < 2) { toast('Najpierw ustaw diodę (kod lub wyszukiwanie).', 'warn'); return; }
-  colorStep = { led, base: led.on.slice(), k: 1, current: null };
+  // the search always starts from the command that lit the diode (a red found earlier is not the base)
+  const base = (led.color === 'red' && led.base) ? led.base : led.on.slice();
+  colorLog = [];
+  colorStep = { led, base, queue: colorCandidates(base), n: 0, current: null };
   colorShow();
 }
 async function colorAnswer(color) {
   const c = colorStep;
   if (!c) return;
+  colorLog.push(`${hexes(c.current.on)} (${c.current.why}) → ${{ red: 'CZERWONY', green: 'zielony', other: 'pomarańczowy / inny', none: 'nie świeci' }[color] || color}`);
   if (color === 'red') {
     colorStep = null;
     els.ledColorAsk.hidden = true;
     await mic.setLed(false, c.current);
-    mic.saveLed({ ...c.current, manual: true, color: 'red' });
-    toast(`Czerwony zapamiętany (kod ${c.current.on.map((b) => b.toString(16).padStart(2, '0')).join(' ')}). Wyślij mi raport z Diagnostyki — ustawię to dla wszystkich PowerMic 4.`, 'ok', 10000);
+    const { why, ...red } = c.current;
+    mic.saveLed({ ...red, manual: true, color: 'red', base: c.base });
+    toast(`Czerwony zapamiętany (kod ${hexes(c.current.on)}). Skopiuj raport z Diagnostyki i wyślij go — ustawię ten kod dla wszystkich PowerMic 4.`, 'ok', 10000);
     await mic.setLed(state.recording);
     renderMicDiag();
     return;
   }
-  c.k++;
+  // orange = red + green: when a try lights GREEN, the orange command without those channels should be red — try it next
+  if (color === 'green') {
+    const rest = withoutChannels(c.base, c.current.on);
+    if (rest && !c.queue.some((q) => q.on.join(',') === rest.join(','))) c.queue.unshift({ on: rest, why: 'pomarańczowy bez zielonego' });
+  }
   colorShow();
 }
 
@@ -2540,7 +2561,7 @@ function bind() {
       e.preventDefault();
       e.stopPropagation();
       if (!state.busy) {
-        if (mic.mode === 'hold') keyHoldStarted = !state.recording;
+        if (mic.mode === 'hold') keyHoldStarted = !state.recording || stopping;
         toggleRecording();
       }
     }

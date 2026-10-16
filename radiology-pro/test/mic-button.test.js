@@ -425,3 +425,20 @@ test('a better part of the same PowerMic arriving later replaces the worse one',
   assert.equal(mic.device.name, 'vendor');
   Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
 });
+
+test('finding red on a light that shows orange: many tries, the command byte kept, orange minus green tried next', async () => {
+  const { colorCandidates, withoutChannels } = await import('../public/js/mic-button.js');
+  const orange = [0x02, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+  const c = colorCandidates(orange);
+  assert.ok(c.length >= 25, `${c.length} tries`);
+  assert.ok(c.every((x) => x.on.length === 9));
+  assert.deepEqual(c[0].on, [0x02, 0xff, 0, 0, 0, 0, 0, 0, 0]);
+  assert.ok(c.some((x) => x.on[0] === 0x01), 'other command bytes are tried too');
+  assert.ok(!c.some((x) => x.on.join() === orange.join()), 'the orange command itself is not offered again');
+  assert.equal(new Set(c.map((x) => x.on.join())).size, c.length, 'no try twice');
+  // channel 2 lit green → orange without channel 2
+  assert.deepEqual(withoutChannels(orange, [0x02, 0, 0xff, 0, 0, 0, 0, 0, 0]), [0x02, 0xff, 0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+  assert.equal(withoutChannels(orange, [0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]), null, 'another command byte: nothing to subtract');
+  assert.equal(withoutChannels(orange, orange), null, 'nothing left');
+  assert.deepEqual(colorCandidates([0x02]), []);
+});
