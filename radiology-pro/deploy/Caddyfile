@@ -4,7 +4,13 @@
 	email {$ACME_EMAIL}
 }
 
-{$DOMAIN} {
+# DOMAIN = the main address (e.g. radvox.ai). EXTRA_DOMAINS (optional, separated by spaces) = other addresses you own
+# (e.g. radvox.pl www.radvox.pl www.radvox.ai): they get their own certificate and send every visitor to the main
+# address, keeping the page asked for — so there is one login and one set of browser settings, whichever was typed.
+{$DOMAIN} {$EXTRA_DOMAINS} {
+	@other not host {$DOMAIN}
+	redir @other https://{$DOMAIN}{uri} permanent
+
 	encode zstd gzip
 
 	# largest request: syncing a radiologist's learned style (≤ 1.5 MB)

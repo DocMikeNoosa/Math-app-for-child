@@ -69,6 +69,12 @@ ping YOUR-DOMAIN
 
 It should show the server's IP.
 
+**More than one domain** (e.g. `radvox.ai` as the main address plus `radvox.pl`): give every domain, and its `www.`
+form, an A record to the same server IP. Put the main one in `DOMAIN` and the others in `EXTRA_DOMAINS`
+(step 4). The others then send visitors to the main address automatically, keeping the page asked for. That way a
+radiologist who types `radvox.pl` one day and `radvox.ai` the next lands on the same address, stays logged in and
+keeps the settings saved in the browser.
+
 ## 3. Prepare the server (one command)
 
 Log in (`ssh ubuntu@SERVER-IP`) and run:
@@ -97,7 +103,7 @@ nano .env
 ```
 
 Fill in at least:
-- `DOMAIN` and `PUBLIC_URL` (your domain);
+- `DOMAIN` and `PUBLIC_URL` (your main domain); `EXTRA_DOMAINS` if you own more (see step 2);
 - `ACME_EMAIL`;
 - `ADMIN_EMAIL` and `ADMIN_PASSWORD` (your own strong password; the example one is refused);
 - `ANTHROPIC_API_KEY` (or the Bedrock lines);
