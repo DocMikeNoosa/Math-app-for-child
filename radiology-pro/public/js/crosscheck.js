@@ -273,7 +273,8 @@ export function analyseFinding(text) {
 /** Does a dictated positive finding contradict a template statement? */
 export function contradicts(stmt, finding, { wholeExam = false } = {}) {
   if (!finding.concepts.size) return false;
-  if (stmt.acute && finding.chronic) return false;
+  // old / chronic and age-related change (small-vessel disease, atrophy, degeneration) is not an acute finding
+  if (stmt.acute && (finding.chronic || [...finding.concepts].some((c) => AGE_CONCEPTS.has(c)))) return false;
   if (stmt.side && finding.side && stmt.side !== 'both' && finding.side !== 'both' && stmt.side !== finding.side) return false;
 
   const fc = finding.concepts.has('dislocation') ? new Set([...finding.concepts, 'alignment']) : finding.concepts;
@@ -969,7 +970,13 @@ function enforce(template, report, { ignore, dictatedConclusion }) {
     if (kept.length !== next.conclusion.split('\n').length) next = { ...next, conclusion: renumber(kept.join('\n'), template.bullet) };
   }
   if (!next.conclusion.split('\n').some((l) => stripBullet(l))) {
-    next = { ...next, conclusion: formatConclusion([defaultConclusion(template)], template.bullet) };
+    // nothing left: the radiologist's own TEMPLATE conclusion lines that the findings do not contradict — never a
+    // normal / negative statement of the app's own (the app does not diagnose)
+    const fromTemplate = { ...next, conclusion: template.conclusion || '' };
+    const conflicts = findConflicts(template, fromTemplate, { ignore }).filter((c) => c.where === 'conclusion');
+    const restored = applyConflicts(template, fromTemplate, conflicts).conclusion;
+    if (restored.split('\n').some((l) => stripBullet(l))) next = { ...next, conclusion: restored };
+    else warnings.push('Wnioski: brak — uzupełnij lub podyktuj (aplikacja nie dopisuje sama stwierdzeń „bez patologii”).');
   }
   next = arrangeFindings(template, next);
   next = { ...next, conclusion: appendRecommendations(layoutConclusion(next.conclusion, template.bullet), extracted.recs) };

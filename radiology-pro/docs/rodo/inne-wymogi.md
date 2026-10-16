@@ -8,6 +8,16 @@
    wnioski — **to wymaga opinii doradcy regulacyjnego przed sprzedażą**. Polski organ: URPL. Wersjonowanie wiedzy
    globalnej z akceptacją właściciela i ślad wersji w zapytaniach ułatwia kontrolę zmian, jeśli MDR będzie miało
    zastosowanie.
+
+   **Decyzja projektowa (październik 2026): AI nie diagnozuje.** We wszystkich wersjach (RadVox, RadVox IR,
+   RadVox Pro) AI wyłącznie redaguje i streszcza to, co podyktował lekarz, oraz zdania z jego szablonu — bez zmiany
+   znaczenia. Nie dodaje rozpoznań ani różnicowań, nie wyprowadza rozpoznania z opisu cech, nie nadaje kategorii /
+   skal (Bosniak, TI-RADS, LI-RADS, Fleischner, BI-RADS, ASPECTS, eTICI…) ani zaleceń, jeśli nie zostały
+   podyktowane, i nie dopisuje własnych stwierdzeń „bez patologii”. „Wnioski” to skrót istotnych klinicznie ustaleń
+   podyktowanych przez lekarza. Reguły: `lib/claude.js` (sekcja NO DIAGNOSIS), kod kontrolny
+   `public/js/crosscheck.js`, testy `test/no-diagnosis.test.js`. Zmniejsza to ryzyko zakwalifikowania jako wyrób
+   medyczny, ale **nie przesądza** o kwalifikacji — porządkowanie ustaleń według pilności i dobór tego, co trafia
+   do wniosków, nadal należy przedstawić doradcy regulacyjnemu (MDCG 2019-11) przed sprzedażą.
 2. **AI Act (rozporządzenie 2024/1689)** — jeżeli RadVox Pro okaże się wyrobem medycznym wymagającym oceny przez
    jednostkę notyfikowaną, będzie systemem AI wysokiego ryzyka (obowiązki m.in. zarządzanie ryzykiem, dane, dokumentacja,
    nadzór człowieka, rejestrowanie zdarzeń). Niezależnie od tego: obowiązek kompetencji w zakresie AI (art. 4) oraz

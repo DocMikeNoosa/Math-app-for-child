@@ -289,7 +289,7 @@ test('format: learned preferences and kept statements reach the AI; prompt has t
   assert.match(system, /comparison line directly under/);
 });
 
-test('format: an AI conclusion with small-vessel disease is cleaned; nothing relevant → normal line', async () => {
+test("format: an AI conclusion with small-vessel disease is cleaned; nothing relevant → the template's own normal line (never one the app invents)", async () => {
   const t = getTemplate('ct_head_normal');
   nextReply = editsReply(
     [{ op: 'insert', target: 'Struktury mózgowia bez zmian ogniskowych, bez cech krwawienia śródczaszkowego, ostrych zmian niedokrwiennych, obrzęku mózgu i bez efektu masy.', text: 'Zmiany naczyniopochodne w istocie białej obu półkul mózgu.', reason: '' }],
@@ -298,7 +298,7 @@ test('format: an AI conclusion with small-vessel disease is cleaned; nothing rel
   const res = await post({ templateId: t.id, report: reportFromTemplate(t), dictation: 'zmiany naczyniopochodne w istocie białej' });
   const data = await res.json();
   assert.match(data.report.body, /naczyniopochodne/);
-  assert.equal(data.report.conclusion, '- Bez ostrej patologii wewnątrzczaszkowej.');
+  assert.equal(data.report.conclusion, t.conclusion, "the radiologist's own template line");
 });
 
 test('format: clinical details reach the AI (variable block); prompt has the emergency tiers', async () => {
