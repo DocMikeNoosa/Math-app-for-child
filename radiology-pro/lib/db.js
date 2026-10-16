@@ -185,6 +185,12 @@ function migrate(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS logins (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     ts INTEGER NOT NULL, ip TEXT NOT NULL DEFAULT '', device TEXT NOT NULL DEFAULT '', ua TEXT NOT NULL DEFAULT '', kicked INTEGER NOT NULL DEFAULT 0)`);
   d.exec('CREATE INDEX IF NOT EXISTS logins_user ON logins(user_id, ts)');
+  // speech-recognition error log: what the browser heard next to the final report, sent by the radiologist on purpose
+  // ("Błąd mowy") so the owner can measure recognition errors; identifiers removed in the app, kept 180 days
+  d.exec(`CREATE TABLE IF NOT EXISTS speech_log (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '', lang TEXT NOT NULL DEFAULT 'pl', heard TEXT NOT NULL DEFAULT '',
+    report TEXT NOT NULL DEFAULT '', types TEXT NOT NULL DEFAULT '[]', note TEXT NOT NULL DEFAULT '', auto TEXT NOT NULL DEFAULT '{}')`);
+  d.exec('CREATE INDEX IF NOT EXISTS speech_log_ts ON speech_log(ts)');
   d.exec('CREATE INDEX IF NOT EXISTS users_org ON users(org_id)');
   d.exec('CREATE INDEX IF NOT EXISTS audit_target ON audit(target_id)');
   d.exec('CREATE INDEX IF NOT EXISTS usage_user_report ON usage(user_id, report_id)');

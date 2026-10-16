@@ -7,6 +7,7 @@ import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, 
 import { MicButton, ledPattern, isDictationMic, parseLedCode } from './mic-button.js';
 import { chime, chimeStyle, setChimeStyle, styleOptions } from './chime.js';
 import { listInputs, InputTester, inputError } from './audio-input.js';
+import { ERROR_TYPES, makeEntry, summarize, toCSV, typeLabel, loadLocal, saveLocal, removeLocal, clearLocal } from './speech-log.js';
 
 const $ = (id) => document.getElementById(id);
 const els = Object.fromEntries(
@@ -910,6 +911,7 @@ async function newReport() {
   renderClinical();
   els.interim.textContent = '';
   chunkStack.length = 0;
+  heardLog.length = 0;
   state.ignore = [];
   state.copied = null;
   state.lastAI = null;
@@ -1357,6 +1359,7 @@ const meter = new LevelMeter();
 let timerStart = 0;
 let timerId = null;
 const chunkStack = []; // dictation text before each recognised fragment (for "cofnij to")
+const heardLog = []; // everything speech recognition returned for the current report (raw), for the error log
 
 // Where spoken text goes: the dictation (default) or the clinical-details box.
 let speechTarget = 'dictation';
@@ -1436,6 +1439,7 @@ const dictationEngine = new Dictation({
   lang: 'pl-PL',
   onFinal: (text) => {
     if (!text) return;
+    if (speechTarget === 'dictation') heardLog.push(text); // raw recognised text, for the speech-recognition error log
     for (const part of parseVoiceCommands(text)) {
       if (part.cmd) runVoiceCommand(part);
       else appendDictation(part.text);
@@ -2245,6 +2249,7 @@ function bind() {
   els.redoBtn.addEventListener('click', redo);
   els.acceptBtn.addEventListener('click', acceptChanges);
   els.resetBtn.addEventListener('click', resetReport);
+  bindSpeechLog();
   els.clearDictation.addEventListener('click', () => { els.dictation.value = ''; save(); els.dictation.focus(); });
   els.dictation.addEventListener('input', () => { chunkStack.length = 0; onDictationChanged(); });
   els.instruction.addEventListener('input', onDictationChanged);
@@ -2656,7 +2661,8 @@ function bind() {
   document.addEventListener('keydown', (e) => {
     if (!els.picker.hidden || !els.tplEditor.hidden) return; // picker / editor handle their own keys
     const typing = isTyping(document.activeElement);
-    if (e.key === 'Escape') { openSettings(false); openHelp(false); openToday(false); openOriginal(false); openLearn(false); toggleSnippets(false); return; }
+    if (e.key === 'Escape') { openSettings(false); openHelp(false); openToday(false); openOriginal(false); openLearn(false); openSpeechLog(false); toggleSnippets(false); return; }
+    if (!slog.modal.hidden) return; // the error-log window: no app shortcuts behind it
     if (e.key === 'F2') { e.preventDefault(); toggleRecording(); return; }
     if (e.altKey && (e.key === 'n' || e.key === 'N' || e.code === 'KeyN')) { e.preventDefault(); newReport(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); process(); return; }
@@ -2678,6 +2684,108 @@ function bind() {
 }
 
 // ---------------------------------------------------------------- init
+// ---------------------------------------------------------------- speech-recognition error log
+// "Błąd mowy": what the browser heard next to the final report, the radiologist ticks the kind of error (or "no error"),
+// the numbers are compared automatically. Kept in this browser only (Settings → Dziennik rozpoznawania mowy).
+const slog = {
+  modal: $('speechLogModal'), heard: $('slogHeard'), report: $('slogReport'), auto: $('slogAuto'), types: $('slogTypes'), note: $('slogNote'),
+  summary: $('slogSummary'), list: $('slogList'),
+};
+function slogDraft() {
+  const t = template();
+  const heard = heardLog.join(' ').trim();
+  return {
+    heard,
+    heardForNumbers: convertSpokenFor(state.inputLang)(heard),
+    dictation: els.dictation.value.trim(),
+    report: isBlank() ? '' : reportToText(state.report, t),
+    template: t ? reportToText(reportFromTemplate(t), t) : '',
+    title: t?.title || '',
+    lang: state.inputLang,
+  };
+}
+function openSpeechLog(open = true) {
+  if (!open) { slog.modal.hidden = true; return; }
+  if (isBlank()) { toast('Najpierw przygotuj opis — wtedy porównasz go z tym, co zostało usłyszane.', 'warn'); return; }
+  const d = slogDraft();
+  const preview = makeEntry(d);
+  slog.heard.textContent = d.heard || '(nic nie zostało podyktowane w tym opisie — dziennik porównuje tylko tekst z rozpoznawania mowy)';
+  slog.report.textContent = d.report;
+  const { missing, added } = preview.auto;
+  slog.auto.className = `slog-auto${missing.length || added.length ? ' flag' : ''}`;
+  slog.auto.textContent = !d.heard ? '' : missing.length || added.length
+    ? `Automatyczne porównanie liczb: ${missing.length ? `usłyszane, a brak w opisie: ${missing.join(', ')}` : ''}${missing.length && added.length ? ' · ' : ''}${added.length ? `w opisie, a nieusłyszane (i nie z szablonu): ${added.join(', ')}` : ''} — sprawdź.`
+    : 'Automatyczne porównanie liczb: zgodne.';
+  slog.types.innerHTML = [['none', 'Bez błędów'], ...ERROR_TYPES].map(([id, label]) => `<label class="${id === 'none' ? 'none' : ''}"><input type="checkbox" value="${id}" />${esc(label)}</label>`).join('');
+  slog.note.value = '';
+  slog.modal.hidden = false;
+}
+function renderSpeechLogSummary() {
+  const list = loadLocal();
+  const s = summarize(list);
+  slog.summary.textContent = s.total
+    ? `Zapisane: ${s.total} · z błędem: ${s.withError} (${Math.round(s.errorRate * 100)}%) · ${ERROR_TYPES.filter(([id]) => s.byType[id]).map(([id, l]) => `${l.toLowerCase()}: ${s.byType[id]}`).join(' · ') || 'bez błędów'}${s.autoFlag ? ` · niezgodne liczby (automatycznie): ${s.autoFlag}` : ''}`
+    : 'Jeszcze nic nie zapisano.';
+  if (!slog.list.hidden) {
+    slog.list.innerHTML = list.map((e) => {
+      const bad = (e.types || []).filter((x) => x !== 'none');
+      return `<details class="slog-item"><summary><span class="when">${esc(new Date(e.ts).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' }))}</span><b>${esc(e.title || '—')}</b>
+        <span class="${bad.length ? 'bad' : 'good'}">${esc((e.types || []).map(typeLabel).join(', ') || 'nie oznaczono')}</span>
+        ${e.auto?.missing?.length || e.auto?.added?.length ? `<span class="bad">liczby: ${esc([...e.auto.missing, ...e.auto.added].join(', '))}</span>` : ''}
+        <span class="grow"></span><button class="link-btn" data-slog-del="${esc(e.id)}">Usuń</button></summary>
+        ${e.note ? `<p>${esc(e.note)}</p>` : ''}<div class="slog-lbl">Usłyszane</div><pre>${esc(e.heard)}</pre><div class="slog-lbl">Opis końcowy</div><pre>${esc(e.report)}</pre></details>`;
+    }).join('') || '<p class="hint">Brak wpisów.</p>';
+  }
+}
+function bindSpeechLog() {
+  $('speechLogBtn').addEventListener('click', () => openSpeechLog(true));
+  $('closeSpeechLog').addEventListener('click', () => openSpeechLog(false));
+  slog.modal.addEventListener('click', (e) => { if (e.target === slog.modal) openSpeechLog(false); });
+  slog.types.addEventListener('change', (e) => {
+    const box = e.target;
+    if (!box.checked) return;
+    // "no error" and an error type exclude each other
+    for (const other of slog.types.querySelectorAll('input')) if ((box.value === 'none') !== (other.value === 'none')) other.checked = false;
+  });
+  $('slogSave').addEventListener('click', () => {
+    const types = [...slog.types.querySelectorAll('input:checked')].map((i) => i.value);
+    if (!types.length) { toast('Zaznacz „Bez błędów” albo rodzaj błędu.', 'warn'); return; }
+    const entry = makeEntry({ ...slogDraft(), types, note: slog.note.value });
+    if (!saveLocal(entry)) { toast('Nie udało się zapisać — pamięć przeglądarki pełna?', 'err'); return; }
+    openSpeechLog(false);
+    renderSpeechLogSummary();
+    toast('Zapisano w dzienniku rozpoznawania mowy', 'ok');
+  });
+  $('slogShow').addEventListener('click', () => {
+    slog.list.hidden = !slog.list.hidden;
+    $('slogShow').textContent = slog.list.hidden ? 'Pokaż wpisy' : 'Ukryj wpisy';
+    renderSpeechLogSummary();
+  });
+  slog.list.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-slog-del]');
+    if (!del) return;
+    e.preventDefault();
+    removeLocal(del.dataset.slogDel);
+    renderSpeechLogSummary();
+  });
+  $('slogExport').addEventListener('click', () => {
+    const list = loadLocal();
+    if (!list.length) { toast('Dziennik jest pusty.', 'warn'); return; }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([toCSV(list)], { type: 'text/csv;charset=utf-8' }));
+    a.download = `radvox-dziennik-mowy-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
+  $('slogClear').addEventListener('click', async () => {
+    if (!loadLocal().length) return;
+    if (!(await askConfirm('Usunąć wszystkie wpisy dziennika rozpoznawania mowy?', { ok: 'Usuń', danger: true }))) return;
+    clearLocal();
+    renderSpeechLogSummary();
+  });
+  renderSpeechLogSummary();
+}
+
 function init() {
   loadStyle();
   loadLearned();

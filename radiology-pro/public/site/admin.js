@@ -9,7 +9,7 @@ const LANG = { 'pl>pl': 'PL → PL', 'en>pl': 'EN → PL', 'en>en': 'EN → EN',
 const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '—');
 
 // ---------------------------------------------------------------- tabs
-const loaders = { dash: loadDash, trials: loadTrials, friends: loadFriends, users: loadUsers, orgs: loadOrgs, learning: loadLearning, tickets: loadTickets, usage: loadUsage, payments: loadPayments, plans: loadPlans, settings: loadSettings, log: loadLog };
+const loaders = { dash: loadDash, trials: loadTrials, friends: loadFriends, users: loadUsers, orgs: loadOrgs, learning: loadLearning, tickets: loadTickets, speech: loadSpeech, usage: loadUsage, payments: loadPayments, plans: loadPlans, settings: loadSettings, log: loadLog };
 function openTab(name) {
   for (const b of $$('.admin-tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const p of $$('[data-panel]')) p.hidden = p.dataset.panel !== name;
@@ -668,6 +668,38 @@ async function loadTickets() {
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
       try { await api(`/api/admin/tickets/${f.dataset.ticket}`, { method: 'PATCH', body: { answer: f.answer.value, status: e.submitter?.value || 'open' } }); toast('Zapisano', 'ok'); loadTickets(); } catch (err) { toast(err.message, 'err'); }
+    });
+  }
+}
+
+// ---------------------------------------------------------------- speech-recognition error log
+const SLOG_TYPES = [['number', 'Liczba / wymiar'], ['side', 'Strona'], ['negation', 'Przeczenie'], ['term', 'Termin medyczny'], ['missing', 'Brakujące / dodane słowo'], ['other', 'Inne']];
+const slogLabel = (id) => (id === 'none' ? 'Bez błędów' : (SLOG_TYPES.find(([k]) => k === id) || [id, id])[1]);
+async function loadSpeech() {
+  const d = await api('/api/admin/speech-log');
+  const s = d.summary;
+  $('#speechDays').textContent = d.days;
+  $('#speechKpis').innerHTML = [
+    kpi('Wpisy', fmtNum(s.total), `${fmtNum(s.clean)} bez błędów`),
+    kpi('Z błędem', fmtNum(s.withError), s.total ? `${Math.round(s.errorRate * 100)}% wpisów` : '—', s.errorRate > 0.2 ? 'bad' : ''),
+    kpi('Liczby / wymiary', fmtNum(s.byType.number), `niezgodne liczby (automatycznie): ${fmtNum(s.autoFlag)}`, s.byType.number ? 'bad' : ''),
+    kpi('Strona', fmtNum(s.byType.side), 'prawy / lewy', s.byType.side ? 'bad' : ''),
+    kpi('Przeczenie', fmtNum(s.byType.negation), '„nie”, „bez”', s.byType.negation ? 'bad' : ''),
+    kpi('Termin / słowo / inne', fmtNum(s.byType.term + s.byType.missing + s.byType.other), `termin ${s.byType.term} · słowo ${s.byType.missing} · inne ${s.byType.other}`),
+  ].join('');
+  $('#speechUsers').innerHTML = d.byUser.map((u) => `<tr><td>${esc(u.name || u.author)}<span class="sub dim">${esc(u.name ? u.author : '')}</span></td><td class="num">${u.total}</td><td class="num">${u.withError}</td><td class="num">${u.total ? Math.round(u.errorRate * 100) : 0}%</td>${SLOG_TYPES.map(([id]) => `<td class="num">${u.byType[id] || ''}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="10" class="empty">Brak wpisów</td></tr>';
+  $('#speechList').innerHTML = d.entries.length ? d.entries.map((e) => {
+    const bad = e.types.filter((t) => t !== 'none');
+    const nums = [...(e.auto.missing || []).map((n) => `brak w opisie: ${n}`), ...(e.auto.added || []).map((n) => `dodane: ${n}`)];
+    return `<details class="log-row"><summary><b>${esc(e.title || '—')}</b> <span class="pill ${bad.length ? 'warn' : 'ok'}">${esc(e.types.map(slogLabel).join(', '))}</span>${nums.length ? ` <span class="pill err">liczby: ${esc(nums.join(' · '))}</span>` : ''} <span class="dim">${esc(e.author_name || e.author || '')} · ${fmtDateTime(e.ts)}</span></summary>
+      ${e.note ? `<p><b>Uwagi:</b> ${esc(e.note)}</p>` : ''}
+      <div class="cols"><div><p class="dim small">Usłyszane (rozpoznawanie mowy)</p><p style="white-space:pre-wrap">${esc(e.heard || '—')}</p></div><div><p class="dim small">Opis końcowy</p><p style="white-space:pre-wrap">${esc(e.report)}</p></div></div>
+      <div class="actions"><button class="btn btn-sm btn-ghost" data-slog-del="${e.id}">Usuń wpis</button></div></details>`;
+  }).join('') : '<p class="dim">Brak wpisów. Lekarze dodają je przyciskiem „Błąd mowy” nad opisem.</p>';
+  for (const b of $$('[data-slog-del]')) {
+    b.addEventListener('click', async () => {
+      if (!confirm('Usunąć ten wpis?')) return;
+      try { await api(`/api/admin/speech-log/${b.dataset.slogDel}`, { method: 'DELETE' }); toast('Usunięto', 'ok'); loadSpeech(); } catch (err) { toast(err.message, 'err'); }
     });
   }
 }

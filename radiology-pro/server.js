@@ -15,6 +15,7 @@ import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
 import { analyzeStyle, cleanLearnInput, cleanProfile, cleanTranslations } from './lib/learn.js';
 import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
 import { scrubIdentifiers } from './public/js/polish-text.js';
+import { ERROR_TYPES, summarize, toCSV } from './public/js/speech-log.js';
 import { openDb, closeDb, one, all, run, tx, audit, monthOf, getSetting, setSetting } from './lib/db.js';
 import {
   COOKIE, parseCookies, sessionCookie, sessionUser, createSession, deleteSession, deleteUserSessions, userSessions,
@@ -379,11 +380,36 @@ function eraseUser(u, actorId) {
     run('DELETE FROM sessions WHERE user_id = ?', u.id);
     run('DELETE FROM user_data WHERE user_id = ?', u.id);
     run('DELETE FROM tokens WHERE user_id = ?', u.id);
+    run('DELETE FROM speech_log WHERE user_id = ?', u.id);
     // the e-mail address also disappears from older log entries
     run("UPDATE audit SET detail = replace(detail, ?, '[usunięty użytkownik]') WHERE instr(detail, ?) > 0", u.email, u.email);
   });
   forgetContributor(u.id);
   audit(actorId, 'rodo.erase', u.id);
+}
+
+// ---- speech-recognition error log ("Błąd mowy"): heard text next to the final report, sent on purpose by the radiologist
+export const SPEECH_LOG_DAYS = 180;
+const SLOG_TYPES = new Set(['none', ...ERROR_TYPES.map(([id]) => id)]);
+function recordSpeechLog(userId, b) {
+  const types = Array.isArray(b.types) ? [...new Set(b.types.filter((t) => SLOG_TYPES.has(t)))] : [];
+  if (!types.length) return { error: 'Zaznacz „Bez błędów” albo rodzaj błędu.' };
+  const report = scrubIdentifiers(str(b.report, 20_000));
+  if (!report) return { error: 'Brak opisu.' };
+  const recent = one('SELECT COUNT(*) AS n FROM speech_log WHERE user_id = ? AND ts > ?', userId, Date.now() - 3600_000).n;
+  if (recent >= 60) return { error: 'Za dużo wpisów w ciągu godziny — spróbuj później.' };
+  const nums = (v) => (Array.isArray(v) ? v.filter((x) => /^\d+(\.\d+)?$/.test(String(x))).slice(0, 50).map(String) : []);
+  const auto = { missing: nums(b.auto?.missing), added: nums(b.auto?.added) };
+  run('DELETE FROM speech_log WHERE ts < ?', Date.now() - SPEECH_LOG_DAYS * 86400000);
+  run('INSERT INTO speech_log(user_id, ts, title, lang, heard, report, types, note, auto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    userId, Date.now(), str(b.title, 200), b.lang === 'en' ? 'en' : 'pl', scrubIdentifiers(str(b.heard, 20_000)), report,
+    JSON.stringify(types.includes('none') ? ['none'] : types), scrubIdentifiers(str(b.note, 2000)), JSON.stringify(auto));
+  return { ok: true };
+}
+function speechLogRows(limit = 500) {
+  return all(`SELECT s.*, u.email AS author, u.name AS author_name FROM speech_log s LEFT JOIN users u ON u.id = s.user_id
+    WHERE s.ts >= ? ORDER BY s.ts DESC LIMIT ?`, Date.now() - SPEECH_LOG_DAYS * 86400000, limit)
+    .map((r) => ({ ...r, types: JSON.parse(r.types || '[]'), auto: JSON.parse(r.auto || '{}') }));
 }
 
 // ---- technical problems reported by the app (for the organisation's IT; codes only, never report content)
@@ -585,6 +611,10 @@ async function startOrQueueTrial(user, req) {
 async function handleMe(req, res, ctx, route) {
   if (!ctx) return sendJson(res, 401, { error: 'Zaloguj się.', code: 'login' });
   if (route === '' && req.method === 'GET') return sendJson(res, 200, mePayload(ctx));
+  if (route === 'speech-log' && req.method === 'POST') {
+    const r = recordSpeechLog(ctx.user.id, await readJson(req, 200_000));
+    return sendJson(res, r.ok ? 200 : 400, r);
+  }
   const body = await readJson(req, 20_000);
   const u = ctx.user;
   if (route === 'api-key-check') {
@@ -669,6 +699,7 @@ async function handleMe(req, res, ctx, route) {
       devices: userSessions(u.id).map(({ id, ...x }) => x),
       usageByMonth: all("SELECT month, COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN report_id END) AS reports, COUNT(*) AS aiCalls FROM usage WHERE user_id = ? GROUP BY month ORDER BY month", u.id),
       payments: all('SELECT ts, amount_pln, provider, plan, period_until FROM payments WHERE user_id = ?', u.id),
+      speechLog: all('SELECT ts, title, lang, heard, report, types, note FROM speech_log WHERE user_id = ? ORDER BY ts', u.id),
       syncedAppData: Object.fromEntries(all('SELECT key, value, updated_at FROM user_data WHERE user_id = ?', u.id).map((r) => [r.key, { updatedAt: r.updated_at, value: r.value }])),
       securityLog: all('SELECT ts, action, detail FROM audit WHERE target_id = ? OR actor_id = ? ORDER BY ts DESC LIMIT 500', u.id, u.id),
     };
@@ -874,6 +905,29 @@ async function handleAdmin(req, res, ctx, parts) {
       const t = one('SELECT * FROM tickets WHERE id = ?', Number(idStr));
       if (!t) return sendJson(res, 404, { error: 'Nie znaleziono.' });
       run('UPDATE tickets SET status = ?, answer = ?, answered_at = ? WHERE id = ?', b.status === 'closed' ? 'closed' : 'open', str(b.answer, 4000), Date.now(), t.id);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+  if (section === 'speech-log') {
+    if (!idStr && method === 'GET') {
+      const rows = speechLogRows();
+      const users = new Map();
+      for (const r of rows) {
+        const k = r.author || '—';
+        const u = users.get(k) || { author: k, name: r.author_name || '', entries: [] };
+        u.entries.push(r);
+        users.set(k, u);
+      }
+      return sendJson(res, 200, { entries: rows, summary: summarize(rows), byUser: [...users.values()].map((u) => ({ author: u.author, name: u.name, ...summarize(u.entries) })), days: SPEECH_LOG_DAYS });
+    }
+    if (idStr === 'export' && method === 'GET') {
+      audit(me, 'speechlog.export');
+      res.writeHead(200, headers({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="radvoxpro-bledy-mowy-${new Date().toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' }));
+      return res.end(toCSV(speechLogRows(5000)));
+    }
+    if (idStr && method === 'DELETE') {
+      run('DELETE FROM speech_log WHERE id = ?', Number(idStr));
+      audit(me, 'speechlog.delete', null, idStr);
       return sendJson(res, 200, { ok: true });
     }
   }

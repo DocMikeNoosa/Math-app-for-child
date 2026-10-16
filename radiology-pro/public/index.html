@@ -174,6 +174,9 @@
           <button class="tb-btn" id="resetBtn" title="Przywróć czysty szablon w tym opisie">
             <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span>Szablon</span>
           </button>
+          <button class="tb-btn" id="speechLogBtn" title="Dziennik rozpoznawania mowy — zapisz, co przeglądarka usłyszała, obok gotowego opisu (do pomiaru błędów)">
+            <svg viewBox="0 0 24 24"><path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/></svg><span>Błąd mowy</span>
+          </button>
         </div>
         <div class="tb-group">
         <div class="seg" id="outLang" role="group" aria-label="Język opisu" title="Język, w którym powstaje opis">
@@ -516,6 +519,11 @@
         <p class="hint">Wybierz akcent, którym dyktujesz po angielsku — rozpoznawanie będzie dokładniejsze.</p>
       </div>
       <div class="field">
+        <div class="field-head"><label>Dziennik rozpoznawania mowy</label></div>
+        <p class="hint" id="slogSummary"></p>
+        <p class="hint">Przycisk „Błąd mowy” nad opisem wysyła administratorowi to, co przeglądarka usłyszała, obok gotowego opisu — tak mierzymy, jak często rozpoznawanie mowy się myli. Dane osobowe (PESEL, imiona) są usuwane przed wysłaniem; używaj tylko przypadków zmyślonych lub zanonimizowanych.</p>
+      </div>
+      <div class="field">
         <div class="field-head"><label>Polecenia głosowe</label></div>
         <div class="cmd-grid">
           <span>„kropka” / „przecinek”</span><span>. ,</span>
@@ -643,6 +651,28 @@
         <button class="icon-btn" id="closeOrig" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
       <div class="orig-body" id="origBody"></div>
+    </div>
+  </div>
+
+  <!-- Speech-recognition error log -->
+  <div class="modal" id="speechLogModal" hidden role="dialog" aria-label="Dziennik rozpoznawania mowy">
+    <div class="modal-card slog-card">
+      <div class="drawer-head"><h3>Dziennik rozpoznawania mowy</h3>
+        <span class="grow"></span>
+        <button class="icon-btn" id="closeSpeechLog" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="slog-body">
+        <p class="hint">Porównaj, co przeglądarka <b>usłyszała</b>, z gotowym opisem, zaznacz rodzaj błędu (albo „Bez błędów”) i zapisz. Tak zmierzysz, jak często rozpoznawanie mowy się myli. Wpis trafi do administratora RadVox Pro. <b>Tylko przypadki zmyślone lub zanonimizowane</b> — PESEL i inne identyfikatory są usuwane przed wysłaniem.</p>
+        <div class="slog-cols">
+          <div><div class="slog-lbl">Usłyszane (surowy tekst z rozpoznawania mowy)</div><pre class="slog-text" id="slogHeard"></pre></div>
+          <div><div class="slog-lbl">Opis końcowy</div><pre class="slog-text" id="slogReport"></pre></div>
+        </div>
+        <p class="slog-auto" id="slogAuto"></p>
+        <div class="slog-types" id="slogTypes"></div>
+        <div class="field"><label class="slog-lbl" for="slogNote">Co było źle? (np. „usłyszał 18 zamiast 8”)</label>
+          <textarea id="slogNote" rows="2"></textarea></div>
+        <div class="btn-row"><span class="grow"></span><button class="btn btn-primary" id="slogSave">Wyślij do administratora</button></div>
+      </div>
     </div>
   </div>
 

@@ -933,3 +933,26 @@ body.friend .brand-mark {
 .range-in input { width: 80px; }
 .sweep-num { font: 700 30px/1.1 var(--mono, monospace); color: #ffb547; margin: 2px 0 6px; }
 .led-color { margin-top: 8px; }
+
+/* speech-recognition error log */
+.slog-card { width: min(940px, calc(100vw - 32px)); max-height: min(88vh, 920px); display: flex; flex-direction: column; }
+.slog-card .drawer-head { gap: 10px; }
+.slog-card .grow, .slog-body .grow { flex: 1; }
+.slog-body { padding: 12px 22px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.slog-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.slog-lbl { font: 600 11px/1.3 var(--mono); letter-spacing: 0.6px; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; display: block; }
+.slog-text { margin: 0; padding: 10px 12px; min-height: 90px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 13px/1.55 var(--font); color: var(--text); background: rgba(255, 255, 255, 0.02); border: 1px solid var(--line-2); border-radius: 10px; }
+.slog-auto { margin: 0; font-size: 13px; color: var(--text-dim); }
+.slog-auto.flag { color: var(--warn); }
+.slog-types { display: flex; flex-wrap: wrap; gap: 8px; }
+.slog-types label { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line-2); font-size: 13px; cursor: pointer; }
+.slog-types label.none { border-color: rgba(63, 224, 168, 0.4); }
+.slog-types input { accent-color: var(--accent); }
+.slog-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 360px; overflow-y: auto; }
+.slog-item { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 12.5px; }
+.slog-item summary { cursor: pointer; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.slog-item .when { font: 500 12px/1 var(--mono); color: var(--accent); }
+.slog-item .bad { color: var(--warn); }
+.slog-item .good { color: var(--ok); }
+.slog-item pre { white-space: pre-wrap; word-break: break-word; font: 12.5px/1.5 var(--font); margin: 6px 0; color: var(--text-dim); }
+@media (max-width: 720px) { .slog-cols { grid-template-columns: 1fr; } }
