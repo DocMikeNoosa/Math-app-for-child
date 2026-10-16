@@ -21,6 +21,8 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/public/js ./public/js
 COPY --from=build /app/public/fonts ./public/fonts
 COPY --from=build /app/public/icons ./public/icons
+# installable app (desktop / phone): manifests and the service worker are served from public/
+COPY --from=build /app/public/app.webmanifest /app/public/app-friend.webmanifest /app/public/admin.webmanifest /app/public/sw.js ./public/
 RUN mkdir -p /data && chown node:node /data
 USER node
 VOLUME ["/data"]
