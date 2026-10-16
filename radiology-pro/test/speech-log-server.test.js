@@ -47,6 +47,27 @@ test('a doctor sends an entry; identifiers are removed and unknown values droppe
   assert.deepEqual(JSON.parse(row.auto), { missing: ['8'], added: ['18'] });
   await call('POST', '/api/me/speech-log', { ...entry, types: ['none', 'side'], report: 'Bez zmian.' }, doc);
   assert.deepEqual(JSON.parse(db.one('SELECT types FROM speech_log ORDER BY id DESC').types), ['none']);
+  assert.equal(db.one('SELECT fixed FROM speech_log ORDER BY id DESC').fixed, 0);
+});
+
+test('"the AI corrected it" is stored only with an error; the report for buyers has the numbers and a strict CSP', async () => {
+  await call('POST', '/api/me/speech-log', { ...entry, types: ['term'], fixed: true }, doc);
+  assert.equal(db.one('SELECT fixed FROM speech_log ORDER BY id DESC').fixed, 1);
+  await call('POST', '/api/me/speech-log', { ...entry, types: ['none'], fixed: true }, doc);
+  assert.equal(db.one('SELECT fixed FROM speech_log ORDER BY id DESC').fixed, 0);
+  const s = (await call('GET', '/api/admin/speech-log', undefined, owner)).data.summary;
+  assert.equal(s.total, 4);
+  assert.equal(s.fixed, 1);
+  assert.equal(s.finalGood, 3, 'two without error + one corrected by the AI');
+  assert.equal((await call('GET', '/api/admin/speech-log/report', undefined, doc)).res.status, 403);
+  const r = await call('GET', '/api/admin/speech-log/report?days=30', undefined, owner);
+  assert.equal(r.res.status, 200);
+  assert.match(r.res.headers.get('content-type'), /text\/html/);
+  assert.match(r.res.headers.get('content-security-policy'), /script-src 'sha256-[A-Za-z0-9+/=]+'/);
+  assert.match(r.text, /Opisy końcowe poprawne/);
+  assert.match(r.text, /75%/);
+  assert.match(r.text, /ostatnie 30 dni/);
+  for (const id of db.all('SELECT id FROM speech_log ORDER BY id DESC LIMIT 2').map((x) => x.id)) db.run('DELETE FROM speech_log WHERE id = ?', id);
 });
 
 test('only the administrator sees the log: summary, per doctor, entries, CSV export, delete', async () => {

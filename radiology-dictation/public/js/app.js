@@ -7,7 +7,7 @@ import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, 
 import { MicButton, ledPattern, isDictationMic, parseLedCode } from './mic-button.js';
 import { chime, chimeStyle, setChimeStyle, styleOptions } from './chime.js';
 import { listInputs, InputTester, inputError } from './audio-input.js';
-import { ERROR_TYPES, makeEntry, summarize, toCSV, typeLabel, loadLocal, saveLocal, removeLocal, clearLocal } from './speech-log.js';
+import { ERROR_TYPES, makeEntry, summarize, stats, statsPage, toCSV, typeLabel, loadLocal, saveLocal, removeLocal, clearLocal } from './speech-log.js';
 
 const $ = (id) => document.getElementById(id);
 const els = Object.fromEntries(
@@ -2688,7 +2688,7 @@ function bind() {
 // "Błąd mowy": what the browser heard next to the final report, the radiologist ticks the kind of error (or "no error"),
 // the numbers are compared automatically. Kept in this browser only (Settings → Dziennik rozpoznawania mowy).
 const slog = {
-  modal: $('speechLogModal'), heard: $('slogHeard'), report: $('slogReport'), auto: $('slogAuto'), types: $('slogTypes'), note: $('slogNote'),
+  modal: $('speechLogModal'), heard: $('slogHeard'), report: $('slogReport'), auto: $('slogAuto'), types: $('slogTypes'), note: $('slogNote'), fixed: $('slogFixed'), fixedWrap: $('slogFixedWrap'),
   summary: $('slogSummary'), list: $('slogList'),
 };
 function slogDraft() {
@@ -2718,19 +2718,21 @@ function openSpeechLog(open = true) {
     : 'Automatyczne porównanie liczb: zgodne.';
   slog.types.innerHTML = [['none', 'Bez błędów'], ...ERROR_TYPES].map(([id, label]) => `<label class="${id === 'none' ? 'none' : ''}"><input type="checkbox" value="${id}" />${esc(label)}</label>`).join('');
   slog.note.value = '';
+  slog.fixed.checked = false;
+  slog.fixedWrap.hidden = true;
   slog.modal.hidden = false;
 }
 function renderSpeechLogSummary() {
   const list = loadLocal();
   const s = summarize(list);
   slog.summary.textContent = s.total
-    ? `Zapisane: ${s.total} · z błędem: ${s.withError} (${Math.round(s.errorRate * 100)}%) · ${ERROR_TYPES.filter(([id]) => s.byType[id]).map(([id, l]) => `${l.toLowerCase()}: ${s.byType[id]}`).join(' · ') || 'bez błędów'}${s.autoFlag ? ` · niezgodne liczby (automatycznie): ${s.autoFlag}` : ''}`
+    ? `Zapisane: ${s.total} · opisy końcowe poprawne: ${Math.round(s.finalRate * 100)}% · z błędem rozpoznawania: ${s.withError} (${Math.round(s.errorRate * 100)}%, poprawione przez AI: ${s.fixed}) · ${ERROR_TYPES.filter(([id]) => s.byType[id]).map(([id, l]) => `${l.toLowerCase()}: ${s.byType[id]}`).join(' · ') || 'bez błędów'}${s.autoFlag ? ` · niezgodne liczby (automatycznie): ${s.autoFlag}` : ''}`
     : 'Jeszcze nic nie zapisano.';
   if (!slog.list.hidden) {
     slog.list.innerHTML = list.map((e) => {
       const bad = (e.types || []).filter((x) => x !== 'none');
       return `<details class="slog-item"><summary><span class="when">${esc(new Date(e.ts).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' }))}</span><b>${esc(e.title || '—')}</b>
-        <span class="${bad.length ? 'bad' : 'good'}">${esc((e.types || []).map(typeLabel).join(', ') || 'nie oznaczono')}</span>
+        <span class="${bad.length && !e.fixed ? 'bad' : 'good'}">${esc((e.types || []).map(typeLabel).join(', ') || 'nie oznaczono')}${bad.length && e.fixed ? ' — poprawione przez AI' : ''}</span>
         ${e.auto?.missing?.length || e.auto?.added?.length ? `<span class="bad">liczby: ${esc([...e.auto.missing, ...e.auto.added].join(', '))}</span>` : ''}
         <span class="grow"></span><button class="link-btn" data-slog-del="${esc(e.id)}">Usuń</button></summary>
         ${e.note ? `<p>${esc(e.note)}</p>` : ''}<div class="slog-lbl">Usłyszane</div><pre>${esc(e.heard)}</pre><div class="slog-lbl">Opis końcowy</div><pre>${esc(e.report)}</pre></details>`;
@@ -2747,10 +2749,15 @@ function bindSpeechLog() {
     // "no error" and an error type exclude each other
     for (const other of slog.types.querySelectorAll('input')) if ((box.value === 'none') !== (other.value === 'none')) other.checked = false;
   });
+  // "the AI corrected it" only makes sense when an error was ticked
+  slog.types.addEventListener('change', () => {
+    slog.fixedWrap.hidden = ![...slog.types.querySelectorAll('input:checked')].some((i) => i.value !== 'none');
+    if (slog.fixedWrap.hidden) slog.fixed.checked = false;
+  });
   $('slogSave').addEventListener('click', () => {
     const types = [...slog.types.querySelectorAll('input:checked')].map((i) => i.value);
     if (!types.length) { toast('Zaznacz „Bez błędów” albo rodzaj błędu.', 'warn'); return; }
-    const entry = makeEntry({ ...slogDraft(), types, note: slog.note.value });
+    const entry = makeEntry({ ...slogDraft(), types, fixed: slog.fixed.checked, note: slog.note.value });
     if (!saveLocal(entry)) { toast('Nie udało się zapisać — pamięć przeglądarki pełna?', 'err'); return; }
     openSpeechLog(false);
     renderSpeechLogSummary();
@@ -2776,6 +2783,15 @@ function bindSpeechLog() {
     a.download = `radvox-dziennik-mowy-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
+  $('slogStats').addEventListener('click', () => {
+    const list = loadLocal();
+    if (!list.length) { toast('Dziennik jest pusty — najpierw zapisz kilka sprawdzonych opisów („Błąd mowy”).', 'warn'); return; }
+    const w = window.open('', '_blank');
+    if (!w) { toast('Przeglądarka zablokowała nowe okno — zezwól na wyskakujące okna dla RadVox.', 'warn', 5000); return; }
+    w.document.open();
+    w.document.write(statsPage(stats(list), { product: 'RadVox' }));
+    w.document.close();
   });
   $('slogClear').addEventListener('click', async () => {
     if (!loadLocal().length) return;

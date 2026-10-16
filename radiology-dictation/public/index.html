@@ -498,6 +498,7 @@
         <div class="btn-row">
           <button class="btn btn-small" id="slogShow">Pokaż wpisy</button>
           <button class="btn btn-small" id="slogExport">Pobierz (Excel)</button>
+          <button class="btn btn-small" id="slogStats">Statystyki (PDF dla klientów)</button>
           <button class="link-btn" id="slogClear">Wyczyść dziennik</button>
         </div>
         <div class="slog-list" id="slogList" hidden></div>
@@ -649,6 +650,7 @@
         </div>
         <p class="slog-auto" id="slogAuto"></p>
         <div class="slog-types" id="slogTypes"></div>
+        <label class="slog-fixed" id="slogFixedWrap" hidden><input type="checkbox" id="slogFixed" /> AI poprawiło ten błąd — opis końcowy był poprawny</label>
         <div class="field"><label class="slog-lbl" for="slogNote">Co było źle? (np. „usłyszał 18 zamiast 8”)</label>
           <textarea id="slogNote" rows="2"></textarea></div>
         <div class="btn-row"><span class="grow"></span><button class="btn btn-primary" id="slogSave">Zapisz w dzienniku</button></div>

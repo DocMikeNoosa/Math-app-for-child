@@ -884,7 +884,9 @@ body.target-clinical.recording .rec-state::after { content: ' · dane kliniczne'
 .slog-types { display: flex; flex-wrap: wrap; gap: 8px; }
 .slog-types label { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line-2); font-size: 13px; cursor: pointer; }
 .slog-types label.none { border-color: rgba(63, 224, 168, 0.4); }
-.slog-types input { accent-color: var(--accent); }
+.slog-types input, .slog-fixed input { accent-color: var(--accent); }
+.slog-fixed { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+.slog-fixed[hidden] { display: none; }
 .slog-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 360px; overflow-y: auto; }
 .slog-item { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 12.5px; }
 .slog-item summary { cursor: pointer; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }

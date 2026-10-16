@@ -15,7 +15,7 @@ import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
 import { analyzeStyle, cleanLearnInput, cleanProfile, cleanTranslations } from './lib/learn.js';
 import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
 import { scrubIdentifiers } from './public/js/polish-text.js';
-import { ERROR_TYPES, summarize, toCSV } from './public/js/speech-log.js';
+import { ERROR_TYPES, summarize, toCSV, stats as speechStats, statsPage, PRINT_SCRIPT } from './public/js/speech-log.js';
 import { openDb, closeDb, one, all, run, tx, audit, monthOf, getSetting, setSetting } from './lib/db.js';
 import {
   COOKIE, parseCookies, sessionCookie, sessionUser, createSession, deleteSession, deleteUserSessions, userSessions,
@@ -401,15 +401,16 @@ function recordSpeechLog(userId, b) {
   const nums = (v) => (Array.isArray(v) ? v.filter((x) => /^\d+(\.\d+)?$/.test(String(x))).slice(0, 50).map(String) : []);
   const auto = { missing: nums(b.auto?.missing), added: nums(b.auto?.added) };
   run('DELETE FROM speech_log WHERE ts < ?', Date.now() - SPEECH_LOG_DAYS * 86400000);
-  run('INSERT INTO speech_log(user_id, ts, title, lang, heard, report, types, note, auto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  const clean = types.includes('none') ? ['none'] : types;
+  run('INSERT INTO speech_log(user_id, ts, title, lang, heard, report, types, note, auto, fixed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     userId, Date.now(), str(b.title, 200), b.lang === 'en' ? 'en' : 'pl', scrubIdentifiers(str(b.heard, 20_000)), report,
-    JSON.stringify(types.includes('none') ? ['none'] : types), scrubIdentifiers(str(b.note, 2000)), JSON.stringify(auto));
+    JSON.stringify(clean), scrubIdentifiers(str(b.note, 2000)), JSON.stringify(auto), clean[0] !== 'none' && b.fixed === true ? 1 : 0);
   return { ok: true };
 }
 function speechLogRows(limit = 500) {
   return all(`SELECT s.*, u.email AS author, u.name AS author_name FROM speech_log s LEFT JOIN users u ON u.id = s.user_id
     WHERE s.ts >= ? ORDER BY s.ts DESC LIMIT ?`, Date.now() - SPEECH_LOG_DAYS * 86400000, limit)
-    .map((r) => ({ ...r, types: JSON.parse(r.types || '[]'), auto: JSON.parse(r.auto || '{}') }));
+    .map((r) => ({ ...r, types: JSON.parse(r.types || '[]'), auto: JSON.parse(r.auto || '{}'), fixed: Boolean(r.fixed) }));
 }
 
 // ---- technical problems reported by the app (for the organisation's IT; codes only, never report content)
@@ -919,6 +920,17 @@ async function handleAdmin(req, res, ctx, parts) {
         users.set(k, u);
       }
       return sendJson(res, 200, { entries: rows, summary: summarize(rows), byUser: [...users.values()].map((u) => ({ author: u.author, name: u.name, ...summarize(u.entries) })), days: SPEECH_LOG_DAYS });
+    }
+    if (idStr === 'report' && method === 'GET') {
+      // printable statistics for potential buyers (save as PDF); the page's one script is allowed by its hash
+      const days = Number(url.searchParams.get('days')) || 0;
+      const from = days > 0 ? Date.now() - days * 86400000 : 0;
+      const html = statsPage(speechStats(speechLogRows(100_000), { from }), { product: BRAND.name, scope: days > 0 ? `ostatnie ${days} dni` : 'wszystkie wpisy' });
+      const hash = crypto.createHash('sha256').update(PRINT_SCRIPT).digest('base64');
+      audit(me, 'speechlog.report', null, days ? `${days} dni` : 'wszystko');
+      res.writeHead(200, headers({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
+        'Content-Security-Policy': `default-src 'none'; script-src 'sha256-${hash}'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` }));
+      return res.end(html);
     }
     if (idStr === 'export' && method === 'GET') {
       audit(me, 'speechlog.export');

@@ -191,6 +191,8 @@ function migrate(d) {
     ts INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '', lang TEXT NOT NULL DEFAULT 'pl', heard TEXT NOT NULL DEFAULT '',
     report TEXT NOT NULL DEFAULT '', types TEXT NOT NULL DEFAULT '[]', note TEXT NOT NULL DEFAULT '', auto TEXT NOT NULL DEFAULT '{}')`);
   d.exec('CREATE INDEX IF NOT EXISTS speech_log_ts ON speech_log(ts)');
+  const scols = new Set(d.prepare('PRAGMA table_info(speech_log)').all().map((c) => c.name));
+  if (!scols.has('fixed')) d.exec('ALTER TABLE speech_log ADD COLUMN fixed INTEGER NOT NULL DEFAULT 0'); // the AI corrected the recognition error
   d.exec('CREATE INDEX IF NOT EXISTS users_org ON users(org_id)');
   d.exec('CREATE INDEX IF NOT EXISTS audit_target ON audit(target_id)');
   d.exec('CREATE INDEX IF NOT EXISTS usage_user_report ON usage(user_id, report_id)');

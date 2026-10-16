@@ -679,19 +679,24 @@ async function loadSpeech() {
   const d = await api('/api/admin/speech-log');
   const s = d.summary;
   $('#speechDays').textContent = d.days;
+  const ci = s.total ? ` · 95% CI ${Math.round(s.finalCI[0] * 100)}–${Math.round(s.finalCI[1] * 100)}%` : '';
   $('#speechKpis').innerHTML = [
-    kpi('Wpisy', fmtNum(s.total), `${fmtNum(s.clean)} bez błędów`),
-    kpi('Z błędem', fmtNum(s.withError), s.total ? `${Math.round(s.errorRate * 100)}% wpisów` : '—', s.errorRate > 0.2 ? 'bad' : ''),
-    kpi('Liczby / wymiary', fmtNum(s.byType.number), `niezgodne liczby (automatycznie): ${fmtNum(s.autoFlag)}`, s.byType.number ? 'bad' : ''),
-    kpi('Strona', fmtNum(s.byType.side), 'prawy / lewy', s.byType.side ? 'bad' : ''),
-    kpi('Przeczenie', fmtNum(s.byType.negation), '„nie”, „bez”', s.byType.negation ? 'bad' : ''),
-    kpi('Termin / słowo / inne', fmtNum(s.byType.term + s.byType.missing + s.byType.other), `termin ${s.byType.term} · słowo ${s.byType.missing} · inne ${s.byType.other}`),
+    kpi('Opisy końcowe poprawne', s.total ? `${(Math.round(s.finalRate * 1000) / 10).toLocaleString('pl-PL')}%` : '—', `${fmtNum(s.finalGood)} z ${fmtNum(s.total)}${ci}`, s.total ? 'good' : ''),
+    kpi('Bez żadnego błędu', fmtNum(s.clean), s.total ? `${Math.round((1 - s.errorRate) * 100)}% wpisów` : '—'),
+    kpi('Błędy rozpoznawania', fmtNum(s.withError), s.total ? `${Math.round(s.errorRate * 100)}% wpisów · poprawione przez AI: ${fmtNum(s.fixed)}` : '—', s.errorRate > 0.2 ? 'bad' : ''),
+    kpi('Błąd w opisie końcowym', fmtNum(s.finalErrors), s.total ? `${Math.round((s.finalErrors / s.total) * 100)}% wpisów` : '—', s.finalErrors ? 'bad' : ''),
+    kpi('Liczby / wymiary', fmtNum(s.byType.number), `w opisie końcowym: ${fmtNum(s.finalByType.number)} · niezgodne automatycznie: ${fmtNum(s.autoFlag)}`, s.finalByType.number ? 'bad' : ''),
+    kpi('Strona / przeczenie', fmtNum(s.byType.side + s.byType.negation), `strona ${s.byType.side} · przeczenie ${s.byType.negation} (w opisie końcowym: ${s.finalByType.side + s.finalByType.negation})`, s.finalByType.side + s.finalByType.negation ? 'bad' : ''),
   ].join('');
+  const sel = $('#speechDaysSel');
+  const setLink = () => { $('#speechReport').href = `/api/admin/speech-log/report${Number(sel.value) ? `?days=${sel.value}` : ''}`; };
+  sel.onchange = setLink;
+  setLink();
   $('#speechUsers').innerHTML = d.byUser.map((u) => `<tr><td>${esc(u.name || u.author)}<span class="sub dim">${esc(u.name ? u.author : '')}</span></td><td class="num">${u.total}</td><td class="num">${u.withError}</td><td class="num">${u.total ? Math.round(u.errorRate * 100) : 0}%</td>${SLOG_TYPES.map(([id]) => `<td class="num">${u.byType[id] || ''}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="10" class="empty">Brak wpisów</td></tr>';
   $('#speechList').innerHTML = d.entries.length ? d.entries.map((e) => {
     const bad = e.types.filter((t) => t !== 'none');
     const nums = [...(e.auto.missing || []).map((n) => `brak w opisie: ${n}`), ...(e.auto.added || []).map((n) => `dodane: ${n}`)];
-    return `<details class="log-row"><summary><b>${esc(e.title || '—')}</b> <span class="pill ${bad.length ? 'warn' : 'ok'}">${esc(e.types.map(slogLabel).join(', '))}</span>${nums.length ? ` <span class="pill err">liczby: ${esc(nums.join(' · '))}</span>` : ''} <span class="dim">${esc(e.author_name || e.author || '')} · ${fmtDateTime(e.ts)}</span></summary>
+    return `<details class="log-row"><summary><b>${esc(e.title || '—')}</b> <span class="pill ${bad.length && !e.fixed ? 'warn' : 'ok'}">${esc(e.types.map(slogLabel).join(', '))}${bad.length && e.fixed ? ' — poprawione przez AI' : ''}</span>${nums.length ? ` <span class="pill err">liczby: ${esc(nums.join(' · '))}</span>` : ''} <span class="dim">${esc(e.author_name || e.author || '')} · ${fmtDateTime(e.ts)}</span></summary>
       ${e.note ? `<p><b>Uwagi:</b> ${esc(e.note)}</p>` : ''}
       <div class="cols"><div><p class="dim small">Usłyszane (rozpoznawanie mowy)</p><p style="white-space:pre-wrap">${esc(e.heard || '—')}</p></div><div><p class="dim small">Opis końcowy</p><p style="white-space:pre-wrap">${esc(e.report)}</p></div></div>
       <div class="actions"><button class="btn btn-sm btn-ghost" data-slog-del="${e.id}">Usuń wpis</button></div></details>`;

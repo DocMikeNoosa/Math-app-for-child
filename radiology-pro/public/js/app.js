@@ -2716,7 +2716,7 @@ function bind() {
 // the numbers are compared automatically. In RadVox Pro the entry goes to the administrator (admin panel → Błędy mowy),
 // with identifiers removed — only made-up or anonymised cases belong here.
 const slog = {
-  modal: $('speechLogModal'), heard: $('slogHeard'), report: $('slogReport'), auto: $('slogAuto'), types: $('slogTypes'), note: $('slogNote'),
+  modal: $('speechLogModal'), heard: $('slogHeard'), report: $('slogReport'), auto: $('slogAuto'), types: $('slogTypes'), note: $('slogNote'), fixed: $('slogFixed'), fixedWrap: $('slogFixedWrap'),
   summary: $('slogSummary'), save: $('slogSave'),
 };
 let slogSent = 0;
@@ -2747,6 +2747,8 @@ function openSpeechLog(open = true) {
     : 'Automatyczne porównanie liczb: zgodne.';
   slog.types.innerHTML = [['none', 'Bez błędów'], ...ERROR_TYPES].map(([id, label]) => `<label class="${id === 'none' ? 'none' : ''}"><input type="checkbox" value="${id}" />${esc(label)}</label>`).join('');
   slog.note.value = '';
+  slog.fixed.checked = false;
+  slog.fixedWrap.hidden = true;
   slog.modal.hidden = false;
 }
 function renderSpeechLogSummary() {
@@ -2762,10 +2764,15 @@ function bindSpeechLog() {
     // "no error" and an error type exclude each other
     for (const other of slog.types.querySelectorAll('input')) if ((box.value === 'none') !== (other.value === 'none')) other.checked = false;
   });
+  // "the AI corrected it" only makes sense when an error was ticked
+  slog.types.addEventListener('change', () => {
+    slog.fixedWrap.hidden = ![...slog.types.querySelectorAll('input:checked')].some((i) => i.value !== 'none');
+    if (slog.fixedWrap.hidden) slog.fixed.checked = false;
+  });
   slog.save.addEventListener('click', async () => {
     const types = [...slog.types.querySelectorAll('input:checked')].map((i) => i.value);
     if (!types.length) { toast('Zaznacz „Bez błędów” albo rodzaj błędu.', 'warn'); return; }
-    const entry = makeEntry({ ...slogDraft(), types, note: scrubIdentifiers(slog.note.value) });
+    const entry = makeEntry({ ...slogDraft(), types, fixed: slog.fixed.checked, note: scrubIdentifiers(slog.note.value) });
     slog.save.disabled = true;
     try {
       const res = await fetch('/api/me/speech-log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) });
