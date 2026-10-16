@@ -29,7 +29,9 @@ async function person(email, name, extra = {}, orgId = null, role = 'user') {
 const rows = [];
 rows.push({ ...(await person('pro@test.radvoxpro.local', 'Lek. Anna Testowa', { plan: 'pro', status: 'active', until: now + 365 * DAY })), what: 'Pro, opłacony na rok — pełny dostęp' });
 rows.push({ ...(await person('start@test.radvoxpro.local', 'Lek. Piotr Testowy', { plan: 'start', status: 'active', until: now + 30 * DAY })), what: 'Start, opłacony na miesiąc' });
-rows.push({ ...(await person('proba@test.radvoxpro.local', 'Lek. Ewa Próbna')), what: 'Okres próbny (14 dni, 60 opisów)' });
+rows.push({ ...(await person('proba@test.radvoxpro.local', 'Lek. Ewa Próbna', { plan: 'trial', status: 'trial', until: now + 14 * DAY })), what: 'Okres próbny zatwierdzony (14 dni, 60 opisów)' });
+run("UPDATE users SET trial_reports = COALESCE(trial_reports, ?) WHERE email = 'proba@test.radvoxpro.local'", settings().trialReports || 60);
+rows.push({ ...(await person('czeka@test.radvoxpro.local', 'Lek. Olga Czekająca', { plan: 'trial', status: 'pending', until: 0 })), what: 'Czeka na Twoje zatwierdzenie (Admin → Pulpit)' });
 rows.push({ ...(await person('wygasly@test.radvoxpro.local', 'Lek. Jan Wygasły', { plan: 'start', status: 'expired', until: now - DAY })), what: 'Subskrypcja wygasła — zobaczysz blokadę i stronę płatności' });
 
 let org = one("SELECT * FROM orgs WHERE name = 'Szpital Testowy'");

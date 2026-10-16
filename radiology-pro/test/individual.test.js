@@ -28,8 +28,9 @@ before(async () => {
   process.env.BACKUP_DISABLED = '1';
   process.env.TERMS_VERSION = '1.0';
   process.env.ANTHROPIC_API_KEY = 'x';
-  const { openDb } = await import('../lib/db.js');
+  const { openDb, setSetting } = await import('../lib/db.js');
   openDb(':memory:');
+  setSetting('appSettings', { trialApproval: false }); // these tests start trials at once (approval: test/trial-approval)
   const { openLearningDb } = await import('../lib/learning.js');
   openLearningDb(':memory:');
   const { createServer } = await import('../server.js');

@@ -46,10 +46,11 @@ export const fmtUsd = (v) => `$${Number(v || 0).toFixed(Number(v) < 10 ? 3 : 2)}
 export const fmtNum = (v) => Number(v || 0).toLocaleString('pl-PL');
 export const daysLeft = (ms) => Math.ceil((ms - Date.now()) / 86400000);
 
-export const STATUS_LABEL = { trial: 'okres próbny', active: 'aktywna', past_due: 'zaległa płatność', canceled: 'anulowana', expired: 'wygasła' };
+export const STATUS_LABEL = { pending: 'czeka na zatwierdzenie', trial: 'okres próbny', active: 'aktywna', past_due: 'zaległa płatność', canceled: 'anulowana', expired: 'wygasła' };
 export function statusPill(u) {
   if (u.blocked) return '<span class="pill err">zablokowany</span>';
   const st = u.subStatus;
+  if (st === 'pending') return '<span class="pill warn">czeka na zatwierdzenie</span>';
   if (st === 'org') return u.subUntil > Date.now() ? '<span class="pill info">organizacja</span>' : '<span class="pill err">licencja org. wygasła</span>';
   const live = u.subUntil > Date.now();
   const kind = !live || st === 'expired' ? 'err' : st === 'past_due' ? 'warn' : st === 'trial' ? 'info' : st === 'canceled' ? 'warn' : 'ok';

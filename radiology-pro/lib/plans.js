@@ -36,7 +36,9 @@ export const DEFAULT_SETTINGS = {
   usdPln: 3.65,              // exchange rate used for cost reports
   trialDays: 14,
   registrationOpen: true,
-  requireNpwz: true,         // self-registration needs a valid licence number (NPWZ); one free trial per number
+  requireNpwz: true,
+  trialApproval: true,       // a self-registered account waits for the owner's approval before its trial starts
+  trialReports: 60,          // default number of reports for a whole trial (the owner can change it per account)         // self-registration needs a valid licence number (NPWZ); one free trial per number
   graceRatio: 0.1,           // reports allowed above the quota before blocking (10 %)
   costAlertRatio: 0.5,       // e-mail the admin when a user's AI cost exceeds 50 % of the plan price
   graceDaysPastDue: 3,       // access kept after a failed payment
@@ -76,6 +78,7 @@ const orgOf = (user) => (user?.org_id ? one('SELECT * FROM orgs WHERE id = ?', u
 
 /** Monthly report limit: the user's own override, else the organisation's limit, else the plan's. */
 export function quotaOf(user) {
+  if (user.sub_status === 'trial' && user.trial_reports != null) return user.trial_reports;
   if (user.quota_override != null) return user.quota_override;
   const org = orgOf(user);
   if (org) return org.quota_per_user ?? planById(org.plan).quota;
@@ -97,6 +100,7 @@ export function access(user, now = Date.now()) {
   if (!user) return { ok: false, code: 'login', reason: 'Zaloguj się.' };
   if (user.role === 'admin') return { ok: true };
   if (user.blocked) return { ok: false, code: 'blocked', reason: 'Konto zablokowane — skontaktuj się z administratorem.' };
+  if (user.sub_status === 'pending') return { ok: false, code: 'pending', reason: 'Twoje konto czeka na zatwierdzenie okresu próbnego. Dostaniesz e-mail, gdy będzie gotowe.' };
   if (user.must_change_pwd) return { ok: false, code: 'pwd', reason: 'Ustaw własne hasło, aby rozpocząć pracę.' };
   const tv = settings().termsVersion;
   if (tv && user.terms_version !== tv) return { ok: false, code: 'terms', reason: 'Zaakceptuj regulamin i informację o przetwarzaniu danych, aby rozpocząć pracę.' };
@@ -121,6 +125,13 @@ export function access(user, now = Date.now()) {
 export function quotaCheck(user, reportId) {
   if (user.role === 'admin') return { ok: true };
   const quota = quotaOf(user);
+  // an approved trial has one limit for the whole trial, not per month
+  if (user.sub_status === 'trial' && user.trial_reports != null) {
+    const total = one("SELECT COUNT(DISTINCT report_id) AS n FROM usage WHERE user_id = ? AND kind = 'format' AND ok = 1 AND report_id <> ''", user.id).n;
+    if (reportId && one('SELECT 1 AS x FROM usage WHERE user_id = ? AND report_id = ? AND ok = 1 LIMIT 1', user.id, reportId)) return { ok: true, used: total, quota };
+    if (total >= quota) return { ok: false, code: 'quota', used: total, quota, reason: `Wykorzystano ${quota} opisów okresu próbnego. Wybierz plan, aby pracować dalej.` };
+    return { ok: true, used: total, quota, warn: total >= quota * 0.9 };
+  }
   const used = monthUsage(user.id);
   if (reportId && one('SELECT 1 AS x FROM usage WHERE user_id = ? AND month = ? AND report_id = ? AND ok = 1 LIMIT 1', user.id, monthOf(), reportId)) {
     return { ok: true, used: used.reports, quota };

@@ -164,6 +164,7 @@ function migrate(d) {
   add('terms_at', 'INTEGER');
   add('totp_secret', "TEXT NOT NULL DEFAULT ''");                     // two-factor login (authenticator app)
   add('totp_on', 'INTEGER NOT NULL DEFAULT 0');
+  add('trial_reports', 'INTEGER');                                    // reports allowed for the whole trial (set when the owner approves it)
   const ucols = new Set(d.prepare('PRAGMA table_info(usage)').all().map((c) => c.name));
   // which published version of the global (central) knowledge was used for this AI call — traceability
   if (!ucols.has('global_version')) d.exec('ALTER TABLE usage ADD COLUMN global_version INTEGER');

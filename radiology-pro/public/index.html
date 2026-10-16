@@ -7,6 +7,8 @@
   <title>RadVox Pro — dyktowanie opisów</title>
   <link rel="icon" type="image/png" href="icons/radvox-192.png" />
   <link rel="apple-touch-icon" href="icons/radvox-192.png" />
+  <link rel="manifest" href="/app.webmanifest" />
+  <meta name="theme-color" content="#05070a" />
   <link rel="stylesheet" href="fonts/fonts.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -427,6 +429,11 @@
           <button class="btn btn-small" id="keyClear" hidden>Usuń</button>
         </div>
         <p class="hint">Zatrzymanie nie tworzy opisu: opis powstaje po „Przygotuj opis”. Jeśli przeglądarka nie widzi mikrofonu, ustaw w programie Nuance (PowerMic Manager) przycisk tak, by wysyłał klawisz, np. F9, i przypisz go tutaj.</p>
+      </div>
+      <div class="field">
+        <div class="field-head"><label>Aplikacja na komputerze</label></div>
+        <p class="hint" id="installStatus"></p>
+        <div class="btn-row"><button class="btn btn-small" id="installApp" hidden>Zainstaluj na tym komputerze</button></div>
       </div>
       <div class="field">
         <div class="field-head"><label>Mikrofon do dyktowania</label></div>

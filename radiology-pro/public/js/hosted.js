@@ -170,3 +170,31 @@ window.addEventListener('radiopis:problem', (e) => {
   sentProblems.set(key, Date.now());
   nativeFetch('/api/me/event', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Radiopis': '1' }, body: JSON.stringify({ kind, code, detail }) }).catch(() => {});
 });
+
+// ---------------------------------------------------------------- installable desktop app (Chrome / Edge)
+// The installed app is this same web app in its own window: one server, one account, so templates, learning and
+// settings saved to the account are the same in the browser and on every computer.
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+let installEvent = null;
+const runningInstalled = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+function renderInstall() {
+  const btn = document.getElementById('installApp');
+  const status = document.getElementById('installStatus');
+  if (!btn || !status) return;
+  btn.hidden = !installEvent || runningInstalled();
+  status.textContent = runningInstalled()
+    ? 'Pracujesz w zainstalowanej aplikacji. Konto, szablony i nauka są te same co w przeglądarce i na innych komputerach.'
+    : installEvent
+      ? 'Zainstaluj RadVox Pro jak zwykły program: własne okno, ikona na pulpicie i pasku zadań. Wszystko zostaje na Twoim koncie, więc jest zsynchronizowane.'
+      : 'Aby zainstalować jak program: w Chrome lub Edge kliknij ikonę instalacji na końcu paska adresu albo menu ⋮ → „Zainstaluj RadVox Pro” (Edge: Aplikacje → Zainstaluj tę witrynę jako aplikację).';
+}
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvent = e; renderInstall(); });
+window.addEventListener('appinstalled', () => { installEvent = null; renderInstall(); });
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest?.('#installApp') || !installEvent) return;
+  installEvent.prompt();
+  try { await installEvent.userChoice; } catch { /* closed */ }
+  installEvent = null;
+  renderInstall();
+});
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderInstall); else renderInstall();

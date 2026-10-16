@@ -469,12 +469,19 @@ async function handleAuth(req, res, route) {
     if (body.accept !== true) return sendJson(res, 400, { error: 'Zaakceptuj regulamin i politykę prywatności.' });
     if (loginBlocked(email, ip)) return sendJson(res, 429, { error: 'Zbyt wiele prób. Spróbuj później.' });
     if (getUserByEmail(email)) { noteFailure(email, ip); return sendJson(res, 409, { error: 'Konto z tym adresem już istnieje — zaloguj się.' }); }
-    const user = await createUser({ email, password: body.password, name: body.name, npwz: npwz.slice(0, 20), phone: str(body.phone, 30) });
+    let user = await createUser({ email, password: body.password, name: body.name, npwz: npwz.slice(0, 20), phone: str(body.phone, 30) });
     acceptTerms(user.id, ip);
+    const pending = settings().trialApproval;
+    if (pending) { run("UPDATE users SET sub_status = 'pending', sub_until = 0 WHERE id = ?", user.id); user = getUser(user.id); }
     const token = createSession(user, { ip, ua });
-    await sendMail(user.email, `Witamy w ${BRAND.name}`, `Dzień dobry,\n\ndziękujemy za rejestrację. Okres próbny trwa ${settings().trialDays} dni.\nAplikacja: ${baseUrl(req)}/app/\nKonto i subskrypcja: ${baseUrl(req)}/account`);
-    if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: nowy użytkownik — ${user.email}`, `${user.name} <${user.email}>, NPWZ: ${user.npwz || '—'}, tel.: ${user.phone || '—'}`);
-    return sendJson(res, 200, { ok: true, next: '/app/' }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    if (pending) {
+      await sendMail(user.email, `${BRAND.name}: konto czeka na zatwierdzenie`, `Dzień dobry,\n\ndziękujemy za rejestrację. Sprawdzamy zgłoszenie — gdy okres próbny zostanie zatwierdzony, dostaniesz e-mail z linkiem do aplikacji.\nKonto: ${baseUrl(req)}/account`);
+      if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: prośba o okres próbny — ${user.email}`, `${user.name} <${user.email}>, NPWZ: ${user.npwz || '—'}, tel.: ${user.phone || '—'}\n\nZatwierdź lub odrzuć: ${baseUrl(req)}/admin`);
+    } else {
+      await sendMail(user.email, `Witamy w ${BRAND.name}`, `Dzień dobry,\n\ndziękujemy za rejestrację. Okres próbny trwa ${settings().trialDays} dni.\nAplikacja: ${baseUrl(req)}/app/\nKonto i subskrypcja: ${baseUrl(req)}/account`);
+      if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: nowy użytkownik — ${user.email}`, `${user.name} <${user.email}>, NPWZ: ${user.npwz || '—'}, tel.: ${user.phone || '—'}`);
+    }
+    return sendJson(res, 200, { ok: true, next: pending ? '/account' : '/app/' }, { 'Set-Cookie': sessionCookie(token, { secure }) });
   }
 
   if (route === 'logout') {
@@ -655,7 +662,7 @@ function adminUserRow(u, month = monthOf()) {
   const org = getOrg(u.org_id);
   return {
     id: u.id, email: u.email, name: u.name, role: u.role, blocked: Boolean(u.blocked), plan: u.plan, planName: org ? org.name : p.name,
-    subStatus: org ? 'org' : u.sub_status, subUntil: org ? org.sub_until : u.sub_until, quota: quotaOf(u), quotaOverride: u.quota_override,
+    subStatus: org ? 'org' : u.sub_status, subUntil: org ? org.sub_until : u.sub_until, quota: quotaOf(u), quotaOverride: u.quota_override, trialReports: u.trial_reports,
     orgId: org?.id || null, orgName: org?.name || '', mustChangePwd: Boolean(u.must_change_pwd), twoFactor: Boolean(u.totp_on),
     reports: used.reports, calls: used.calls, costUsd: used.costUsd, costPln: used.costUsd * usdPln(), pricePln: org ? org.price_per_seat : p.pricePln,
     lastLogin: u.last_login, createdAt: u.created_at, npwz: u.npwz, company: u.company, nip: u.nip, phone: u.phone, note: u.note,
@@ -710,6 +717,8 @@ function overview() {
     orgs: { count: orgs.length, seats: orgs.reduce((s, o) => s + o.seats, 0), seatsUsed: orgs.reduce((s, o) => s + o.seatsUsed, 0), mrrPln: orgMrr,
       expiring: orgs.filter((o) => o.subUntil > now && o.subUntil - now < 7 * 86400000) },
     byLang, expiring, pastDue, topCost, daily,
+    pending: users.filter((u) => u.sub_status === 'pending' && !u.blocked).sort((a, b) => a.created_at - b.created_at).map((u) => adminUserRow(u, month)),
+    trialDefaults: { days: settings().trialDays, reports: settings().trialReports },
     server: serverHealth(),
     config: { ai: aiAvailable(), model: MODEL, provider: PROVIDER, stripe: stripeEnabled(), stripeWebhook: Boolean(process.env.STRIPE_WEBHOOK_SECRET), mail: mailConfigured(), adminEmail: adminEmail(), version: VERSION, prod: PROD },
   };
@@ -761,6 +770,7 @@ async function handleAdmin(req, res, ctx, parts) {
     let users = all('SELECT * FROM users ORDER BY created_at DESC');
     if (q) users = users.filter((u) => `${u.email} ${u.name} ${u.npwz} ${u.company} ${u.nip}`.toLowerCase().includes(q));
     const f = {
+      pending: (u) => u.sub_status === 'pending',
       active: (u) => u.sub_status === 'active' && u.sub_until > now,
       trial: (u) => u.sub_status === 'trial' && u.sub_until > now,
       expiring: (u) => u.sub_until > now && u.sub_until - now < 7 * 86400000,
@@ -840,6 +850,23 @@ async function handleAdmin(req, res, ctx, parts) {
       audit(me, 'user.update', u.id, changes.join(', '));
       return sendJson(res, 200, { user: adminUserRow(getUser(u.id)) });
     }
+    if (action === 'approve-trial' && method === 'POST') {
+      const b = await readJson(req, 2_000);
+      const days = Math.round(Math.min(90, Math.max(1, Number(b.days) || settings().trialDays)));
+      const reports = Math.round(Math.min(10000, Math.max(1, Number(b.reports) || settings().trialReports)));
+      const until = Date.now() + days * 86400000;
+      run("UPDATE users SET plan = 'trial', sub_status = 'trial', sub_until = ?, trial_reports = ?, blocked = 0 WHERE id = ?", until, reports, u.id);
+      audit(ctx.user.id, 'user.trial.approve', u.id, `${days} dni, ${reports} opisów`);
+      await sendMail(u.email, `${BRAND.name}: okres próbny zatwierdzony`, `Dzień dobry,\n\nTwój okres próbny jest aktywny: ${days} dni, do ${reports} opisów.\nAplikacja: ${baseUrl(req)}/app/`);
+      return sendJson(res, 200, { ok: true, user: adminUserRow(getUser(u.id)) });
+    }
+    if (action === 'reject-trial' && method === 'POST') {
+      run("UPDATE users SET sub_status = 'expired', sub_until = 0, blocked = 1 WHERE id = ?", u.id);
+      run('DELETE FROM sessions WHERE user_id = ?', u.id);
+      audit(ctx.user.id, 'user.trial.reject', u.id, u.email);
+      await sendMail(u.email, `${BRAND.name}: zgłoszenie`, `Dzień dobry,\n\nniestety nie możemy teraz uruchomić okresu próbnego dla tego konta. W razie pytań odpowiedz na tę wiadomość.`);
+      return sendJson(res, 200, { ok: true });
+    }
     if (action === 'extend' && method === 'POST') {
       const b = await readJson(req, 20_000);
       const updated = extendSubscription(u.id, {
@@ -907,6 +934,8 @@ async function handleAdmin(req, res, ctx, parts) {
         usdPln: num(b.usdPln, cur.usdPln, 1, 20), trialDays: Math.round(num(b.trialDays, cur.trialDays, 0, 90)),
         registrationOpen: typeof b.registrationOpen === 'boolean' ? b.registrationOpen : cur.registrationOpen,
         requireNpwz: typeof b.requireNpwz === 'boolean' ? b.requireNpwz : cur.requireNpwz,
+        trialApproval: typeof b.trialApproval === 'boolean' ? b.trialApproval : cur.trialApproval,
+        trialReports: Math.round(num(b.trialReports, cur.trialReports, 1, 10000)),
         graceRatio: num(b.graceRatio, cur.graceRatio, 0, 1), costAlertRatio: num(b.costAlertRatio, cur.costAlertRatio, 0.05, 5),
         graceDaysPastDue: Math.round(num(b.graceDaysPastDue, cur.graceDaysPastDue, 0, 30)), annualMonths: num(b.annualMonths, cur.annualMonths, 1, 12),
         maxBackgroundCalls: Math.round(num(b.maxBackgroundCalls, cur.maxBackgroundCalls, 0, 20)),
@@ -1422,6 +1451,8 @@ export function createServer() {
       if (p === '/js/mic-button.js' && !PROD) return serveFile(res, PUBLIC, 'js/mic-button.js', { req });
       if (p.startsWith('/site/')) return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'public, max-age=3600', req });
       if (p.startsWith('/fonts/') || p.startsWith('/icons/')) return serveFile(res, PUBLIC, p.slice(1), { cache: 'public, max-age=604800', req });
+      // installable desktop app (manifest + service worker must be public: the browser fetches them without the login cookie)
+      if (p === '/app.webmanifest' || p === '/sw.js') return serveFile(res, PUBLIC, p.slice(1), { cache: 'no-cache', req });
       if (p === '/favicon.ico') return serveFile(res, PUBLIC, 'icons/radvox.ico', { cache: 'public, max-age=604800', req });
 
       // logged-in pages

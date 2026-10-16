@@ -34,8 +34,9 @@ before(async () => {
   process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
   delete process.env.AI_PROVIDER;
   delete process.env.RESEND_API_KEY;
-  const { openDb } = await import('../lib/db.js');
+  const { openDb, setSetting } = await import('../lib/db.js');
   openDb(':memory:');
+  setSetting('appSettings', { trialApproval: false }); // these tests start trials at once (approval: test/trial-approval)
   const { createServer } = await import('../server.js');
   app = createServer();
   await new Promise((r) => app.listen(0, '127.0.0.1', r));

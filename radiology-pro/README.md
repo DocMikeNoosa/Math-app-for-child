@@ -42,6 +42,14 @@ Test accounts (created by the starter, or `node scripts/create-test-accounts.mjs
 `pro@`, `start@`, `proba@` (trial), `wygasly@` (expired), and a test hospital with `it@`, `radiolog1@`, `radiolog2@`
 — all `@test.radvoxpro.local`. Never run the script on the real server with customers.
 
+**Trials need the owner's approval** (Admin → Ustawienia, on by default): a self-registered account waits
+(status `pending`, no app, no AI) until the owner approves it in Admin → Pulpit with a number of days and a number of
+reports for the whole trial (`trial_reports`). Rejecting blocks the account. Test account `czeka@` shows this.
+
+**Desktop app:** the app is installable from Chrome / Edge (`/app.webmanifest`, `/sw.js`, nothing cached). The
+installed app is the same web app on the same server and account, so templates, learning and settings stay synced.
+IT can push it to many computers with the browser policy `WebAppInstallForceList` (url `https://YOUR-DOMAIN/app/`).
+
 ## Run locally (development)
 
 ```bash

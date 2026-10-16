@@ -34,8 +34,9 @@ before(async () => {
   process.env.TERMS_VERSION = '1.0';
   delete process.env.AI_PROVIDER;
   delete process.env.RESEND_API_KEY;
-  const { openDb } = await import('../lib/db.js');
+  const { openDb, setSetting } = await import('../lib/db.js');
   openDb(':memory:');
+  setSetting('appSettings', { trialApproval: false }); // these tests start trials at once (approval: test/trial-approval)
   const { openLearningDb } = await import('../lib/learning.js');
   openLearningDb(':memory:');
   const { createServer } = await import('../server.js');

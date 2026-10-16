@@ -37,8 +37,9 @@ before(async () => {
   process.env.BACKUP_DISABLED = '1';
   process.env.TERMS_VERSION = '';
   const { createServer } = await import('../server.js');
-  const { openDb } = await import('../lib/db.js');
+  const { openDb, setSetting } = await import('../lib/db.js');
   openDb(':memory:');
+  setSetting('appSettings', { trialApproval: false }); // these tests start trials at once (approval: test/trial-approval)
   app = createServer();
   await new Promise((r) => app.listen(0, '127.0.0.1', r));
   appUrl = `http://127.0.0.1:${app.address().port}`;

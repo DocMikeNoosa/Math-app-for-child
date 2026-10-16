@@ -53,6 +53,7 @@ async function loadDash() {
   else $('#tfaWarn')?.remove();
   loadTickets().catch(() => {});
   for (const org of o.orgs.expiring) toast(`Licencja ${org.name} kończy się ${fmtDate(org.subUntil)}`, 'warn', 6000);
+  renderPending(o);
   drawChart(o.daily);
   const userCell = (u) => `<td><b>${esc(u.name || u.email)}</b><span class="sub">${esc(u.email)}</span></td>`;
   $('#expiring').innerHTML = o.expiring.length ? o.expiring.map((u) => `<tr class="click" data-user="${u.id}">${userCell(u)}<td>${esc(u.planName)}</td><td>${statusPill(u)}</td><td>${fmtDate(u.subUntil)} (${daysLeft(u.subUntil)} d)</td></tr>`).join('') : '<tr><td colspan="4" class="empty">Brak</td></tr>';
@@ -373,13 +374,45 @@ $('#savePlans').addEventListener('click', async () => {
   } catch (err) { toast(err.message, 'err'); }
 });
 
+// ---------------------------------------------------------------- trial approval
+function renderPending(o) {
+  const list = o.pending || [];
+  $('#pendingCard').hidden = !list.length;
+  $('#pendingCount').textContent = list.length;
+  const d = o.trialDefaults || { days: 14, reports: 60 };
+  $('#pendingRows').innerHTML = list.map((u) => `<tr data-pending="${u.id}">
+    <td><b>${esc(u.name || u.email)}</b><span class="sub">${esc(u.email)}</span></td>
+    <td>${esc(u.npwz || '—')}<span class="sub">${esc(u.phone || '')}</span></td>
+    <td>${fmtDateTime(u.createdAt)}</td>
+    <td><input type="number" min="1" max="90" value="${d.days}" data-days aria-label="Dni okresu próbnego" style="width:72px" /></td>
+    <td><input type="number" min="1" max="10000" value="${d.reports}" data-reports aria-label="Liczba opisów" style="width:80px" /></td>
+    <td style="white-space:nowrap"><button class="btn btn-sm btn-primary" data-approve>Zatwierdź</button> <button class="btn btn-sm btn-ghost" data-reject>Odrzuć</button></td></tr>`).join('');
+}
+$('#pendingRows').addEventListener('click', async (e) => {
+  const row = e.target.closest('[data-pending]');
+  if (!row) return;
+  const id = row.dataset.pending;
+  try {
+    if (e.target.closest('[data-approve]')) {
+      const days = Number(row.querySelector('[data-days]').value), reports = Number(row.querySelector('[data-reports]').value);
+      await api(`/api/admin/users/${id}/approve-trial`, { method: 'POST', body: { days, reports } });
+      toast(`Zatwierdzono: ${days} dni, ${reports} opisów — użytkownik dostał e-mail`, 'ok');
+    } else if (e.target.closest('[data-reject]')) {
+      await api(`/api/admin/users/${id}/reject-trial`, { method: 'POST', body: {} });
+      toast('Odrzucono — konto zablokowane', 'info');
+    } else return;
+    loadDash();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
 // ---------------------------------------------------------------- settings
 async function loadSettings() {
   const { settings: s } = await api('/api/admin/settings');
   const f = $('#settingsForm');
-  for (const k of ['usdPln', 'trialDays', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount', 'announcement', 'termsVersion', 'sessionIdleDays', 'auditRetentionDays', 'outboxRetentionDays']) f[k].value = s[k] ?? '';
+  for (const k of ['usdPln', 'trialDays', 'trialReports', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount', 'announcement', 'termsVersion', 'sessionIdleDays', 'auditRetentionDays', 'outboxRetentionDays']) f[k].value = s[k] ?? '';
   f.registrationOpen.checked = s.registrationOpen;
   f.requireNpwz.checked = s.requireNpwz !== false;
+  f.trialApproval.checked = s.trialApproval !== false;
   f.globalLearning.checked = s.globalLearning;
   f.itShowUsage.checked = s.itShowUsage;
 }
@@ -387,7 +420,7 @@ $('#settingsForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, requireNpwz: f.requireNpwz.checked, announcement: f.announcement.value, termsVersion: f.termsVersion.value, sessionIdleDays: Number(f.sessionIdleDays.value), auditRetentionDays: Number(f.auditRetentionDays.value), outboxRetentionDays: Number(f.outboxRetentionDays.value), globalLearning: f.globalLearning.checked, itShowUsage: f.itShowUsage.checked } });
+    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), trialReports: Number(f.trialReports.value), trialApproval: f.trialApproval.checked, graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, requireNpwz: f.requireNpwz.checked, announcement: f.announcement.value, termsVersion: f.termsVersion.value, sessionIdleDays: Number(f.sessionIdleDays.value), auditRetentionDays: Number(f.auditRetentionDays.value), outboxRetentionDays: Number(f.outboxRetentionDays.value), globalLearning: f.globalLearning.checked, itShowUsage: f.itShowUsage.checked } });
     toast('Ustawienia zapisane', 'ok');
   } catch (err) { toast(err.message, 'err'); }
 });
