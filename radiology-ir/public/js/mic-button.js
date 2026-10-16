@@ -156,6 +156,15 @@ const isProtected = (c) => c.usagePage === 0x01 && [0x02, 0x06, 0x07, 0x80].incl
 
 // HID usages Chrome does not give to web pages (keyboards, mice…): a device that only has these cannot be read
 const PROTECTED = isProtected;
+/**
+ * Light commands found on real microphones (vendor:product → light setting), used automatically on every computer.
+ * Filled in from codes users found with the light search (Diagnostyka → „Kod czerwonej diody”).
+ */
+export const KNOWN_LEDS = {
+  // '0554:0064': { type: 'output', reportId: 0, length: 9, on: [/* PowerMic 4 — code to be added */], off: [/* … */] },
+};
+const knownLed = (d) => KNOWN_LEDS[`${Number(d?.vendorId).toString(16).padStart(4, '0')}:${Number(d?.productId).toString(16).padStart(4, '0')}`] || null;
+
 /** A dictation microphone (Nuance PowerMic, Philips SpeechMike) whose buttons a web page can read. */
 export const isDictationMic = (d) => [NUANCE_VENDOR_ID, PHILIPS_VENDOR_ID].includes(d?.vendorId) && (d.collections || []).some((c) => !PROTECTED(c));
 
@@ -218,9 +227,11 @@ export class MicButton {
     this.save(this.config);
     this.onChange();
   }
-  /** With exactly one standard LED declared, it is used without asking. */
+  /** A light code known for this model is used without asking; so is exactly one standard LED declared. */
   autoLed() {
     if (this.led) return this.led;
+    const known = knownLed(this.device);
+    if (known) { const led = { ...known, led: false, known: true }; this.saveLed(led); return led; }
     const leds = this.ledCandidates().filter((c) => c.led);
     if (leds.length === 1) { this.saveLed(leds[0]); return leds[0]; }
     return null;

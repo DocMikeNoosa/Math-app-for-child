@@ -865,3 +865,7 @@ body.target-clinical.recording .rec-state::after { content: ' · dane kliniczne'
 .sweep-box p { margin: 0 0 8px; font-size: 13px; }
 .sweep-bar { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; margin-bottom: 8px; }
 .sweep-bar > div { height: 100%; width: 0; background: #ffb547; transition: width 0.3s; }
+.sweep-range { margin-top: 10px; }
+.range-in { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.range-in input { width: 80px; }
+.sweep-num { font: 700 30px/1.1 var(--mono, monospace); color: #ffb547; margin: 2px 0 6px; }

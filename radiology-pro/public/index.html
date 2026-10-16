@@ -451,6 +451,15 @@
             <div class="led-sweep">
               <p class="hint">Nie masz kodu? <b>Szukanie automatyczne</b>: RadVox wysyła po kolei możliwe polecenia, a Ty klikasz, gdy dioda mignie (ok. 3–5 min).</p>
               <button class="btn btn-small" id="ledSweep">Szukaj kodu automatycznie</button>
+              <div class="sweep-range" id="ledRangeBox">
+                <p class="hint"><b>Mignęła, ale nie wiesz przy której próbie?</b> Sprawdź zakres po kolei — RadVox wysyła jedną próbę i czeka na Ciebie.</p>
+                <div class="btn-row"><label class="range-in">od <input type="number" id="ledRangeFrom" min="1" max="512" value="245" /></label><label class="range-in">do <input type="number" id="ledRangeTo" min="1" max="512" value="275" /></label><button class="btn btn-small btn-primary" id="ledRangeStart">Sprawdzaj po kolei</button></div>
+              </div>
+              <div class="sweep-box" id="ledStepBox" hidden>
+                <div class="sweep-num" id="ledStepNum"></div>
+                <p id="ledStepQ"></p>
+                <div class="btn-row"><button class="btn btn-small btn-primary" id="ledStepYes">Świeci / mignęła</button><button class="btn btn-small" id="ledStepNext">Nie — następna</button><button class="btn btn-small" id="ledStepRepeat">Powtórz</button><button class="btn btn-small" id="ledStepBack">Wstecz</button><button class="btn btn-small" id="ledStepStop">Przerwij</button></div>
+              </div>
               <div class="sweep-box" id="ledSweepBox" hidden>
                 <p id="ledSweepQ"></p>
                 <div class="sweep-bar"><div id="ledSweepBar"></div></div>

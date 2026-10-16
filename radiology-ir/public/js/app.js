@@ -32,7 +32,7 @@ const els = Object.fromEntries(
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
-    'chimeStyle', 'chimeTest', 'ledCodeOn', 'ledCodeOff', 'ledCodeTest', 'ledCodeSave', 'ledSweep', 'ledSweepBox', 'ledSweepQ', 'ledSweepBar', 'ledSweepHit', 'ledSweepNo', 'ledSweepStop', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
+    'chimeStyle', 'chimeTest', 'ledCodeOn', 'ledCodeOff', 'ledCodeTest', 'ledCodeSave', 'ledSweep', 'ledRangeBox', 'ledRangeFrom', 'ledRangeTo', 'ledRangeStart', 'ledStepBox', 'ledStepNum', 'ledStepQ', 'ledStepYes', 'ledStepNext', 'ledStepRepeat', 'ledStepBack', 'ledStepStop', 'ledSweepBox', 'ledSweepQ', 'ledSweepBar', 'ledSweepHit', 'ledSweepNo', 'ledSweepStop', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
     'menuLang', 'procBtn', 'anatomy', 'anatSide', 'closeAnatomy', 'anatParts', 'anatTargets', 'anatProcs', 'anatTpls', 'anatSummary', 'anatCancel', 'anatApply',
   ].map((id) => [id, $(id)]),
 );
@@ -2146,6 +2146,8 @@ function renderSweep() {
   els.ledSweepQ.textContent = s.phase === 'check'
     ? `Sprawdzam polecenie ${s.idx + 1} z ${s.cands.length}: czy czerwona dioda świeci TERAZ?`
     : `Patrz na mikrofon. Próba ${done + 1} z ${256 * SWEEP_FILLS.length} — kliknij „Mignęła!”, gdy dioda mignie lub się zapali.`;
+  els.ledRangeFrom.value = Math.max(1, done - 15);
+  els.ledRangeTo.value = Math.min(256 * SWEEP_FILLS.length, done + 5);
 }
 async function endSweep(found, message) {
   const s = sweep;
@@ -2219,6 +2221,57 @@ async function sweepAnswer(yes) {
   if (yes) return endSweep(s.cands[s.idx]);
   s.idx++;
   return sweepCheck();
+}
+
+// step-by-step check of a range of attempts (the user saw a flash during the fast search but not the number):
+// one attempt at a time, the number shown large, nothing moves on until the user answers
+let stepper = null;
+function attemptCode(group, n) {
+  const pass = Math.floor((n - 1) / 256);
+  return sweepCode({ group, pass: Math.min(pass, SWEEP_FILLS.length - 1) }, (n - 1) % 256);
+}
+async function stepShow() {
+  const s = stepper;
+  if (!s) return;
+  if (s.current) await mic.setLed(false, s.current);
+  await sleep(300);
+  const code = attemptCode(s.group, s.n);
+  s.current = code;
+  const ok = await mic.setLed(true, code);
+  els.ledStepNum.textContent = `Próba ${s.n}`;
+  els.ledStepQ.textContent = ok ? `(${s.n - s.from + 1} z ${s.to - s.from + 1}) Czy czerwona dioda świeci albo mignęła? Jeśli nie jesteś pewien — „Powtórz”.`
+    : `Mikrofon nie przyjął próby ${s.n}${mic.ledError ? ` (${mic.ledError})` : ''} — kliknij „Nie — następna”.`;
+  els.ledStepBox.hidden = false;
+  els.ledRangeBox.hidden = true;
+  els.ledSweep.hidden = true;
+}
+async function stepEnd(found) {
+  const s = stepper;
+  stepper = null;
+  if (s?.current) await mic.setLed(false, s.current);
+  els.ledStepBox.hidden = true;
+  els.ledRangeBox.hidden = false;
+  els.ledSweep.hidden = false;
+  if (found) {
+    mic.saveLed(found);
+    toast(`Znaleziono: próba ${s.n} (kod ${found.on.map((b) => b.toString(16).padStart(2, '0')).join(' ')}). Naciśnij przycisk nagrywania — dioda powinna świecić podczas dyktowania. Wyślij mi raport z Diagnostyki.`, 'ok', 12000);
+  }
+  await mic.setLed(state.recording);
+  renderMicDiag();
+  renderLed();
+}
+function stepStart() {
+  if (!mic.connected) { toast('Najpierw podłącz i połącz mikrofon (Wykryj mikrofon).', 'warn'); return; }
+  const group = mic.ledReports().find((g) => g.type === 'output' && g.length >= 2);
+  if (!group) { toast('Ten mikrofon nie ma miejsca na polecenia diody, które przeglądarka może wysłać.', 'warn', 6000); return; }
+  const max = 256 * SWEEP_FILLS.length;
+  let from = Math.round(Number(els.ledRangeFrom.value) || 1);
+  let to = Math.round(Number(els.ledRangeTo.value) || max);
+  from = Math.min(max, Math.max(1, from));
+  to = Math.min(max, Math.max(from, to));
+  if (sweep) endSweep(null);
+  stepper = { group, from, to, n: from, current: null };
+  stepShow();
 }
 
 // microphones on this computer: list + level test (dictation itself uses the browser's default microphone)
@@ -2513,6 +2566,16 @@ function bind() {
     renderMicDiag();
   });
   els.ledSweep.addEventListener('click', startSweep);
+  els.ledRangeStart.addEventListener('click', stepStart);
+  els.ledStepYes.addEventListener('click', () => stepper && stepEnd(stepper.current));
+  els.ledStepNext.addEventListener('click', () => {
+    if (!stepper) return;
+    if (stepper.n >= stepper.to) { stepEnd(null); toast(`Koniec zakresu ${stepper?.from ?? ''}–${els.ledRangeTo.value} bez diody — sprawdź szerszy zakres (np. 230–290).`, 'warn', 8000); return; }
+    stepper.n++; stepShow();
+  });
+  els.ledStepRepeat.addEventListener('click', () => stepper && stepShow());
+  els.ledStepBack.addEventListener('click', () => { if (stepper && stepper.n > stepper.from) { stepper.n--; stepShow(); } });
+  els.ledStepStop.addEventListener('click', () => stepEnd(null));
   els.ledSweepHit.addEventListener('click', () => sweepAnswer(true));
   els.ledSweepNo.addEventListener('click', () => sweepAnswer(false));
   els.ledSweepStop.addEventListener('click', () => endSweep(null));

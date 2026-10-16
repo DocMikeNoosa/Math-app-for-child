@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 
 globalThis.localStorage = { _m: new Map(), getItem(k) { return this._m.get(k) ?? null; }, setItem(k, v) { this._m.set(k, String(v)); }, removeItem(k) { this._m.delete(k); } };
 Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
-const { chooseButton, risingBits, MicButton, ledCandidates, ledBytes, ledReports, ledPattern, parseLedCode } = await import('../public/js/mic-button.js');
+const { chooseButton, risingBits, MicButton, ledCandidates, ledBytes, ledReports, ledPattern, parseLedCode, KNOWN_LEDS } = await import('../public/js/mic-button.js');
 
 const R = (...bytes) => ({ reportId: 1, bytes: Uint8Array.from(bytes) });
 
@@ -231,4 +231,17 @@ test('light code typed in from IT: on and off commands, checked before use', () 
   assert.match(parseLedCode('').error, /włącz/);
   assert.match(parseLedCode('zz 01').error, /zz/);
   assert.match(parseLedCode('01', '', 300).error, /0–255/);
+});
+
+test('a light code known for a model is used by itself on every computer', async () => {
+  localStorage._m.clear();
+  KNOWN_LEDS['0554:0064'] = { type: 'output', reportId: 0, length: 3, on: [3, 0xff, 0xff], off: [3, 0, 0] };
+  const mic = new MicButton({ onPress: () => {} });
+  const dev = { ...ledDevice([{ usagePage: 0xffa0, usage: 1, outputReports: [{ reportId: 0, items: [{ reportSize: 8, reportCount: 3, usages: [0xffa10001] }] }] }]), productId: 0x0064 };
+  await mic.open(dev);
+  assert.deepEqual(mic.autoLed().on, [3, 0xff, 0xff]);
+  dev.sent.length = 0;
+  await mic.setLed(true); await mic.setLed(false);
+  assert.deepEqual(dev.sent, [['out', 0, [3, 0xff, 0xff]], ['out', 0, [3, 0, 0]]]);
+  delete KNOWN_LEDS['0554:0064'];
 });
