@@ -325,6 +325,20 @@
 
   <!-- Settings drawer -->
   <div class="overlay" id="overlay" hidden></div>
+  <!-- first start: microphone and sound, once; later in Settings → Mikrofon -->
+  <div class="modal" id="setupModal" hidden role="dialog" aria-label="Ustawienia na start">
+    <div class="modal-card setup-card">
+      <h3>Witaj! Dwa krótkie pytania na start</h3>
+      <p class="hint">Możesz to zmienić w każdej chwili: ⚙ Ustawienia → Mikrofon.</p>
+      <p class="setup-q">1. Czym będziesz dyktować?</p>
+      <label class="setup-choice"><input type="radio" name="setupMic" value="default" checked /> <span><b>Mikrofonem komputera</b> albo zestawem słuchawkowym<br><small>Nic nie trzeba ustawiać — działa od razu.</small></span></label>
+      <label class="setup-choice"><input type="radio" name="setupMic" value="dictation" /> <span><b>Mikrofonem do dyktowania</b> (PowerMic, SpeechMike)<br><small>Podłącz go teraz — znajdziemy go, nauczymy przycisk nagrywania i czerwoną diodę (ok. minuty).</small></span></label>
+      <p class="setup-q">2. Dźwięk przy rozpoczęciu i zakończeniu nagrywania</p>
+      <label class="setup-choice inline"><input type="checkbox" id="setupChime" checked /> <span>Tak, krótki, delikatny dźwięk</span> <button type="button" class="btn btn-small" id="setupChimeTest">Posłuchaj</button></label>
+      <div class="setup-actions"><button type="button" class="btn btn-primary" id="setupDone">Gotowe — zaczynam</button></div>
+    </div>
+  </div>
+
   <aside class="drawer" id="settings" aria-hidden="true" aria-label="Ustawienia">
     <div class="drawer-head">
       <h3>Ustawienia</h3>
@@ -367,6 +381,13 @@
         <ul class="style-list" id="styleList"></ul>
         <button class="link-btn" id="clearStyle" hidden>Zapomnij wszystko, czego się nauczył</button>
       </div>
+      <div class="field mic-summary">
+        <div class="field-head"><label>Mikrofon</label></div>
+        <p class="mic-now" id="micNow"></p>
+        <div class="btn-row"><button class="btn btn-small btn-primary" id="micFind">Wykryj mikrofon</button></div>
+        <p class="hint" id="micFindStatus"></p>
+        <p class="hint">Bez dodatkowego mikrofonu dyktujesz mikrofonem komputera (albo tym, który jest podłączony i ustawiony jako domyślny) — nic nie trzeba ustawiać.</p>
+      </div>
       <div class="field">
         <div class="field-head"><label>Przycisk mikrofonu (np. Nuance PowerMic)</label></div>
         <p class="hint" id="micStatus"></p>
@@ -381,6 +402,7 @@
           <label><input type="radio" name="micMode" id="micModeHold" value="hold" /> <span><b>Przytrzymaj</b>, aby dyktować — puść, aby zakończyć</span></label>
         </div>
         <p class="hint">Dotyczy przycisku na mikrofonie (PowerMic / SpeechMike) i przypisanego klawisza.</p>
+        <label class="chime-opt"><input type="checkbox" id="chimeOn" /> <span><b>Dźwięk</b> na początku i na końcu nagrywania</span> <button type="button" class="btn btn-small" id="chimeTest">Posłuchaj</button></label>
         <div class="mic-led" id="micLedRow" hidden>
           <p class="hint" id="micLedStatus"></p>
           <div class="btn-row">

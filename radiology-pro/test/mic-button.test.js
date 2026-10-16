@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 
 globalThis.localStorage = { _m: new Map(), getItem(k) { return this._m.get(k) ?? null; }, setItem(k, v) { this._m.set(k, String(v)); }, removeItem(k) { this._m.delete(k); } };
 Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
-const { chooseButton, risingBits, MicButton, ledCandidates, ledBytes } = await import('../public/js/mic-button.js');
+const { chooseButton, risingBits, MicButton, ledCandidates, ledBytes, ledReports, ledPattern } = await import('../public/js/mic-button.js');
 
 const R = (...bytes) => ({ reportId: 1, bytes: Uint8Array.from(bytes) });
 
@@ -200,4 +200,24 @@ test('a new PowerMic plugged in while the app is open is picked up by itself', a
   assert.equal(mic.name, 'PowerMic 4');
   assert.equal(mic.needsSetup, true);
   Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
+});
+
+test('red light search: groups first, patterns of several switches, keyboard part never offered', () => {
+  const cols = [
+    { usagePage: 0x01, usage: 0x06, outputReports: [{ reportId: 9, items: [{ reportSize: 1, reportCount: 5, usages: [LED(1), LED(2), LED(3), LED(4), LED(5)] }, { reportSize: 3, reportCount: 1, usages: [] }] }] }, // keyboard: Num/Caps Lock
+    { usagePage: 0xff00, usage: 1, outputReports: [
+      { reportId: 2, items: [{ reportSize: 8, reportCount: 2, usages: [0xff000001, 0xff000002] }] },
+      { reportId: 3, items: [{ reportSize: 1, reportCount: 8, usages: [0xff000010] }] },
+    ] },
+  ];
+  const cands = ledCandidates(cols);
+  assert.ok(!cands.some((c) => c.reportId === 9), 'the browser never lets a page switch keyboard lights');
+  const groups = ledReports(cands);
+  assert.deepEqual(groups.map((g) => g.reportId), [2, 3]);
+  assert.deepEqual([...ledBytes(ledPattern(groups[1]), true)], [0xff], 'a whole group on');
+  const two = cands.filter((c) => c.reportId === 3).slice(2, 4);
+  const pat = ledPattern(groups[1], two);
+  assert.deepEqual([...ledBytes(pat, true)], [0x0c], 'only the chosen switches');
+  assert.deepEqual([...ledBytes(pat, false)], [0x00]);
+  assert.deepEqual([...ledBytes({ type: 'output', reportId: 3, length: 1, byte: 0, mask: 0x20 }, true)], [0x20], 'single switches unchanged');
 });

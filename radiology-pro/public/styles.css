@@ -900,3 +900,21 @@ body.friend .brand-mark {
 .mic-setup[hidden] { display: none; }
 @keyframes micSetupPulse { 50% { box-shadow: 0 0 0 4px rgba(255, 181, 71, 0.12); } }
 @media (prefers-reduced-motion: reduce) { .mic-setup { animation: none; } }
+
+.chime-opt { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; font-size: 13px; }
+.chime-opt .btn { margin-left: auto; }
+.mic-now { margin: 0 0 8px; font-size: 13.5px; line-height: 1.45; }
+.mic-find-link { margin-top: 6px; border: 0; background: none; color: var(--text-faint); font: 12px inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.mic-find-link:hover { color: var(--accent); }
+.mic-find-link[hidden] { display: none; }
+
+/* first start: microphone and sound */
+.setup-card { width: min(540px, calc(100vw - 32px)); padding: 24px 26px; border-radius: 18px; background: var(--panel-solid, #0d1218); border: 1px solid var(--line); box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.8); }
+.setup-card h3 { margin: 0 0 4px; }
+.setup-q { margin: 16px 0 8px; font-weight: 600; }
+.setup-choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; font-size: 14px; line-height: 1.4; }
+.setup-choice small { color: var(--text-faint); font-size: 12.5px; }
+.setup-choice:has(input:checked) { border-color: var(--accent); background: rgba(89, 212, 255, 0.06); }
+.setup-choice.inline { align-items: center; }
+.setup-choice.inline .btn { margin-left: auto; }
+.setup-actions { display: flex; justify-content: flex-end; margin-top: 16px; }

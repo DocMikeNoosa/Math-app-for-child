@@ -1,6 +1,6 @@
 {
   "name": "radvox-ir",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "private": true,
   "description": "RadVox IR — dyktowanie opisów zabiegów radiologii interwencyjnej i neurointerwencji (PL/EN) z szablonami i AI (Claude).",
   "type": "module",

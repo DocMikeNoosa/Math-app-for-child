@@ -4,7 +4,8 @@ import { localMerge, findConflicts, applyConflicts, splitSentences, analyseFindi
 import { Dictation, LevelMeter, speechSupported } from './speech.js';
 import { parseVoiceCommands, dropLastSentence, dropLastWord, COMMAND_LABELS } from './voice-commands.js';
 import { styleExamplesFrom, addStyleExamples, conclusionChanges, reportChanged, addUnique, similarity } from './style-learning.js';
-import { MicButton } from './mic-button.js';
+import { MicButton, ledPattern, isDictationMic } from './mic-button.js';
+import { chime, chimeEnabled, setChimeEnabled } from './chime.js';
 import { listInputs, InputTester, inputError } from './audio-input.js';
 
 const $ = (id) => document.getElementById(id);
@@ -28,7 +29,7 @@ const els = Object.fromEntries(
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
-    'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
+    'chimeOn', 'chimeTest', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
   ].map((id) => [id, $(id)]),
 );
 
@@ -1461,6 +1462,7 @@ function startRecording() {
   }
   state.recording = true;
   mic.setLed(true); // red light on the PowerMic
+  chime('start'); // soft rising chime: recording
   document.body.classList.add('recording');
   els.recBtn.setAttribute('aria-pressed', 'true');
   els.recBtn.setAttribute('aria-label', 'Zatrzymaj dyktowanie');
@@ -1483,6 +1485,7 @@ async function stopRecording() {
   state.recording = false;
   stopping = false;
   mic.setLed(false);
+  chime('stop'); // soft falling chime: stopped
   document.body.classList.remove('recording');
   els.recBtn.setAttribute('aria-pressed', 'false');
   els.recBtn.setAttribute('aria-label', 'Rozpocznij dyktowanie');
@@ -1764,6 +1767,7 @@ function renderMic() {
   const skipped = (() => { try { return localStorage.getItem(MIC_SKIP_KEY) === '1'; } catch { return false; } })();
   const showSetup = mic.needsSetup && (mic.connected || !skipped);
   els.micSetupRow.hidden = !showSetup;
+  renderMicNow();
   if (showSetup) {
     els.micSetup.textContent = !mic.connected
       ? 'PowerMic niepołączony — kliknij tutaj'
@@ -1771,6 +1775,63 @@ function renderMic() {
   }
 }
 const MIC_SKIP_KEY = 'radvox.micskip.v1';
+// first start: two questions (microphone, sound) once; afterwards everything is in Settings → Mikrofon
+const SETUP_KEY = 'radvox.setup.v1';
+function maybeFirstRun() {
+  try {
+    if (localStorage.getItem(SETUP_KEY)) return;
+    // people who already use the app are not interrupted (they find it in Settings)
+    if (localStorage.getItem('radvox.v2') || localStorage.getItem('radvox.mic.v1')) { localStorage.setItem(SETUP_KEY, 'existing'); return; }
+  } catch { return; }
+  els.setupChime.checked = chimeEnabled();
+  els.setupModal.hidden = false;
+}
+function finishSetup() {
+  setChimeEnabled(els.setupChime.checked);
+  els.chimeOn.checked = els.setupChime.checked;
+  const dictation = document.querySelector('input[name="setupMic"]:checked')?.value === 'dictation';
+  try { localStorage.setItem(SETUP_KEY, dictation ? 'dictation-mic' : 'default-mic'); } catch { /* ignore */ }
+  els.setupModal.hidden = true;
+  if (dictation) { openSettings(true); els.micNow.scrollIntoView({ block: 'center' }); discoverMic(); }
+  else { try { localStorage.setItem(MIC_SKIP_KEY, '1'); } catch { /* ignore */ } toast('Gotowe — dyktujesz mikrofonem komputera. Naciśnij duży przycisk mikrofonu, Spację lub F2.', 'ok', 5000); }
+}
+// which microphone dictation uses now — in plain words, at the top of the microphone settings
+let defaultInputLabel = '';
+let lastInputs = [];
+const DICTATION_MIC_NAME = /powermic|speechmike|nuance|philips|dictation/i;
+function renderMicNow() {
+  const def = defaultInputLabel ? `: ${defaultInputLabel}` : '';
+  els.micNow.textContent = mic.connected && mic.bound ? `Dyktujesz z mikrofonem ${mic.name} — przycisk nagrywania${mic.led ? ' i czerwona dioda działają' : ' działa'}. Głos: mikrofon domyślny${def}.`
+    : mic.connected ? `${mic.name} połączony — naucz przycisk nagrywania (poniżej: „Naucz przycisk”).`
+      : `Dyktujesz mikrofonem domyślnym${def}. Masz PowerMic lub SpeechMike? Kliknij „Wykryj mikrofon”.`;
+}
+/** "Wykryj mikrofon": list the microphones, connect a dictation microphone if there is one, otherwise say the default is used. */
+async function discoverMic() {
+  els.micFind.disabled = true;
+  els.micFindStatus.textContent = 'Szukam mikrofonów…';
+  try { localStorage.removeItem(MIC_SKIP_KEY); } catch { /* ignore */ }
+  try {
+    await renderInputs();
+    const audioDictation = lastInputs.find((d) => DICTATION_MIC_NAME.test(d.label || ''));
+    if (mic.supported && !mic.connected) {
+      const allowed = (await navigator.hid.getDevices()).find(isDictationMic);
+      if (allowed) { await mic.open(allowed); mic.adopt(allowed); renderMic(); await learnMicButton(); }
+      else await connectMic(false); // the browser shows its list once; connecting continues with the button
+    } else if (mic.connected && !mic.bound) await learnMicButton();
+    const voiceHint = audioDictation && defaultInputLabel && !DICTATION_MIC_NAME.test(defaultInputLabel)
+      ? ` Uwaga: głos jest teraz brany z „${defaultInputLabel}”. Aby mówić do ${audioDictation.label}, ustaw go jako mikrofon domyślny (opis niżej, w sekcji „Mikrofon do dyktowania”).` : '';
+    if (mic.connected) els.micFindStatus.textContent = `Znaleziono: ${mic.name}.${voiceHint}`;
+    else {
+      els.micFindStatus.textContent = `Nie znaleziono mikrofonu do dyktowania — dyktujesz mikrofonem domyślnym${defaultInputLabel ? ` (${defaultInputLabel})` : ''}. Wszystko działa.${voiceHint}`;
+      try { localStorage.setItem(MIC_SKIP_KEY, '1'); } catch { /* ignore */ }
+    }
+  } catch (err) {
+    els.micFindStatus.textContent = `Nie udało się wyszukać: ${err.message || err}`;
+  } finally {
+    els.micFind.disabled = false;
+    renderMic();
+  }
+}
 function skipMicSetup() {
   try { localStorage.setItem(MIC_SKIP_KEY, '1'); } catch { /* private mode: hidden until reload */ }
   els.micSetupRow.hidden = true;
@@ -1813,41 +1874,83 @@ async function learnMicButton() {
 }
 
 // red "recording" light: used automatically when the device declares one standard light; otherwise the user finds
-// it once — each possible switch is turned on in turn and the user says whether the light came on
-let ledStep = -1;
+// it once: first each group of switches is lit whole (few questions), then the group that lit is halved until the
+// switch is found (about ten questions at most). If only a combination works, that combination is remembered.
+let ledStep = -1;      // >= 0 while searching
+let ledPhase = 'group'; // 'group' | 'narrow'
+let ledGroup = null;   // the group that lit up
+let ledSet = [];       // switches still in play
+let ledTrial = null;   // { set, half: 'first'|'rest' } shown now
+let ledCur = null;     // light setting switched on now
 function renderLed() {
   els.micLedRow.hidden = !mic.connected;
   if (!mic.connected) return;
   const n = mic.ledCandidates().length;
   els.micLedStatus.textContent = mic.led ? 'Czerwona dioda: świeci podczas dyktowania.'
-    : n ? 'Czerwona dioda: nieustawiona — kliknij „Znajdź czerwoną diodę” (trwa ok. minuty).'
+    : n ? 'Czerwona dioda: nieustawiona — kliknij „Znajdź czerwoną diodę” (kilka pytań tak / nie).'
       : 'Czerwona dioda: ten mikrofon nie pozwala przeglądarce sterować diodą. Dyktowanie działa normalnie.';
   els.micLedFind.hidden = !n || ledStep >= 0;
   els.micLedFind.textContent = mic.led ? 'Szukaj diody ponownie' : 'Znajdź czerwoną diodę';
   els.micLedTest.hidden = !mic.led || ledStep >= 0;
   els.micLedAsk.hidden = ledStep < 0;
 }
-async function ledTry(n) {
-  if (n === 0) await mic.setLed(false);
-  const c = await mic.tryLed(n);
-  if (!c) {
-    ledStep = -1;
-    await mic.setLed(state.recording);
-    toast('Nie znaleziono diody, którą przeglądarka może włączyć. Dyktowanie działa normalnie — tylko bez czerwonego światła.', 'warn', 7000);
-    renderLed();
-    return;
-  }
-  ledStep = n;
-  els.micLedQ.textContent = `Próba ${n + 1} z ${mic.ledCandidates().length}: czy czerwona dioda na mikrofonie świeci TERAZ?`;
+async function ledShow(setting, question) {
+  if (ledCur) await mic.setLed(false, ledCur);
+  ledCur = setting;
+  const ok = await mic.setLed(true, setting);
+  els.micLedQ.textContent = question;
   renderLed();
+  return ok;
 }
-async function ledDone(found) {
-  const c = mic.ledCandidates()[ledStep];
-  if (c) await mic.setLed(false, c);
-  ledStep = -1;
-  if (found && c) { mic.saveLed(c); toast('Dioda zapamiętana — będzie świecić podczas dyktowania', 'ok', 4000); }
+async function ledEnd(found) {
+  if (ledCur) await mic.setLed(false, ledCur);
+  if (found) { mic.saveLed(found); toast('Dioda zapamiętana — będzie świecić podczas dyktowania', 'ok', 4000); }
+  ledStep = -1; ledCur = null; ledTrial = null;
   await mic.setLed(state.recording);
   renderLed();
+}
+/** Group phase: light group n whole (groups the browser refuses are skipped without asking). */
+async function ledTry(n) {
+  if (n === 0) { await mic.setLed(false); ledPhase = 'group'; ledCur = null; }
+  const groups = mic.ledReports();
+  for (; n < groups.length; n++) {
+    ledStep = n;
+    if (await ledShow(ledPattern(groups[n]), `Pytanie ${n + 1} z ${groups.length}: czy czerwona dioda na mikrofonie świeci TERAZ (albo mignęła)?`)) return;
+  }
+  await ledEnd(null);
+  toast('Nie znaleziono diody, którą przeglądarka może włączyć. Dyktowanie działa normalnie — tylko bez czerwonego światła.', 'warn', 7000);
+}
+/** Narrow phase: show half of the remaining switches. */
+async function ledNarrow(half = 'first') {
+  ledPhase = 'narrow';
+  const first = ledSet.slice(0, Math.ceil(ledSet.length / 2));
+  const set = ledSet.length === 1 ? ledSet : half === 'first' ? first : ledSet.slice(first.length);
+  ledTrial = { set, half: ledSet.length === 1 ? 'rest' : half };
+  const left = Math.max(1, Math.ceil(Math.log2(ledSet.length)) * 2);
+  const ok = await ledShow(set.length === 1 ? set[0] : ledPattern(ledGroup, set), `Zawężamy (jeszcze najwyżej ${left} pyt.): czy czerwona dioda świeci TERAZ?`);
+  if (!ok) await ledAnswer(false);
+}
+async function ledAnswer(yes) {
+  if (ledStep < 0) return;
+  if (ledPhase === 'group') {
+    if (!yes) return ledTry(ledStep + 1);
+    ledGroup = mic.ledReports()[ledStep];
+    ledSet = mic.ledBits(ledGroup);
+    if (!ledSet.length) return ledEnd(ledPattern(ledGroup));
+    return ledNarrow('first');
+  }
+  if (yes) {
+    ledSet = ledTrial.set;
+    if (ledSet.length === 1) return ledEnd(ledSet[0]);
+    return ledNarrow('first');
+  }
+  if (ledTrial.half === 'first') return ledNarrow('rest');
+  // neither half alone: this group needs a combination — keep what lit up
+  return ledEnd(ledSet.length === 1 && ledGroup ? ledPattern(ledGroup) : ledPattern(ledGroup, ledSet));
+}
+async function ledDone(found) {
+  if (found) return ledAnswer(true);
+  return ledEnd(null);
 }
 
 // microphones on this computer: list + level test (dictation itself uses the browser's default microphone)
@@ -1855,7 +1958,10 @@ const inputTester = new InputTester();
 let inputTestTimer = 0;
 async function renderInputs() {
   const list = await listInputs();
+  lastInputs = list;
   const def = list.find((d) => d.deviceId === 'default');
+  defaultInputLabel = def?.label ? def.label.replace(/^(default|domyślne|domyślny)\s*-\s*/i, '') : (list[0]?.label || '');
+  if (els.micNow) renderMicNow();
   const defName = def?.label ? ` — ${def.label.replace(/^(default|domyślne|domyślny)\s*-\s*/i, '')}` : '';
   const cur = els.audioInput.value;
   const others = list.filter((d) => d.deviceId && !['default', 'communications'].includes(d.deviceId));
@@ -2110,7 +2216,13 @@ function bind() {
   // dictation button
   els.micConnect.addEventListener('click', () => connectMic(false));
   els.micSetup.addEventListener('click', setupMicFromMain);
+  els.chimeOn.checked = chimeEnabled();
+  els.chimeOn.addEventListener('change', () => { setChimeEnabled(els.chimeOn.checked); if (els.chimeOn.checked) chime('start'); });
+  els.chimeTest.addEventListener('click', (e) => { e.preventDefault(); chime('start', { force: true }); setTimeout(() => chime('stop', { force: true }), 700); });
   els.micSkip.addEventListener('click', skipMicSetup);
+  els.micFind.addEventListener('click', discoverMic);
+  els.setupChimeTest.addEventListener('click', (e) => { e.preventDefault(); chime('start', { force: true }); setTimeout(() => chime('stop', { force: true }), 700); });
+  els.setupDone.addEventListener('click', finishSetup);
   els.micConnectAny.addEventListener('click', () => connectMic(true));
   for (const r of [els.micModeToggle, els.micModeHold]) {
     r.addEventListener('change', () => {
@@ -2121,7 +2233,7 @@ function bind() {
   }
   els.micLedFind.addEventListener('click', () => ledTry(0));
   els.micLedYes.addEventListener('click', () => ledDone(true));
-  els.micLedNo.addEventListener('click', () => ledTry(ledStep + 1));
+  els.micLedNo.addEventListener('click', () => ledAnswer(false));
   els.micLedStop.addEventListener('click', () => ledDone(false));
   els.micLedTest.addEventListener('click', async () => {
     const ok = await mic.setLed(true);
@@ -2324,6 +2436,7 @@ function init() {
   bind();
   renderMic();
   mic.restore().then(() => { if (mic.connected) mic.autoLed(); renderMic(); });
+  maybeFirstRun();
   renderInputs();
   renderPrepState();
   renderClinical();

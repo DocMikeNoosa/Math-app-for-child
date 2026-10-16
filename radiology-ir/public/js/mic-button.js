@@ -77,6 +77,8 @@ export function ledCandidates(collections = []) {
   const out = [];
   const walk = (cols) => {
     for (const c of cols || []) {
+      // the keyboard / mouse part of a microphone: the browser never lets a page switch its lights (Num Lock…)
+      if (isProtected(c)) continue;
       for (const [type, reports] of [['output', c.outputReports], ['feature', c.featureReports]]) {
         for (const r of reports || []) {
           let bit = 0;
@@ -111,15 +113,30 @@ export function ledCandidates(collections = []) {
     .slice(0, 48);
 }
 
-/** The bytes to send for one light state. */
+/** The bytes to send for one light state (one switch, or a remembered pattern of several). */
 export function ledBytes(led, on) {
   const data = new Uint8Array(led.length);
-  if (on) data[led.byte] |= led.mask;
+  if (on && Array.isArray(led.on)) data.set(led.on.slice(0, led.length));
+  else if (on) data[led.byte] |= led.mask;
   return data;
 }
 
+/** The reports (groups of switches) the candidates live in: [{ type, reportId, length }], in candidate order. */
+export function ledReports(candidates) {
+  const out = [];
+  for (const c of candidates) if (!out.some((r) => r.type === c.type && r.reportId === c.reportId)) out.push({ type: c.type, reportId: c.reportId, length: c.length });
+  return out;
+}
+/** A light setting made of several switches of one report (null = every bit of the report on). */
+export function ledPattern(report, cands = null) {
+  const on = new Array(report.length).fill(cands ? 0 : 0xff);
+  for (const c of cands || []) on[c.byte] |= c.mask;
+  return { type: report.type, reportId: report.reportId, length: report.length, on, led: false };
+}
+const isProtected = (c) => c.usagePage === 0x01 && [0x02, 0x06, 0x07, 0x80].includes(c.usage);
+
 // HID usages Chrome does not give to web pages (keyboards, mice…): a device that only has these cannot be read
-const PROTECTED = (c) => c.usagePage === 0x01 && [0x02, 0x06, 0x07, 0x80].includes(c.usage);
+const PROTECTED = isProtected;
 /** A dictation microphone (Nuance PowerMic, Philips SpeechMike) whose buttons a web page can read. */
 export const isDictationMic = (d) => [NUANCE_VENDOR_ID, PHILIPS_VENDOR_ID].includes(d?.vendorId) && (d.collections || []).some((c) => !PROTECTED(c));
 
@@ -151,6 +168,10 @@ export class MicButton {
   get led() { return this.config?.led || null; }
   /** Possible light switches of the connected device (for the "find the light" step). */
   ledCandidates() { return this.device ? ledCandidates(this.device.collections) : []; }
+  /** The groups of switches (reports) — tried whole first, so finding the light takes only a few questions. */
+  ledReports() { return ledReports(this.ledCandidates()); }
+  /** The switches of one group. */
+  ledBits(report) { return this.ledCandidates().filter((c) => c.type === report.type && c.reportId === report.reportId); }
 
   /** Light on / off (the red "recording" light of a PowerMic). Never throws. */
   async setLed(on, led = this.led) {
