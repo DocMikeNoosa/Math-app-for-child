@@ -889,3 +889,10 @@ body.friend .brand-mark {
 .credit-msg { margin: 0 0 12px; padding: 8px 12px; border-radius: 10px; font-size: 14px; }
 .credit-msg.ok { background: rgba(63, 224, 168, 0.1); border: 1px solid rgba(63, 224, 168, 0.4); }
 .credit-msg.err { background: rgba(255, 77, 97, 0.08); border: 1px solid rgba(255, 77, 97, 0.4); }
+
+/* PowerMic needs one click: shown under the record button (also in the narrow layout) */
+.mic-setup { margin-top: 8px; max-width: 280px; padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(255, 181, 71, 0.55); background: rgba(255, 181, 71, 0.1); color: #ffd79a; font: 600 12.5px/1.35 inherit; cursor: pointer; text-align: center; animation: micSetupPulse 2.4s ease-in-out infinite; }
+.mic-setup:hover { background: rgba(255, 181, 71, 0.18); }
+.mic-setup[hidden] { display: none; }
+@keyframes micSetupPulse { 50% { box-shadow: 0 0 0 4px rgba(255, 181, 71, 0.12); } }
+@media (prefers-reduced-motion: reduce) { .mic-setup { animation: none; } }

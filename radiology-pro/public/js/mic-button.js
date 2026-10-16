@@ -120,6 +120,8 @@ export function ledBytes(led, on) {
 
 // HID usages Chrome does not give to web pages (keyboards, mice…): a device that only has these cannot be read
 const PROTECTED = (c) => c.usagePage === 0x01 && [0x02, 0x06, 0x07, 0x80].includes(c.usage);
+/** A dictation microphone (Nuance PowerMic, Philips SpeechMike) whose buttons a web page can read. */
+export const isDictationMic = (d) => [NUANCE_VENDOR_ID, PHILIPS_VENDOR_ID].includes(d?.vendorId) && (d.collections || []).some((c) => !PROTECTED(c));
 
 export class MicButton {
   constructor({ onPress, onRelease, onChange, onRaw, persist = true }) {
@@ -184,19 +186,39 @@ export class MicButton {
 
   save(config) { if (this.persist) save(config); }
 
-  /** Reopen a device the user already allowed (no prompt). */
+  /** A device needs setting up: chosen before but not connected now, or connected without a learned button. */
+  get needsSetup() { return this.supported && this.known && (!this.connected || !this.bound); }
+  /** A different microphone than the remembered one was taken over (e.g. a new PowerMic): learn its button. */
+  adopt(d) {
+    const same = this.config && this.config.vendorId === d.vendorId && this.config.productId === d.productId;
+    if (same) return;
+    this.config = { vendorId: d.vendorId, productId: d.productId, productName: d.productName, binding: null, led: null };
+    this.save(this.config);
+    this.replaced = true;
+    this.onChange();
+  }
+
+  /**
+   * Reopen a device the user already allowed (no prompt). If the remembered microphone is not there but another
+   * allowed dictation microphone is (a new PowerMic), use that one — its button is then learned once.
+   */
   async restore() {
-    if (!this.supported || !this.config?.vendorId) return false;
+    if (!this.supported) return false;
+    const exact = (x) => this.config && x.vendorId === this.config.vendorId && x.productId === this.config.productId;
     try {
       const devices = await navigator.hid.getDevices();
-      const d = devices.find((x) => x.vendorId === this.config.vendorId && x.productId === this.config.productId);
+      const d = devices.find(exact);
+      const other = !d && this.config?.vendorId ? devices.find(isDictationMic) : null;
       if (d) await this.open(d);
+      else if (other) { await this.open(other); this.adopt(other); }
     } catch { /* ignore */ }
     navigator.hid.addEventListener?.('disconnect', (e) => {
       if (e.device === this.device) { this.device = null; this.onChange(); }
     });
     navigator.hid.addEventListener?.('connect', (e) => {
-      if (!this.device && this.config && e.device.vendorId === this.config.vendorId && e.device.productId === this.config.productId) this.open(e.device).catch(() => {});
+      if (this.device || !this.config) return;
+      if (exact(e.device)) this.open(e.device).catch(() => {});
+      else if (isDictationMic(e.device)) this.open(e.device).then(() => this.adopt(e.device)).catch(() => {});
     });
     return this.connected;
   }

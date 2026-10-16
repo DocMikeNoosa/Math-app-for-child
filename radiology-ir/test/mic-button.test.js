@@ -157,3 +157,47 @@ test('the toggle / hold choice survives "Odłącz" and a reload; test pages neve
   probe.setMode('hold');
   assert.equal(new MicButton({ onPress: () => {} }).mode, 'toggle', 'persist: false leaves the saved choice alone');
 });
+
+test('a NEW PowerMic replacing the remembered one is taken over and asks for its button (no silent dead button)', async () => {
+  localStorage.setItem('radvox.mic.v1', JSON.stringify({ vendorId: 0x0554, productId: 0x1001, productName: 'PowerMic II', binding: { reportId: 1, byte: 1, mask: 4 }, led: null }));
+  const newMic = { ...fakeDevice(), productId: 0x0064, productName: 'PowerMic 4' };
+  const keyboardOnly = { ...fakeDevice(), vendorId: 0x046d, productId: 0x0001, collections: [{ usagePage: 0x01, usage: 0x06 }] };
+  const hid = { listeners: {}, addEventListener(t, f) { (this.listeners[t] ||= []).push(f); }, getDevices: async () => [keyboardOnly, newMic] };
+  Object.defineProperty(globalThis.navigator, 'hid', { value: hid, configurable: true });
+  const mic = new MicButton({ onPress: () => {} });
+  assert.equal(mic.needsSetup, true, 'remembered but not connected yet');
+  await mic.restore();
+  assert.equal(mic.connected, true);
+  assert.equal(mic.name, 'PowerMic 4');
+  assert.equal(mic.bound, false, "the old mic's button is not assumed for the new one");
+  assert.equal(mic.replaced, true);
+  assert.equal(mic.needsSetup, true, 'the main screen asks to press the button twice');
+  // plugging the old one back in later does not steal the new connection
+  const learning = mic.learn(5000);
+  newMic.send(0, 0x04); newMic.send(0, 0); newMic.send(0, 0x04); newMic.send(0, 0);
+  assert.equal((await learning).ok, true);
+  assert.equal(mic.needsSetup, false);
+  // the same mic remembered → simply reopened, nothing to set up
+  const again = new MicButton({ onPress: () => {} });
+  await again.restore();
+  assert.equal(again.connected, true);
+  assert.equal(again.bound, true);
+  assert.equal(again.replaced, undefined);
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
+});
+
+test('a new PowerMic plugged in while the app is open is picked up by itself', async () => {
+  localStorage.setItem('radvox.mic.v1', JSON.stringify({ vendorId: 0x0554, productId: 0x1001, productName: 'PowerMic II', binding: { reportId: 1, byte: 1, mask: 4 } }));
+  const hid = { listeners: {}, addEventListener(t, f) { (this.listeners[t] ||= []).push(f); }, getDevices: async () => [] };
+  Object.defineProperty(globalThis.navigator, 'hid', { value: hid, configurable: true });
+  const mic = new MicButton({ onPress: () => {} });
+  await mic.restore();
+  assert.equal(mic.connected, false);
+  const newMic = { ...fakeDevice(), productId: 0x0064, productName: 'PowerMic 4' };
+  for (const f of hid.listeners.connect) f({ device: newMic });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(mic.connected, true);
+  assert.equal(mic.name, 'PowerMic 4');
+  assert.equal(mic.needsSetup, true);
+  Object.defineProperty(globalThis.navigator, 'hid', { value: { addEventListener() {}, getDevices: async () => [] }, configurable: true });
+});

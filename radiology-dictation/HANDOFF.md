@@ -2,7 +2,7 @@
 
 Read this first, then `README.md` (features in detail) and the code. Repository:
 https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-radiology-dictation-e0ov8p`, folder
-`radiology-dictation/`. Version 0.14.1 (see `package.json`).
+`radiology-dictation/`. Version 0.14.2 (see `package.json`). 0.14.2: a new PowerMic replacing the remembered one is taken over automatically (or with one click on the main screen), its button is learned with two presses and the red light is found right after.
 UI rule from the radiologist: do NOT change the look of buttons (keep the thin blue rim on active
 toggles) or the overall layout when adding features — add functionality in the existing style.
 

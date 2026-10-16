@@ -31,7 +31,7 @@ const els = Object.fromEntries(
     'origBtn', 'origModal', 'origTitle', 'origBody', 'closeOrig', 'origCopyAll',
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
-    'micStatus', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
+    'micStatus', 'micSetup', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
     'menuLang', 'procBtn', 'anatomy', 'anatSide', 'closeAnatomy', 'anatParts', 'anatTargets', 'anatProcs', 'anatTpls', 'anatSummary', 'anatCancel', 'anatApply',
   ].map((id) => [id, $(id)]),
 );
@@ -1919,6 +1919,20 @@ function renderMic() {
   els.keyStatus.textContent = learningKey ? 'naciśnij klawisz…' : state.recordKey ? keyLabel(state.recordKey) : 'brak (Spacja / F2 zawsze działają)';
   els.keyClear.hidden = !state.recordKey;
   els.micHint.textContent = mic.connected && mic.bound ? 'mikrofon' : state.recordKey ? keyLabel(state.recordKey) : '';
+  // on the main screen, right under the record button: a PowerMic that needs one click (never hidden in settings)
+  els.micSetup.hidden = !mic.needsSetup;
+  if (mic.needsSetup) {
+    els.micSetup.textContent = !mic.connected
+      ? 'PowerMic niepołączony — kliknij tutaj'
+      : `${mic.replaced ? 'Nowy mikrofon' : 'Mikrofon'} — kliknij tutaj i naciśnij przycisk nagrywania 2×`;
+  }
+}
+// one click from the main screen: connect (the browser asks once), learn the button, then find the red light
+async function setupMicFromMain() {
+  openSettings(true);
+  els.micStatus.scrollIntoView({ block: 'center' });
+  if (!mic.connected) await connectMic(false);
+  else await learnMicButton();
 }
 async function connectMic(any) {
   try {
@@ -1928,13 +1942,20 @@ async function connectMic(any) {
       learnMicButton();
     }
   } catch (err) {
-    if (err?.name !== 'NotFoundError') toast(`Nie udało się połączyć: ${err.message}`, 'err', 5000);
+    // the list was empty or closed: a newer model may introduce itself differently — the full list shows it
+    if (err?.name === 'NotFoundError') { if (!any) toast('Nie było mikrofonu na liście? Kliknij „Inne urządzenie…” (obok „Połącz PowerMic”) — tam są wszystkie urządzenia; wybierz z nazwą PowerMic / Nuance / SpeechMike.', 'warn', 9000); }
+    else toast(`Nie udało się połączyć: ${err.message}`, 'err', 5000);
   }
 }
 async function learnMicButton() {
   els.micStatus.textContent = 'Naciśnij teraz DWA RAZY przycisk nagrywania na mikrofonie (naciśnij – puść – naciśnij – puść)…';
   const r = await mic.learn();
-  if (r.ok) toast(mic.mode === 'hold' ? 'Przycisk zapamiętany — przytrzymaj, aby dyktować' : 'Przycisk zapamiętany — naciśnij raz: dyktowanie, drugi raz: stop', 'ok', 4000);
+  if (r.ok) {
+    mic.replaced = false;
+    toast(mic.mode === 'hold' ? 'Przycisk zapamiętany — przytrzymaj, aby dyktować' : 'Przycisk zapamiętany — naciśnij raz: dyktowanie, drugi raz: stop', 'ok', 4000);
+    // the red light: automatic when the device declares one; otherwise go straight to "find the red light"
+    if (!mic.autoLed() && mic.ledCandidates().length && ledStep < 0) setTimeout(() => ledTry(0), 1200);
+  }
   else if (r.reason === 'no-data') { toast(mic.diagnose().hint, 'err', 10000); els.micDiagBox.open = true; }
   else toast('Nie rozpoznano przycisku — spróbuj jeszcze raz, naciskając tylko przycisk nagrywania (bez ruszania kulką / myszką).', 'warn', 7000);
   renderMic();
@@ -2238,6 +2259,7 @@ function bind() {
 
   // dictation button
   els.micConnect.addEventListener('click', () => connectMic(false));
+  els.micSetup.addEventListener('click', setupMicFromMain);
   els.micConnectAny.addEventListener('click', () => connectMic(true));
   for (const r of [els.micModeToggle, els.micModeHold]) {
     r.addEventListener('change', () => {
