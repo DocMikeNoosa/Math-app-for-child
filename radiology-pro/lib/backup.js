@@ -38,7 +38,7 @@ export async function decryptFile(src, dest, pass) {
   readSync(fd, head, 0, 32, 0);
   readSync(fd, tag, 0, 16, size - 16);
   closeSync(fd);
-  if (!head.subarray(0, 4).equals(MAGIC)) throw new Error('To nie jest zaszyfrowana kopia Radiopis.');
+  if (!head.subarray(0, 4).equals(MAGIC)) throw new Error('To nie jest zaszyfrowana kopia RadVox Pro.');
   const decipher = crypto.createDecipheriv('aes-256-gcm', keyFrom(pass, head.subarray(4, 20)), head.subarray(20, 32));
   decipher.setAuthTag(tag);
   try {

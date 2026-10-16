@@ -1,4 +1,4 @@
-# Radiopis — pakiet zgodności (RODO i inne wymogi)
+# RadVox Pro — pakiet zgodności (RODO i inne wymogi)
 
 > **Wzory do weryfikacji przez prawnika / IOD i doradcę regulacyjnego.** Oprogramowanie realizuje środki
 > techniczne; zgodność prawna wymaga jeszcze dokumentów, umów i decyzji, których program nie zastąpi.

@@ -3,11 +3,11 @@
 **Wzór do weryfikacji przez prawnika.**
 
 zawarta w dniu [data] pomiędzy **[Organizacja — nazwa, adres, NIP]** („Administrator”) a **[Usługodawca — nazwa,
-adres, NIP]** („Podmiot przetwarzający”), w związku z umową licencyjną na korzystanie z usługi Radiopis z dnia [data]
+adres, NIP]** („Podmiot przetwarzający”), w związku z umową licencyjną na korzystanie z usługi RadVox Pro z dnia [data]
 („Umowa główna”).
 
 ## § 1. Przedmiot, charakter i cel
-1. Administrator powierza przetwarzanie danych osobowych w zakresie niezbędnym do świadczenia usługi Radiopis
+1. Administrator powierza przetwarzanie danych osobowych w zakresie niezbędnym do świadczenia usługi RadVox Pro
    (przygotowywanie projektów opisów badań obrazowych na podstawie dyktatu, zarządzanie kontami użytkowników).
 2. Charakter przetwarzania: przechowywanie, przesyłanie do modelu AI, porządkowanie, usuwanie.
 3. Czas: przez okres obowiązywania Umowy głównej.

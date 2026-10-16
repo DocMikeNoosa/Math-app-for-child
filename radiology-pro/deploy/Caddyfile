@@ -1,4 +1,4 @@
-# HTTPS in front of Radiopis. The certificate (Let's Encrypt) is obtained and renewed automatically —
+# HTTPS in front of RadVox Pro. The certificate (Let's Encrypt) is obtained and renewed automatically —
 # DOMAIN must already point to this server (DNS A record) and ports 80 + 443 must be open.
 {
 	email {$ACME_EMAIL}

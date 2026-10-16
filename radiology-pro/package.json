@@ -2,7 +2,7 @@
   "name": "radiopis",
   "version": "1.2.0",
   "private": true,
-  "description": "Radiopis — dyktowanie opisów radiologicznych z AI (wersja z kontami i subskrypcją).",
+  "description": "RadVox Pro — dyktowanie opisów radiologicznych z AI (wersja z kontami i subskrypcją).",
   "type": "module",
   "main": "server.js",
   "scripts": {

@@ -1,4 +1,4 @@
-/* Radiopis — public site, account and administrator pages (same dark look as the app) */
+/* RadVox Pro — public site, account and administrator pages (same dark look as the app) */
 @import url('/fonts/fonts.css');
 :root {
   --bg: #05070a;
@@ -50,8 +50,8 @@ p { margin: 0 0 12px; }
 .nav { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(12px); background: rgba(5, 7, 10, 0.72); border-bottom: 1px solid var(--line); }
 .nav .wrap { display: flex; align-items: center; gap: 16px; height: 62px; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--text-strong); font-weight: 700; font-size: 17px; text-decoration: none !important; }
-.brand-mark { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; color: #041018; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
-.brand-mark svg { width: 18px; height: 18px; stroke-width: 2.1; }
+.brand-mark { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; color: #a78bfa; background: linear-gradient(145deg, rgba(167, 139, 250, 0.22), rgba(89, 212, 255, 0.16)); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.35), 0 6px 24px -6px rgba(167, 139, 250, 0.45); }
+.brand-mark svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .nav .grow { flex: 1; }
 .nav-links { display: flex; gap: 18px; font-size: 14px; }
 .nav-links a { color: var(--text-dim); }

@@ -3,7 +3,7 @@
 **Do przeprowadzenia przed wdrożeniem produkcyjnym (z IOD / prawnikiem).** Przesłanki: dane o zdrowiu (art. 9),
 nowe technologie (AI), potencjalnie duża skala (setki lekarzy) — wykaz UODO operacji wymagających DPIA.
 
-1. **Opis przetwarzania**: przepływ dyktat → przeglądarka (rozpoznawanie mowy) → serwer Radiopis → model AI →
+1. **Opis przetwarzania**: przepływ dyktat → przeglądarka (rozpoznawanie mowy) → serwer RadVox Pro → model AI →
    projekt opisu → lekarz kopiuje do RIS. Dane kont, dane o korzystaniu, archiwum nauki (zanonimizowane).
 2. **Niezbędność i proporcjonalność**: minimalizacja (brak archiwum opisów, usuwanie PESEL), retencja, podstawy prawne.
 3. **Ryzyka i środki**

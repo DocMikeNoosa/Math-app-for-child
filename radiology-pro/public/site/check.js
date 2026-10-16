@@ -13,7 +13,7 @@ api('/api/me').then((d) => { me = d.user; $('#sendReport').hidden = false; }).ca
 const CHECKS = [
   ['browser', 'Przeglądarka'],
   ['secure', 'Bezpieczne połączenie (HTTPS)'],
-  ['server', 'Połączenie z Radiopis'],
+  ['server', 'Połączenie z RadVox Pro'],
   ['clock', 'Zegar komputera'],
   ['storage', 'Ciasteczka i pamięć przeglądarki'],
   ['mic', 'Mikrofon'],
@@ -52,7 +52,7 @@ async function checkBrowser() {
 }
 function checkSecure() {
   if (window.isSecureContext) set('secure', 'ok', location.protocol === 'https:' ? 'HTTPS' : 'adres lokalny');
-  else set('secure', 'err', 'połączenie bez HTTPS', 'Mikrofon i schowek działają tylko przez HTTPS — otwieraj Radiopis adresem https://.');
+  else set('secure', 'err', 'połączenie bez HTTPS', 'Mikrofon i schowek działają tylko przez HTTPS — otwieraj RadVox Pro adresem https://.');
 }
 async function checkServer() {
   const times = [];
@@ -68,7 +68,7 @@ async function checkServer() {
     const ms = Math.round(Math.min(...times));
     set('server', ms > 800 ? 'warn' : 'ok', `odpowiedź w ${ms} ms`, ms > 800 ? 'Wolne połączenie — sprawdź proxy / VPN; przy dużych opóźnieniach dyktowanie będzie wolniejsze.' : '');
   } catch (err) {
-    set('server', 'err', `brak połączenia (${err.message})`, 'Zapora / proxy blokuje adres Radiopis. Odblokuj HTTPS (port 443) do domeny Radiopis.');
+    set('server', 'err', `brak połączenia (${err.message})`, 'Zapora / proxy blokuje adres RadVox Pro. Odblokuj HTTPS (port 443) do domeny RadVox Pro.');
   }
   if (serverDate) {
     const diff = Math.round((Date.now() - serverDate) / 1000);
@@ -80,7 +80,7 @@ function checkStorage() {
   let ls = false;
   try { localStorage.setItem('radiopis.check', '1'); localStorage.removeItem('radiopis.check'); ls = true; } catch { /* blocked */ }
   if (navigator.cookieEnabled && ls) set('storage', 'ok', 'włączone');
-  else set('storage', 'err', `${navigator.cookieEnabled ? '' : 'ciasteczka wyłączone '}${ls ? '' : 'pamięć zablokowana'}`.trim(), 'Zezwól na ciasteczka i dane witryn dla adresu Radiopis (bez tego logowanie i ustawienia nie działają). Nie używaj trybu incognito / gościa.');
+  else set('storage', 'err', `${navigator.cookieEnabled ? '' : 'ciasteczka wyłączone '}${ls ? '' : 'pamięć zablokowana'}`.trim(), 'Zezwól na ciasteczka i dane witryn dla adresu RadVox Pro (bez tego logowanie i ustawienia nie działają). Nie używaj trybu incognito / gościa.');
 }
 async function checkMic() {
   set('mic', 'run', 'zezwól na mikrofon i powiedz coś…');
@@ -88,7 +88,7 @@ async function checkMic() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (err) {
-    const fix = err.name === 'NotAllowedError' ? 'Zezwól na mikrofon dla adresu Radiopis (kłódka przy adresie → Mikrofon → Zezwalaj) lub zasadą AudioCaptureAllowedUrls; sprawdź Ustawienia Windows → Prywatność → Mikrofon.' : err.name === 'NotFoundError' ? 'Nie wykryto mikrofonu — podłącz go i ustaw jako domyślne urządzenie nagrywania w Windows.' : 'Mikrofon jest zajęty lub zablokowany — zamknij inne programy korzystające z mikrofonu.';
+    const fix = err.name === 'NotAllowedError' ? 'Zezwól na mikrofon dla adresu RadVox Pro (kłódka przy adresie → Mikrofon → Zezwalaj) lub zasadą AudioCaptureAllowedUrls; sprawdź Ustawienia Windows → Prywatność → Mikrofon.' : err.name === 'NotFoundError' ? 'Nie wykryto mikrofonu — podłącz go i ustaw jako domyślne urządzenie nagrywania w Windows.' : 'Mikrofon jest zajęty lub zablokowany — zamknij inne programy korzystające z mikrofonu.';
     return set('mic', 'err', `brak dostępu (${err.name})`, fix);
   }
   const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput').map((d) => d.label).filter(Boolean);
@@ -132,7 +132,7 @@ function checkSpeech() {
     rec.onerror = (e) => {
       const fixes = {
         network: 'Przeglądarka nie łączy się z usługą rozpoznawania mowy (Chrome → Google, Edge → Microsoft). Zapora / proxy / inspekcja TLS blokuje ten ruch — odblokuj usługi mowy producenta przeglądarki dla tego komputera.',
-        'not-allowed': 'Brak zgody na mikrofon — zezwól dla adresu Radiopis (lub zasadą AudioCaptureAllowedUrls).',
+        'not-allowed': 'Brak zgody na mikrofon — zezwól dla adresu RadVox Pro (lub zasadą AudioCaptureAllowedUrls).',
         'service-not-allowed': 'Rozpoznawanie mowy wyłączone zasadami przeglądarki / systemu albo tryb gościa.',
         'audio-capture': 'Przeglądarka nie widzi mikrofonu — sprawdź domyślne urządzenie nagrywania.',
         'language-not-supported': 'Zaktualizuj przeglądarkę.',
@@ -146,10 +146,10 @@ function checkSpeech() {
 }
 async function checkClipboard() {
   try {
-    await navigator.clipboard.writeText('Radiopis — test schowka');
+    await navigator.clipboard.writeText('RadVox Pro — test schowka');
     set('clipboard', 'ok', 'działa');
   } catch (err) {
-    set('clipboard', 'err', `zablokowane (${err.name})`, 'Zezwól na schowek dla adresu Radiopis (kłódka przy adresie → Schowek) lub zasadą ClipboardAllowedForUrls.');
+    set('clipboard', 'err', `zablokowane (${err.name})`, 'Zezwól na schowek dla adresu RadVox Pro (kłódka przy adresie → Schowek) lub zasadą ClipboardAllowedForUrls.');
   }
 }
 function checkHid() {
@@ -222,7 +222,7 @@ if (!('hid' in navigator)) { $('#hidConnect').disabled = true; $('#hidAny').disa
 // ---------------------------------------------------------------- report
 function reportText() {
   const b = browserInfo();
-  const lines = [`Test stanowiska Radiopis — ${new Date().toLocaleString('pl-PL')}`, `${b.name} ${b.version || ''} · ${b.os} · ${navigator.language}`, ''];
+  const lines = [`Test stanowiska RadVox Pro — ${new Date().toLocaleString('pl-PL')}`, `${b.name} ${b.version || ''} · ${b.os} · ${navigator.language}`, ''];
   for (const [id, title] of CHECKS) {
     const r = results.get(id);
     if (!r) continue;

@@ -407,7 +407,7 @@ test('clinical details never dismiss an unexpected finding: trauma referral + ac
   assert.ok(fixed.some((l) => /zmian pourazowych/.test(l)));
 });
 
-test('Radiopis: every template and snippet has a Polish menu name', async () => {
+test('RadVox Pro: every template and snippet has a Polish menu name', async () => {
   const P = (await import('../public/js/titles-pl.js')).default;
   for (const t of [...TEMPLATES, ...SNIPPETS]) {
     assert.equal(t.title, P[t.id], t.id);

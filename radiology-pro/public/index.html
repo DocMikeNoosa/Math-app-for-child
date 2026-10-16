@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
-  <title>Radiopis — dyktowanie opisów</title>
+  <title>RadVox Pro — dyktowanie opisów</title>
   <link rel="icon" type="image/png" href="icons/radvox-192.png" />
   <link rel="apple-touch-icon" href="icons/radvox-192.png" />
   <link rel="stylesheet" href="fonts/fonts.css" />
@@ -19,7 +19,7 @@
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
       </div>
       <div class="brand-text">
-        <div class="brand-name">Radiopis</div>
+        <div class="brand-name">RadVox Pro</div>
         <div class="brand-sub">Dyktowanie opisów radiologicznych</div>
       </div>
     </div>
@@ -42,8 +42,8 @@
         <span class="learn-dot" id="learnDot" hidden></span>
         <span class="learn-tip" id="learnTip" role="tooltip">
           <b class="learn-tip-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9l9-5 9 5-9 5z"/><path d="M7 11.5V16c0 1.4 2.2 3 5 3s5-1.6 5-3v-4.5"/><path d="M21 9v5"/></svg>To jest uczenie AI</b>
-          <span>Radiopis uczy się <b>Twojego</b> stylu opisów: z poprawek, które robisz przed skopiowaniem opisu, z Twoich przykładowych opisów i z odpowiedzi na krótkie pytania.</span>
-          <span>Lekcje bez danych pacjentów pomagają też ulepszać Radiopis dla wszystkich lekarzy — Twój osobisty styl zawsze ma pierwszeństwo.</span>
+          <span>RadVox Pro uczy się <b>Twojego</b> stylu opisów: z poprawek, które robisz przed skopiowaniem opisu, z Twoich przykładowych opisów i z odpowiedzi na krótkie pytania.</span>
+          <span>Lekcje bez danych pacjentów pomagają też ulepszać RadVox Pro dla wszystkich lekarzy — Twój osobisty styl zawsze ma pierwszeństwo.</span>
           <span>Kliknij, aby zobaczyć, czego AI już się nauczyło, dodać przykłady albo wyłączyć naukę.</span>
           <span class="learn-tip-state" id="learnTipState"></span>
         </span>
@@ -284,7 +284,7 @@
           </button>
           <div class="popover" id="tplMenu" role="menu" hidden>
             <button class="pop-item" id="exportTpl" role="menuitem">Eksportuj moje szablony<small>plik do kopii zapasowej lub dla kolegi</small></button>
-            <button class="pop-item" id="importTpl" role="menuitem">Importuj szablony…<small>z pliku wyeksportowanego w Radiopis (lub RadVox)</small></button>
+            <button class="pop-item" id="importTpl" role="menuitem">Importuj szablony…<small>z pliku wyeksportowanego w RadVox Pro (lub RadVox)</small></button>
           </div>
           <input type="file" id="importFile" accept=".json,application/json" hidden />
         </div>
@@ -380,7 +380,7 @@
           </label>
           <span class="count-soft" id="styleCount"></span>
         </div>
-        <p class="hint">Gdy poprawisz opis przed skopiowaniem, Radiopis zapamiętuje: zmienione sformułowania, zdania usunięte lub dodane we wnioskach, przywrócone zdania szablonu oraz Twój gotowy opis jako wzór układu (2 ostatnie na szablon). AI dostaje to przy kolejnych opisach. Zapisywane tylko w tej przeglądarce.</p>
+        <p class="hint">Gdy poprawisz opis przed skopiowaniem, RadVox Pro zapamiętuje: zmienione sformułowania, zdania usunięte lub dodane we wnioskach, przywrócone zdania szablonu oraz Twój gotowy opis jako wzór układu (2 ostatnie na szablon). AI dostaje to przy kolejnych opisach. Zapisywane tylko w tej przeglądarce.</p>
         <p class="hint learn-summary" id="learnSummary"></p>
         <ul class="style-list" id="styleList"></ul>
         <button class="link-btn" id="clearStyle" hidden>Zapomnij wszystko, czego się nauczył</button>

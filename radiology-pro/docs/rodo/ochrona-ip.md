@@ -1,6 +1,6 @@
 # Ochrona własności intelektualnej Usługodawcy
 
-## Co jest chronione technicznie (Radiopis 1.1)
+## Co jest chronione technicznie (RadVox Pro 1.1)
 - **Kod serwera** (instrukcje dla AI, logika nauki, rozliczenia, bazy danych) nigdy nie opuszcza serwera. Serwer
   musi należeć do Ciebie — **klient nie dostaje dostępu do serwera, repozytorium ani kopii zapasowych**.
 - **Kod przeglądarki** jest wydawany tylko zalogowanym użytkownikom z aktywną licencją, łączony, minimalizowany i

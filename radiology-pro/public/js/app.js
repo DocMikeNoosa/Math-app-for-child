@@ -1309,7 +1309,7 @@ async function deleteFromEditor() {
 }
 
 function exportTemplates() {
-  const data = { app: 'Radiopis', version: 1, exported: new Date().toISOString(), templates: userTemplates };
+  const data = { app: 'RadVox Pro', version: 1, exported: new Date().toISOString(), templates: userTemplates };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1341,7 +1341,7 @@ async function importTemplates(file) {
     afterTemplatesChanged(null);
     toast(n ? `Zaimportowano ${n} ${n === 1 ? 'szablon' : 'szablonów'}` : 'W pliku nie było szablonów', n ? 'ok' : 'warn');
   } catch {
-    toast('To nie jest plik szablonów Radiopis.', 'err');
+    toast('To nie jest plik szablonów RadVox Pro.', 'err');
   }
 }
 
@@ -1724,7 +1724,7 @@ function renderStyle() {
   els.clearStyle.hidden = !total;
   els.learnSummary.textContent = total
     ? `Poprawki sformułowań: ${n} · usunięte z wniosków: ${learned.conclusionRemoved.length} · dodane do wniosków: ${learned.conclusionAdded.length} · przywrócone zdania szablonu: ${learned.restored.length} · Twoje wzorcowe opisy: ${nReports}`
-    : 'Jeszcze nic — Radiopis uczy się, gdy poprawiasz opis przed skopiowaniem.';
+    : 'Jeszcze nic — RadVox Pro uczy się, gdy poprawiasz opis przed skopiowaniem.';
   els.styleList.innerHTML = styleExamples.slice().reverse().slice(0, 30).map((p, i) => `<li><del>${esc(p.ai)}</del><ins>${esc(p.final)}</ins><button data-style-del="${n - 1 - i}" title="Zapomnij ten przykład" aria-label="Usuń przykład"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></li>`).join('');
 }
 
@@ -1892,7 +1892,7 @@ async function checkStatus() {
     const data = await res.json();
     state.ai = Boolean(data.ai);
     state.model = data.model;
-    if (data.version) els.versionInfo.textContent = `Radiopis ${data.version}${data.user ? ` · ${data.user.email}` : ''}`;
+    if (data.version) els.versionInfo.textContent = `RadVox Pro ${data.version}${data.user ? ` · ${data.user.email}` : ''}`;
   } catch {
     state.ai = false;
   }
@@ -1957,7 +1957,7 @@ function bind() {
   els.bgProcess.addEventListener('change', () => { save(); renderPrepState(); schedulePrefetch(300); });
   els.learnStyle.addEventListener('change', save);
   els.clearStyle.addEventListener('click', async () => {
-    if (!(await askConfirm('Zapomnieć wszystko, czego Radiopis nauczył się z Twoich poprawek?', { ok: 'Zapomnij', danger: true }))) return;
+    if (!(await askConfirm('Zapomnieć wszystko, czego RadVox Pro nauczył się z Twoich poprawek?', { ok: 'Zapomnij', danger: true }))) return;
     styleExamples = [];
     learned = { conclusionRemoved: [], conclusionAdded: [], restored: [], reports: {}, translations: [] };
     saveStyle();

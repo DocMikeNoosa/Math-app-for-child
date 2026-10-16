@@ -1,10 +1,10 @@
-# Radiopis — AI dictation for Polish radiology reports (subscription version)
+# RadVox Pro — AI dictation for Polish radiology reports (subscription version)
 
-Radiopis is the commercial, hosted version of RadVox (the original desktop app is in
+RadVox Pro is the commercial, hosted version of RadVox (the original desktop app is in
 `../radiology-dictation/`). Radiologists log in from any computer, dictate in Polish or English and get a
 Polish (or English) report built from their templates, with clinically ordered findings and conclusions.
 
-*Working name: "Radiopis". Change it with `BRAND_NAME` (server) and the `Radiopis` text in `public/index.html` /
+*Working name: "RadVox Pro". Change it with `BRAND_NAME` (server) and the `RadVox Pro` text in `public/index.html` /
 `public/site/*.html`. Check trademark registers (EUIPO, UPRP) and the domain before launch.*
 
 ## What is in this version
@@ -32,8 +32,8 @@ Polish (or English) report built from their templates, with clinically ordered f
 
 ## Test on a Windows computer (one click)
 
-Extract the ZIP, open `radiology-pro`, double-click **Start Radiopis (Windows).bat** (needs Node.js 22.5+).
-It reuses the API key saved by RadVox, starts Radiopis on http://127.0.0.1:3100 and opens the login page.
+Extract the ZIP, open `radiology-pro`, double-click **Start RadVox Pro (Windows).bat** (needs Node.js 22.5+).
+It reuses the API key saved by RadVox, starts RadVox Pro on http://127.0.0.1:3100 and opens the login page.
 Administrator: `admin@radiopis.local` / `Radiopis2026` (local test only — change it in
 `%USERPROFILE%\.radiopis\.env` before any real use). Data: `%USERPROFILE%\.radiopis\data`.
 

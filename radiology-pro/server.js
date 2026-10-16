@@ -1,4 +1,4 @@
-// Radiopis — hosted (SaaS) version of the radiology dictation app.
+// RadVox Pro — hosted (SaaS) version of the radiology dictation app.
 // Public: landing page, login / registration / password reset, Stripe webhook.
 // Logged in: the dictation app (/app/), account page, AI endpoints (metered per user).
 // Administrator: /admin — users, subscriptions, usage, AI costs, payments, plans, settings, audit log.
@@ -369,7 +369,7 @@ function recordEvent(userId, kind, code, detail = '', ua = '') {
 // What each reported problem means and what the organisation's IT can do about it (shown in the IT console).
 const EVENT_HELP = {
   'speech:network': 'Rozpoznawanie mowy nie łączy się z usługą przeglądarki (Chrome → Google, Edge → Microsoft). Najczęściej blokuje ją zapora / proxy / inspekcja TLS. Odblokuj ruch przeglądarki do usług mowy producenta — szczegóły: Pomoc → Zapora i proxy. Sprawdź „Testem stanowiska”.',
-  'speech:not-allowed': 'Przeglądarka nie ma dostępu do mikrofonu. Zezwól na mikrofon dla adresu Radiopis (kłódka przy adresie) albo zasadą AudioCaptureAllowedUrls; sprawdź też Ustawienia Windows → Prywatność → Mikrofon.',
+  'speech:not-allowed': 'Przeglądarka nie ma dostępu do mikrofonu. Zezwól na mikrofon dla adresu RadVox Pro (kłódka przy adresie) albo zasadą AudioCaptureAllowedUrls; sprawdź też Ustawienia Windows → Prywatność → Mikrofon.',
   'speech:service-not-allowed': 'Rozpoznawanie mowy jest wyłączone zasadami przeglądarki lub systemu. Sprawdź zasady Chrome / Edge oraz czy przeglądarka nie działa w trybie gościa / incognito.',
   'speech:audio-capture': 'Przeglądarka nie widzi mikrofonu: sprawdź podłączenie, domyślne urządzenie nagrywania w Windows i czy mikrofonu nie blokuje inny program.',
   'speech:language-not-supported': 'Przeglądarka nie obsługuje języka polskiego — zaktualizuj Chrome / Edge.',
@@ -378,7 +378,7 @@ const EVENT_HELP = {
   'mic:open-failed': 'Nie można otworzyć mikrofonu — używa go inny program. Zamknij oprogramowanie Nuance / Dragon / SpeechMike i spróbuj ponownie.',
   'mic:unclear': 'Nie udało się nauczyć przycisku mikrofonu — spróbuj ponownie, naciskając tylko przycisk nagrywania (bez ruszania kulką).',
   'mic:*': 'Problem z przyciskiem mikrofonu — raport diagnostyczny: Ustawienia aplikacji → Diagnostyka mikrofonu.',
-  'clipboard:denied': 'Przeglądarka blokuje kopiowanie do schowka. Zezwól na schowek dla adresu Radiopis (zasada ClipboardAllowedForUrls).',
+  'clipboard:denied': 'Przeglądarka blokuje kopiowanie do schowka. Zezwól na schowek dla adresu RadVox Pro (zasada ClipboardAllowedForUrls).',
   'clipboard:*': 'Problem z kopiowaniem do schowka — sprawdź zasady schowka przeglądarki.',
   'ai:busy': 'Serwer AI był chwilowo przeciążony (aplikacja ponawia sama). Jeśli zdarza się często — zgłoś dostawcy.',
   'ai:429': 'Limit zapytań do AI u dostawcy usługi — po stronie dostawcy; jeśli się powtarza, zgłoś.',

@@ -1,4 +1,4 @@
-# Radiopis — putting it on a server in Poland / the EU
+# RadVox Pro — putting it on a server in Poland / the EU
 
 This guide is for you (the owner) or the IT person who helps you. Every step is a short action. Total time:
 about 1–2 hours the first time, most of it waiting for DNS.

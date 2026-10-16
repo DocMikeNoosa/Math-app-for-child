@@ -1,6 +1,6 @@
 # Środki techniczne i organizacyjne (art. 32 RODO) — Załącznik 1 do umowy powierzenia
 
-## Techniczne (wbudowane w Radiopis 1.1)
+## Techniczne (wbudowane w RadVox Pro 1.1)
 - **Szyfrowanie w transmisji**: HTTPS (TLS) z automatycznym certyfikatem; HSTS; aplikacja niedostępna bez proxy.
 - **Szyfrowanie kopii**: kopie zapasowe obu baz szyfrowane AES-256-GCM (klucz z hasła `BACKUP_KEY`, scrypt).
 - **Uwierzytelnianie**: hasła min. 10 znaków (litera + cyfra) przechowywane jako skrót scrypt; logowanie dwuetapowe

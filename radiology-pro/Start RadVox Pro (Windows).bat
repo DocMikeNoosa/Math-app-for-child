@@ -1,5 +1,5 @@
 @echo off
-title Radiopis (test na tym komputerze)
+title RadVox Pro (test na tym komputerze)
 cd /d "%~dp0"
 if not exist "package.json" (
   echo.
@@ -21,7 +21,7 @@ if errorlevel 1 (
 node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>22||(a===22&&b>=5)?0:1)"
 if errorlevel 1 (
   echo.
-  echo Radiopis needs a newer Node.js ^(version 22.5 or later^).
+  echo RadVox Pro needs a newer Node.js ^(version 22.5 or later^).
   echo Install the current LTS version from https://nodejs.org and run this file again.
   echo.
   pause
@@ -60,14 +60,14 @@ if not exist "node_modules" (
 )
 echo.
 echo ===============================================================
-echo  Radiopis is running:  http://127.0.0.1:3100
+echo  RadVox Pro is running:  http://127.0.0.1:3100
 echo  Administrator login:  admin@radiopis.local
 echo  Password:             Radiopis2026
-echo  Keep this window open. Close it to stop Radiopis.
+echo  Keep this window open. Close it to stop RadVox Pro.
 echo ===============================================================
 echo.
 start "" /min cmd /c "timeout /t 4 /nobreak >nul & start "" http://127.0.0.1:3100/login"
 node --disable-warning=ExperimentalWarning server.js
 echo.
-echo Radiopis stopped. If you see an error above, send a screenshot of this window.
+echo RadVox Pro stopped. If you see an error above, send a screenshot of this window.
 pause

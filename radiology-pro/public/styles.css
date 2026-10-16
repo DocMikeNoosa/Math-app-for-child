@@ -76,9 +76,10 @@ kbd {
 .brand-mark {
   width: 34px; height: 34px; border-radius: 10px;
   display: grid; place-items: center;
-  background: linear-gradient(145deg, rgba(89, 212, 255, 0.22), rgba(139, 125, 255, 0.16));
-  box-shadow: inset 0 0 0 1px rgba(89, 212, 255, 0.35), 0 6px 24px -6px rgba(89, 212, 255, 0.45);
-  color: var(--accent);
+  /* RadVox Pro: violet version of the RadVox mark (RadVox = cyan, IR = red) */
+  background: linear-gradient(145deg, rgba(167, 139, 250, 0.22), rgba(89, 212, 255, 0.16));
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.35), 0 6px 24px -6px rgba(167, 139, 250, 0.45);
+  color: #a78bfa;
 }
 .brand-mark svg { width: 19px; height: 19px; }
 .brand-name { font-weight: 700; font-size: 15.5px; color: var(--text-strong); }

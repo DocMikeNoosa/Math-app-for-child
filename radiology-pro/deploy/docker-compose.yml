@@ -1,4 +1,4 @@
-# Radiopis on one server: the app + Caddy (automatic HTTPS certificate, compression).
+# RadVox Pro on one server: the app + Caddy (automatic HTTPS certificate, compression).
 # Start / update:  docker compose up -d --build      Logs:  docker compose logs -f app      Stop: docker compose down
 # Settings are read from .env in this folder (copy .env.example → .env and fill it in). See ../DEPLOY.md.
 services:

@@ -1,4 +1,4 @@
-// Load test: 200 radiologists of one teleradiology company using Radiopis at the same time.
+// Load test: 200 radiologists of one teleradiology company using RadVox Pro at the same time.
 // Runs the real server (production build) against a FAKE AI server (no API key, no cost): every AI answer takes
 // LT_AI_MIN_MS–LT_AI_MAX_MS (default 2–6 s) and a share LT_AI_429 (default 3 %) is answered "rate limited" like the
 // real API does under pressure.

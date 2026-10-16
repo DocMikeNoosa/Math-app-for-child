@@ -1,9 +1,9 @@
-# Radiopis — handoff for another Claude conversation
+# RadVox Pro (formerly Radiopis) — handoff for another Claude conversation
 
 Repository: https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-radiology-dictation-e0ov8p`.
 Two apps live side by side:
 - `radiology-dictation/` — **RadVox**, the original single-user desktop app (see its own HANDOFF.md).
-- `radiology-pro/` — **Radiopis** (working name), the commercial hosted version with accounts, subscriptions and
+- `radiology-pro/` — **RadVox Pro** (renamed from the working name Radiopis on 16 Oct 2026; violet icon — RadVox is cyan, IR red), the commercial hosted version with accounts, subscriptions and
   an admin panel. Version 1.2.0 (rollout-ready for a teleradiology company of ~200 radiologists). Read `README.md`
   here first, then `DEPLOY.md` (server) and `docs/LOAD-TEST.md` (200-user test).
 

@@ -12,7 +12,7 @@ import XRAY2 from './templates-pro/xray-2.js';
 
 import TITLES_PL from './titles-pl.js';
 
-// The radiologist's own set first, then the extended library. Radiopis shows Polish menu names;
+// The radiologist's own set first, then the extended library. RadVox Pro shows Polish menu names;
 // the former name stays searchable as titleEn.
 const withPolishTitle = (t) => (TITLES_PL[t.id] ? { ...t, titleEn: t.title, title: TITLES_PL[t.id] } : t);
 const TEMPLATE_DATA = [...BASE_DATA, ...NEURO, ...CHEST, ...ABDOMEN, ...MSK, ...MRUS, ...MRBODY2, ...MRNEURO2, ...XRAY2].map(withPolishTitle);

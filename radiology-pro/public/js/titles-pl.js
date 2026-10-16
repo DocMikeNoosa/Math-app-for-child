@@ -1,4 +1,4 @@
-// Polish menu names of the templates and snippets (Radiopis). Keys are template ids.
+// Polish menu names of the templates and snippets (RadVox Pro). Keys are template ids.
 export default {
   "ct_head_normal": "TK głowy",
   "ct_head_contrast": "TK głowy – bez i z kontrastem",

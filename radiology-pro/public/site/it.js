@@ -363,7 +363,7 @@ function regFile(vendor) {
   const key = vendor === 'edge' ? 'Microsoft\\Edge' : 'Google\\Chrome';
   return `Windows Registry Editor Version 5.00
 
-; Radiopis — mikrofon, schowek i przycisk PowerMic / SpeechMike bez pytań dla ${ORIGIN}
+; RadVox Pro — mikrofon, schowek i przycisk PowerMic / SpeechMike bez pytań dla ${ORIGIN}
 ; Sprawdź nazwy zasad w dokumentacji ${vendor === 'edge' ? 'Microsoft Edge' : 'Chrome Enterprise'} przed wdrożeniem w domenie.
 
 [HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\${key}\\AudioCaptureAllowedUrls]

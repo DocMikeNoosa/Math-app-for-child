@@ -1,4 +1,4 @@
-/* Radiopis — sales website. Self-contained (own fonts, no external requests). */
+/* RadVox Pro — sales website. Self-contained (own fonts, no external requests). */
 @import url('/fonts/fonts.css');
 
 :root {
@@ -63,8 +63,8 @@ section { position: relative; padding: clamp(80px, 11vw, 150px) 0; }
 .nav.scrolled { background: rgba(4, 6, 10, 0.7); backdrop-filter: blur(16px) saturate(140%); border-bottom-color: var(--line); }
 .nav-in { display: flex; align-items: center; gap: 22px; height: 70px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
-.brand-mark { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; color: #041018; background: linear-gradient(135deg, var(--cyan), var(--violet)); box-shadow: 0 6px 24px -6px rgba(89, 212, 255, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4); }
-.brand-mark svg { stroke-width: 2.2; }
+.brand-mark { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #a78bfa; background: linear-gradient(145deg, rgba(167, 139, 250, 0.22), rgba(89, 212, 255, 0.16)); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.35), 0 6px 24px -6px rgba(167, 139, 250, 0.45); }
+.brand-mark svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .nav-links { display: flex; gap: 26px; font-size: 14.5px; margin-left: 14px; }
 .nav-links a { color: var(--dim); transition: color 0.2s; }
 .nav-links a:hover { color: var(--ink); }

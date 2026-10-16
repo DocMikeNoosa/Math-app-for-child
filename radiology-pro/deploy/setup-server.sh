@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time preparation of a fresh Ubuntu 24.04 LTS server for Radiopis.
+# One-time preparation of a fresh Ubuntu 24.04 LTS server for RadVox Pro.
 # Run as root:  sudo bash setup-server.sh
 # Installs: Docker (official repository), firewall (only SSH, HTTP, HTTPS open), automatic security updates,
 # fail2ban (SSH brute-force protection), swap (if RAM < 4 GB), time zone Europe/Warsaw.
