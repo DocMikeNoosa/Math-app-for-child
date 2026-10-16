@@ -28,6 +28,7 @@ import { createGlobalVersion, guidanceFor, invalidateGlobal, publishedId, cleanG
 import { getOrg, listOrgs, seatsUsed, orgUsers, createOrg, updateOrg, tempPassword, parseUserList, ORG_STATUS, TEMP_PASSWORD_RE } from './lib/orgs.js';
 import { aiLimiter, BusyError } from './lib/limiter.js';
 import { validNpwz, cleanNpwz } from './lib/npwz.js';
+import { isDisposableEmail, trialFlags } from './lib/trial-guard.js';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { lastBackup, backupNow } from './lib/backup.js';
 import { plans, planById, settings, access, quotaCheck, quotaOf, monthUsage, costUsd, DEFAULT_PLANS, DEFAULT_SETTINGS } from './lib/plans.js';
@@ -454,34 +455,27 @@ async function handleAuth(req, res, route) {
     if (!settings().registrationOpen) return sendJson(res, 403, { error: 'Rejestracja jest chwilowo zamknięta.' });
     const email = str(body.email, 254).toLowerCase();
     if (!EMAIL_RE.test(email)) return sendJson(res, 400, { error: 'Podaj prawidłowy adres e-mail.' });
+    if (isDisposableEmail(email)) return sendJson(res, 400, { error: 'Użyj swojego stałego adresu e-mail (adresy jednorazowe nie są przyjmowane).' });
     const problem = passwordProblem(body.password);
     if (problem) return sendJson(res, 400, { error: problem });
     if (!str(body.name)) return sendJson(res, 400, { error: 'Podaj imię i nazwisko.' });
     const npwz = cleanNpwz(body.npwz);
-    if (settings().requireNpwz) {
-      if (!validNpwz(npwz)) return sendJson(res, 400, { error: 'Podaj prawidłowy numer prawa wykonywania zawodu (7 cyfr).' });
-      // one free trial per doctor: a second self-registered account with the same licence number is refused
-      if (one('SELECT id FROM users WHERE npwz = ? AND org_id IS NULL LIMIT 1', npwz)) {
-        noteFailure(email, ip);
-        return sendJson(res, 409, { error: 'Konto z tym numerem PWZ już istnieje — zaloguj się na nie albo skontaktuj się z nami.' });
-      }
-    }
+    if ((npwz || settings().requireNpwz) && !validNpwz(npwz)) return sendJson(res, 400, { error: 'Numer prawa wykonywania zawodu ma 7 cyfr — sprawdź go albo zostaw puste pole.' });
     if (body.accept !== true) return sendJson(res, 400, { error: 'Zaakceptuj regulamin i politykę prywatności.' });
     if (loginBlocked(email, ip)) return sendJson(res, 429, { error: 'Zbyt wiele prób. Spróbuj później.' });
     if (getUserByEmail(email)) { noteFailure(email, ip); return sendJson(res, 409, { error: 'Konto z tym adresem już istnieje — zaloguj się.' }); }
+    // this browser: an id kept in a long-lived cookie and in the page's storage — repeat sign-ups from it are noticed
+    const cookies = parseCookies(req.headers.cookie);
+    const device = /^[\w-]{16,64}$/.test(cookies.rv_dev || '') ? cookies.rv_dev : /^[\w-]{16,64}$/.test(String(body.device || '')) ? String(body.device) : crypto.randomUUID();
     let user = await createUser({ email, password: body.password, name: body.name, npwz: npwz.slice(0, 20), phone: str(body.phone, 30) });
+    run("UPDATE users SET sub_status = 'verify', sub_until = 0, signup_ip = ?, signup_device = ? WHERE id = ?", ip, device, user.id);
     acceptTerms(user.id, ip);
-    const pending = settings().trialApproval;
-    if (pending) { run("UPDATE users SET sub_status = 'pending', sub_until = 0 WHERE id = ?", user.id); user = getUser(user.id); }
+    if (settings().verifyEmail) await sendVerifyMail(getUser(user.id), req);
+    else await startOrQueueTrial(getUser(user.id), req);
+    user = getUser(user.id);
     const token = createSession(user, { ip, ua });
-    if (pending) {
-      await sendMail(user.email, `${BRAND.name}: konto czeka na zatwierdzenie`, `Dzień dobry,\n\ndziękujemy za rejestrację. Sprawdzamy zgłoszenie — gdy okres próbny zostanie zatwierdzony, dostaniesz e-mail z linkiem do aplikacji.\nKonto: ${baseUrl(req)}/account`);
-      if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: prośba o okres próbny — ${user.email}`, `${user.name} <${user.email}>, NPWZ: ${user.npwz || '—'}, tel.: ${user.phone || '—'}\n\nZatwierdź lub odrzuć: ${baseUrl(req)}/admin`);
-    } else {
-      await sendMail(user.email, `Witamy w ${BRAND.name}`, `Dzień dobry,\n\ndziękujemy za rejestrację. Okres próbny trwa ${settings().trialDays} dni.\nAplikacja: ${baseUrl(req)}/app/\nKonto i subskrypcja: ${baseUrl(req)}/account`);
-      if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: nowy użytkownik — ${user.email}`, `${user.name} <${user.email}>, NPWZ: ${user.npwz || '—'}, tel.: ${user.phone || '—'}`);
-    }
-    return sendJson(res, 200, { ok: true, next: pending ? '/account' : '/app/' }, { 'Set-Cookie': sessionCookie(token, { secure }) });
+    const devCookie = `rv_dev=${device}; Path=/; Max-Age=63072000; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+    return sendJson(res, 200, { ok: true, next: access(user).ok ? '/app/' : '/account' }, { 'Set-Cookie': [sessionCookie(token, { secure }), devCookie] });
   }
 
   if (route === 'logout') {
@@ -520,11 +514,46 @@ async function handleAuth(req, res, route) {
   return sendJson(res, 404, { error: 'Nie znaleziono.' });
 }
 
+/** E-mail with the link that confirms the address (and starts the trial). */
+async function sendVerifyMail(user, req) {
+  const t = createOneTimeToken(user.id, 'verify', 48);
+  await sendMail(user.email, `${BRAND.name}: potwierdź adres e-mail`, `Dzień dobry,\n\nkliknij link, aby potwierdzić adres i rozpocząć bezpłatny okres próbny (link ważny 48 godzin):\n${baseUrl(req)}/verify?token=${t}\n\nJeśli to nie Ty zakładasz konto, zignoruj tę wiadomość.`);
+}
+
+/**
+ * Self-registered account with a confirmed address: start the trial now, or — if the owner approves every trial or
+ * the account looks like a repeat trial — put it in the owner's approval queue with the reasons.
+ */
+async function startOrQueueTrial(user, req) {
+  const s = settings();
+  const flags = trialFlags(user, { trialsPerIp: s.trialsPerIp });
+  const base = baseUrl(req);
+  if (s.trialApproval || flags.length) {
+    run("UPDATE users SET sub_status = 'pending', sub_until = 0, trial_flags = ? WHERE id = ?", flags.join('; '), user.id);
+    await sendMail(user.email, `${BRAND.name}: konto czeka na zatwierdzenie`, `Dzień dobry,\n\ndziękujemy za rejestrację. Sprawdzamy zgłoszenie — gdy okres próbny zostanie zatwierdzony, dostaniesz e-mail z linkiem do aplikacji.\nKonto: ${base}/account`);
+    if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: prośba o okres próbny — ${user.email}`, `${user.name} <${user.email}>, tel.: ${user.phone || '—'}${flags.length ? `\nUwaga: ${flags.join('; ')}` : ''}\n\nZatwierdź lub odrzuć: ${base}/admin`);
+    audit(user.id, 'trial.queued', user.id, flags.join('; ') || 'zatwierdzanie ręczne');
+    return 'pending';
+  }
+  run("UPDATE users SET plan = 'trial', sub_status = 'trial', sub_until = ?, trial_reports = ?, trial_flags = '' WHERE id = ?", Date.now() + s.trialDays * 86400000, s.trialReports, user.id);
+  await sendMail(user.email, `Witamy w ${BRAND.name}`, `Dzień dobry,\n\nTwój bezpłatny okres próbny jest aktywny: ${s.trialDays} dni, do ${s.trialReports} opisów.\nAplikacja: ${base}/app/\nKonto i subskrypcja: ${base}/account`);
+  if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: nowy okres próbny — ${user.email}`, `${user.name} <${user.email}>, tel.: ${user.phone || '—'}`);
+  audit(user.id, 'trial.start', user.id, `${s.trialDays} dni, ${s.trialReports} opisów`);
+  return 'trial';
+}
+
 async function handleMe(req, res, ctx, route) {
   if (!ctx) return sendJson(res, 401, { error: 'Zaloguj się.', code: 'login' });
   if (route === '' && req.method === 'GET') return sendJson(res, 200, mePayload(ctx));
   const body = await readJson(req, 20_000);
   const u = ctx.user;
+  if (route === 'resend-verify') {
+    if (u.sub_status !== 'verify') return sendJson(res, 400, { error: 'Adres jest już potwierdzony.' });
+    if (loginBlocked(u.email, clientIp(req))) return sendJson(res, 429, { error: 'Zbyt wiele prób. Spróbuj później.' });
+    noteFailure(u.email, clientIp(req)); // limits how many e-mails can be requested
+    await sendVerifyMail(u, req);
+    return sendJson(res, 200, { ok: true });
+  }
   if (route === 'update') {
     run('UPDATE users SET name = ?, npwz = ?, company = ?, nip = ?, phone = ? WHERE id = ?',
       str(body.name, 120) || u.name, str(body.npwz, 20), str(body.company, 200), String(body.nip || '').replace(/[^\d]/g, '').slice(0, 10), str(body.phone, 30), u.id);
@@ -662,7 +691,7 @@ function adminUserRow(u, month = monthOf()) {
   const org = getOrg(u.org_id);
   return {
     id: u.id, email: u.email, name: u.name, role: u.role, blocked: Boolean(u.blocked), plan: u.plan, planName: org ? org.name : p.name,
-    subStatus: org ? 'org' : u.sub_status, subUntil: org ? org.sub_until : u.sub_until, quota: quotaOf(u), quotaOverride: u.quota_override, trialReports: u.trial_reports,
+    subStatus: org ? 'org' : u.sub_status, subUntil: org ? org.sub_until : u.sub_until, quota: quotaOf(u), quotaOverride: u.quota_override, trialReports: u.trial_reports, trialFlags: u.trial_flags || '',
     orgId: org?.id || null, orgName: org?.name || '', mustChangePwd: Boolean(u.must_change_pwd), twoFactor: Boolean(u.totp_on),
     reports: used.reports, calls: used.calls, costUsd: used.costUsd, costPln: used.costUsd * usdPln(), pricePln: org ? org.price_per_seat : p.pricePln,
     lastLogin: u.last_login, createdAt: u.created_at, npwz: u.npwz, company: u.company, nip: u.nip, phone: u.phone, note: u.note,
@@ -935,6 +964,9 @@ async function handleAdmin(req, res, ctx, parts) {
         registrationOpen: typeof b.registrationOpen === 'boolean' ? b.registrationOpen : cur.registrationOpen,
         requireNpwz: typeof b.requireNpwz === 'boolean' ? b.requireNpwz : cur.requireNpwz,
         trialApproval: typeof b.trialApproval === 'boolean' ? b.trialApproval : cur.trialApproval,
+        verifyEmail: typeof b.verifyEmail === 'boolean' ? b.verifyEmail : cur.verifyEmail,
+        trialsPerIp: Math.round(num(b.trialsPerIp, cur.trialsPerIp, 1, 1000)),
+        trialDailyReports: Math.round(num(b.trialDailyReports, cur.trialDailyReports, 1, 10000)),
         trialReports: Math.round(num(b.trialReports, cur.trialReports, 1, 10000)),
         graceRatio: num(b.graceRatio, cur.graceRatio, 0, 1), costAlertRatio: num(b.costAlertRatio, cur.costAlertRatio, 0.05, 5),
         graceDaysPastDue: Math.round(num(b.graceDaysPastDue, cur.graceDaysPastDue, 0, 30)), annualMonths: num(b.annualMonths, cur.annualMonths, 1, 12),
@@ -1485,6 +1517,13 @@ export function createServer() {
       }
 
       // the application itself: only for logged-in users with access (the code is never public)
+      if (p === '/verify') {
+        const u = useOneTimeToken(url.searchParams.get('token'), 'verify');
+        if (!u) return redirect(res, ctx ? '/account?verify=bad' : '/login?verify=bad');
+        if (u.sub_status === 'verify') { audit(u.id, 'email.verified', u.id); await startOrQueueTrial(u, req); }
+        const fresh = getUser(u.id);
+        return redirect(res, ctx && ctx.user.id === u.id ? (access(fresh).ok ? '/app/' : '/account') : `/login?verified=1`);
+      }
       if (p === '/app') return redirect(res, '/app/');
       if (p.startsWith('/app/')) {
         if (!ctx) return redirect(res, `/login?next=${encodeURIComponent(p)}`);

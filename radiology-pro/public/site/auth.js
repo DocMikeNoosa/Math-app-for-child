@@ -15,7 +15,10 @@ function busy(form, on) {
 
 if (page === 'login') {
   const form = $('#form');
-  if (new URLSearchParams(location.search).get('reset') === '1') showMsg(msg, 'Hasło zmienione — zaloguj się.', 'ok');
+  const q = new URLSearchParams(location.search);
+  if (q.get('reset') === '1') showMsg(msg, 'Hasło zmienione — zaloguj się.', 'ok');
+  if (q.get('verified') === '1') showMsg(msg, 'Adres e-mail potwierdzony — zaloguj się, aby zacząć.', 'ok');
+  if (q.get('verify') === 'bad') showMsg(msg, 'Link potwierdzający wygasł lub był już użyty. Zaloguj się — na stronie konta wyślesz nowy.', 'warn');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     busy(form, true);
@@ -52,11 +55,20 @@ if (page === 'login') {
   });
 }
 
+// this browser's id (also kept by the server in a cookie): repeat free-trial sign-ups from one computer are noticed
+function deviceId() {
+  try {
+    let id = localStorage.getItem('rv.dev');
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem('rv.dev', id); }
+    return id;
+  } catch { return ''; }
+}
+
 if (page === 'register') {
   const form = $('#form');
   api('/api/plans').then((d) => {
     $('#trialDays').textContent = d.trialDays;
-    if (d.requireNpwz === false) { form.npwz.required = false; $('#npwzHint').textContent = '(opcjonalnie)'; }
+    if (d.requireNpwz) { form.npwz.required = true; $('#npwzHint').textContent = '(7 cyfr)'; }
     if (!d.registrationOpen) {
       showMsg(msg, 'Rejestracja jest chwilowo zamknięta. Napisz do nas, a założymy konto.', 'info');
       busy(form, true);
@@ -70,7 +82,7 @@ if (page === 'register') {
     try {
       const d = await api('/api/auth/register', {
         method: 'POST',
-        body: { name: form.name.value, email: form.email.value, npwz: form.npwz.value, phone: form.phone.value, password: form.password.value, accept: form.accept.checked },
+        body: { name: form.name.value, email: form.email.value, npwz: form.npwz.value, phone: form.phone.value, password: form.password.value, accept: form.accept.checked, device: deviceId() },
       });
       location.href = d.next || '/app/';
     } catch (err) {

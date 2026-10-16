@@ -42,9 +42,12 @@ Test accounts (created by the starter, or `node scripts/create-test-accounts.mjs
 `pro@`, `start@`, `proba@` (trial), `wygasly@` (expired), and a test hospital with `it@`, `radiolog1@`, `radiolog2@`
 — all `@test.radvoxpro.local`. Never run the script on the real server with customers.
 
-**Trials need the owner's approval** (Admin → Ustawienia, on by default): a self-registered account waits
-(status `pending`, no app, no AI) until the owner approves it in Admin → Pulpit with a number of days and a number of
-reports for the whole trial (`trial_reports`). Rejecting blocks the account. Test account `czeka@` shows this.
+**Free trials (e.g. from adverts) without repeat trials:** no licence number needed (optional; checked only when
+given). The trial starts when the e-mail address is confirmed (link, 48 h; throwaway mailboxes refused). It waits in
+Admin → Pulpit instead when it looks like a repeat trial — same browser (`rv_dev` cookie + page storage), same phone,
+same licence number, or more than `trialsPerIp` sign-ups from one internet address in 30 days — or when the owner
+approves every trial (setting). Limits: `trialReports` for the whole trial and `trialDailyReports` per day.
+Without a mail provider (local test), the e-mails with links are in Admin → Dziennik i poczta.
 
 **Desktop app:** the app is installable from Chrome / Edge (`/app.webmanifest`, `/sw.js`, nothing cached). The
 installed app is the same web app on the same server and account, so templates, learning and settings stay synced.

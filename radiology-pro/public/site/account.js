@@ -92,10 +92,12 @@ function render() {
   if (p.get('paid')) showMsg($('#notice'), 'Dziękujemy! Płatność przyjęta — dostęp zaktualizuje się w ciągu kilku sekund (odśwież stronę).', 'ok');
   else if (p.get('canceled')) showMsg($('#notice'), 'Płatność anulowana — nic nie zostało pobrane.', 'info');
   else if (owner) showMsg($('#notice'), 'Konto właściciela usługi — pełny dostęp bez subskrypcji. Włącz logowanie dwuetapowe poniżej.', 'info');
-  else if (!me.access.ok) showMsg($('#notice'), me.access.reason, 'err');
+  else if (p.get('verify') === 'bad' && me.access.code === 'verify') showMsg($('#notice'), 'Link potwierdzający wygasł lub był już użyty — wyślij nowy przyciskiem poniżej.', 'warn');
+  else if (!me.access.ok) showMsg($('#notice'), me.access.reason, me.access.code === 'verify' || me.access.code === 'pending' ? 'info' : 'err');
   else if (org) showMsg($('#notice'), `Licencję zapewnia ${org.name}${org.status === 'trial' ? ' (okres próbny)' : ''}. Sprawy konta i hasła: dział IT${org.contact ? ` — ${org.contact}` : ''}.`, 'info');
   else if (u.subStatus === 'trial') showMsg($('#notice'), `Okres próbny: zostało ${left} dni. Wybierz plan, aby pracować dalej bez przerwy.`, 'info');
   else if (left <= 7 && !u.hasStripe) showMsg($('#notice'), `Subskrypcja kończy się za ${left} dni.`, 'info');
+  $('#verifyRow').hidden = me.access.code !== 'verify';
   renderPlans();
   $('#payments').innerHTML = me.payments.length
     ? me.payments.map((x) => `<tr><td>${fmtDate(x.ts)}</td><td>${esc(x.plan)}</td><td>${fmtDate(x.period_until)}</td><td>${esc(PROVIDER[x.provider] || x.provider)}</td><td class="num">${fmtPln(x.amount_pln, 2)}</td></tr>`).join('')
@@ -195,3 +197,9 @@ $('#logoutOthers').addEventListener('click', async () => {
   load();
 });
 load();
+
+$('#resendVerify')?.addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  try { await api('/api/me/resend-verify', { method: 'POST', body: {} }); toast('Wysłaliśmy nowy link — sprawdź skrzynkę (także SPAM).', 'ok', 5000); }
+  catch (err) { toast(err.message, 'err'); e.target.disabled = false; }
+});

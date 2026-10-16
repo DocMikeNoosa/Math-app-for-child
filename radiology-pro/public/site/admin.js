@@ -382,7 +382,7 @@ function renderPending(o) {
   const d = o.trialDefaults || { days: 14, reports: 60 };
   $('#pendingRows').innerHTML = list.map((u) => `<tr data-pending="${u.id}">
     <td><b>${esc(u.name || u.email)}</b><span class="sub">${esc(u.email)}</span></td>
-    <td>${esc(u.npwz || '—')}<span class="sub">${esc(u.phone || '')}</span></td>
+    <td>${esc(u.phone || '—')}${u.npwz ? `<span class="sub">PWZ ${esc(u.npwz)}</span>` : ''}${u.trialFlags ? `<span class="sub" style="color:var(--warn)">⚠ ${esc(u.trialFlags)}</span>` : '<span class="sub">ręczne zatwierdzanie</span>'}</td>
     <td>${fmtDateTime(u.createdAt)}</td>
     <td><input type="number" min="1" max="90" value="${d.days}" data-days aria-label="Dni okresu próbnego" style="width:72px" /></td>
     <td><input type="number" min="1" max="10000" value="${d.reports}" data-reports aria-label="Liczba opisów" style="width:80px" /></td>
@@ -409,10 +409,11 @@ $('#pendingRows').addEventListener('click', async (e) => {
 async function loadSettings() {
   const { settings: s } = await api('/api/admin/settings');
   const f = $('#settingsForm');
-  for (const k of ['usdPln', 'trialDays', 'trialReports', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount', 'announcement', 'termsVersion', 'sessionIdleDays', 'auditRetentionDays', 'outboxRetentionDays']) f[k].value = s[k] ?? '';
+  for (const k of ['usdPln', 'trialDays', 'trialReports', 'trialDailyReports', 'trialsPerIp', 'graceRatio', 'costAlertRatio', 'graceDaysPastDue', 'annualMonths', 'maxBackgroundCalls', 'bankName', 'bankAccount', 'announcement', 'termsVersion', 'sessionIdleDays', 'auditRetentionDays', 'outboxRetentionDays']) f[k].value = s[k] ?? '';
   f.registrationOpen.checked = s.registrationOpen;
   f.requireNpwz.checked = s.requireNpwz !== false;
-  f.trialApproval.checked = s.trialApproval !== false;
+  f.trialApproval.checked = Boolean(s.trialApproval);
+  f.verifyEmail.checked = s.verifyEmail !== false;
   f.globalLearning.checked = s.globalLearning;
   f.itShowUsage.checked = s.itShowUsage;
 }
@@ -420,7 +421,7 @@ $('#settingsForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), trialReports: Number(f.trialReports.value), trialApproval: f.trialApproval.checked, graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, requireNpwz: f.requireNpwz.checked, announcement: f.announcement.value, termsVersion: f.termsVersion.value, sessionIdleDays: Number(f.sessionIdleDays.value), auditRetentionDays: Number(f.auditRetentionDays.value), outboxRetentionDays: Number(f.outboxRetentionDays.value), globalLearning: f.globalLearning.checked, itShowUsage: f.itShowUsage.checked } });
+    await api('/api/admin/settings', { method: 'PUT', body: { usdPln: Number(f.usdPln.value), trialDays: Number(f.trialDays.value), trialReports: Number(f.trialReports.value), trialDailyReports: Number(f.trialDailyReports.value), trialsPerIp: Number(f.trialsPerIp.value), trialApproval: f.trialApproval.checked, verifyEmail: f.verifyEmail.checked, graceRatio: Number(f.graceRatio.value), costAlertRatio: Number(f.costAlertRatio.value), graceDaysPastDue: Number(f.graceDaysPastDue.value), annualMonths: Number(f.annualMonths.value), maxBackgroundCalls: Number(f.maxBackgroundCalls.value), bankName: f.bankName.value, bankAccount: f.bankAccount.value, registrationOpen: f.registrationOpen.checked, requireNpwz: f.requireNpwz.checked, announcement: f.announcement.value, termsVersion: f.termsVersion.value, sessionIdleDays: Number(f.sessionIdleDays.value), auditRetentionDays: Number(f.auditRetentionDays.value), outboxRetentionDays: Number(f.outboxRetentionDays.value), globalLearning: f.globalLearning.checked, itShowUsage: f.itShowUsage.checked } });
     toast('Ustawienia zapisane', 'ok');
   } catch (err) { toast(err.message, 'err'); }
 });

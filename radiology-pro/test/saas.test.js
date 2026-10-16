@@ -36,7 +36,7 @@ before(async () => {
   delete process.env.RESEND_API_KEY;
   const { openDb, setSetting } = await import('../lib/db.js');
   openDb(':memory:');
-  setSetting('appSettings', { trialApproval: false }); // these tests start trials at once (approval: test/trial-approval)
+  setSetting('appSettings', { trialApproval: false, verifyEmail: false, trialsPerIp: 1000 }); // trials start at once here (sign-up checks: test/trial-approval)
   const { createServer } = await import('../server.js');
   app = createServer();
   await new Promise((r) => app.listen(0, '127.0.0.1', r));
@@ -117,6 +117,8 @@ test('monthly quota with 10 % grace; admin override lifts it', async () => {
   const r0 = await call('POST', '/api/auth/register', { email: 'q@example.com', password: 'dobrehaslo123', name: 'Q', npwz: '5163352', accept: true });
   const cookie = r0.cookie;
   const id = (await call('GET', '/api/admin/users?q=q@example', undefined, admin)).data.users[0].id;
+  // a paying user (a trial has its own whole-trial limit — test/trial-approval)
+  await call('POST', `/api/admin/users/${id}/extend`, { plan: 'pro', interval: 'month', count: 1, provider: 'free' }, admin);
   await call('PATCH', `/api/admin/users/${id}`, { quotaOverride: 2 }, admin);
   assert.equal((await format(cookie, 'a')).res.status, 200);
   assert.equal((await format(cookie, 'b')).res.status, 200);
@@ -318,18 +320,9 @@ test('cost guard: background pre-processing is capped per report; "Przygotuj opi
   assert.equal((await format(cookie, 'bg-1')).res.status, 200, 'the explicit request still works');
 });
 
-test('self-registration: a valid licence number (NPWZ) is required and gives one free trial per doctor', async () => {
+test('licence number check digit (NPWZ): optional at sign-up, but a given number must be well-formed', async () => {
   const { validNpwz } = await import('../lib/npwz.js');
   assert.ok(validNpwz('5425740'));
   assert.ok(!validNpwz('1234567'), 'wrong check digit');
   assert.ok(!validNpwz('0123456') && !validNpwz('542574') && !validNpwz('abcdefg'));
-  let r = await call('POST', '/api/auth/register', { email: 'npwz1@example.com', password: 'dobrehaslo123', name: 'N1', accept: true });
-  assert.equal(r.res.status, 400, 'missing number');
-  r = await call('POST', '/api/auth/register', { email: 'npwz1@example.com', password: 'dobrehaslo123', name: 'N1', npwz: '1234567', accept: true });
-  assert.equal(r.res.status, 400, 'invalid number');
-  r = await call('POST', '/api/auth/register', { email: 'npwz1@example.com', password: 'dobrehaslo123', name: 'N1', npwz: '5425740', accept: true });
-  assert.equal(r.res.status, 200);
-  r = await call('POST', '/api/auth/register', { email: 'npwz2@example.com', password: 'dobrehaslo123', name: 'N2', npwz: '5425740', accept: true });
-  assert.equal(r.res.status, 409, 'second free trial with the same number refused');
-  assert.match(r.data.error, /PWZ/);
 });

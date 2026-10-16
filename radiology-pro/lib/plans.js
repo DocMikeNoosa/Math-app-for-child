@@ -36,9 +36,12 @@ export const DEFAULT_SETTINGS = {
   usdPln: 3.65,              // exchange rate used for cost reports
   trialDays: 14,
   registrationOpen: true,
-  requireNpwz: true,
-  trialApproval: true,       // a self-registered account waits for the owner's approval before its trial starts
-  trialReports: 60,          // default number of reports for a whole trial (the owner can change it per account)         // self-registration needs a valid licence number (NPWZ); one free trial per number
+  requireNpwz: false,        // licence number (NPWZ) at self-registration: optional; checked only when given
+  verifyEmail: true,         // a trial starts only after the e-mail address is confirmed (link in an e-mail)
+  trialApproval: false,      // true: every trial waits for the owner; false: automatic, only suspicious ones wait
+  trialsPerIp: 2,            // more self-registrations than this from one internet address in 30 days → owner approves
+  trialReports: 60,          // reports for a whole trial (the owner can change it per account)
+  trialDailyReports: 20,     // reports per day during a trial (limits what one trial can cost)
   graceRatio: 0.1,           // reports allowed above the quota before blocking (10 %)
   costAlertRatio: 0.5,       // e-mail the admin when a user's AI cost exceeds 50 % of the plan price
   graceDaysPastDue: 3,       // access kept after a failed payment
@@ -100,6 +103,7 @@ export function access(user, now = Date.now()) {
   if (!user) return { ok: false, code: 'login', reason: 'Zaloguj się.' };
   if (user.role === 'admin') return { ok: true };
   if (user.blocked) return { ok: false, code: 'blocked', reason: 'Konto zablokowane — skontaktuj się z administratorem.' };
+  if (user.sub_status === 'verify') return { ok: false, code: 'verify', reason: `Potwierdź adres e-mail: kliknij link, który wysłaliśmy na ${user.email}. Okres próbny zacznie się od razu po potwierdzeniu.` };
   if (user.sub_status === 'pending') return { ok: false, code: 'pending', reason: 'Twoje konto czeka na zatwierdzenie okresu próbnego. Dostaniesz e-mail, gdy będzie gotowe.' };
   if (user.must_change_pwd) return { ok: false, code: 'pwd', reason: 'Ustaw własne hasło, aby rozpocząć pracę.' };
   const tv = settings().termsVersion;
@@ -130,6 +134,10 @@ export function quotaCheck(user, reportId) {
     const total = one("SELECT COUNT(DISTINCT report_id) AS n FROM usage WHERE user_id = ? AND kind = 'format' AND ok = 1 AND report_id <> ''", user.id).n;
     if (reportId && one('SELECT 1 AS x FROM usage WHERE user_id = ? AND report_id = ? AND ok = 1 LIMIT 1', user.id, reportId)) return { ok: true, used: total, quota };
     if (total >= quota) return { ok: false, code: 'quota', used: total, quota, reason: `Wykorzystano ${quota} opisów okresu próbnego. Wybierz plan, aby pracować dalej.` };
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    const today = one("SELECT COUNT(DISTINCT report_id) AS n FROM usage WHERE user_id = ? AND kind = 'format' AND ok = 1 AND report_id <> '' AND ts >= ?", user.id, dayStart.getTime()).n;
+    const perDay = settings().trialDailyReports;
+    if (perDay && today >= perDay) return { ok: false, code: 'quota', used: total, quota, reason: `W okresie próbnym można przygotować ${perDay} opisów dziennie. Jutro limit się odnowi — albo wybierz plan.` };
     return { ok: true, used: total, quota, warn: total >= quota * 0.9 };
   }
   const used = monthUsage(user.id);

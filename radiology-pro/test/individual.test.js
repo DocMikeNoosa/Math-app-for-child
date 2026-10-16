@@ -30,7 +30,7 @@ before(async () => {
   process.env.ANTHROPIC_API_KEY = 'x';
   const { openDb, setSetting } = await import('../lib/db.js');
   openDb(':memory:');
-  setSetting('appSettings', { trialApproval: false }); // these tests start trials at once (approval: test/trial-approval)
+  setSetting('appSettings', { trialApproval: false, verifyEmail: false, trialsPerIp: 1000 }); // trials start at once here (sign-up checks: test/trial-approval)
   const { openLearningDb } = await import('../lib/learning.js');
   openLearningDb(':memory:');
   const { createServer } = await import('../server.js');
