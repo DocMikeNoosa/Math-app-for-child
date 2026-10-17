@@ -773,7 +773,7 @@ body.target-clinical.recording .rec-state::after { content: ' · dane kliniczne'
    When the panel is too narrow, the toolbar labels hide first (icons stay, with their tooltips). */
 .report { container-type: inline-size; }
 @container (max-width: 1010px) { .lbl-po { display: none; } }
-@container (max-width: 960px) { .report-toolbar .tb-btn span { display: none; } }
+@container (max-width: 1120px) { .report-toolbar .tb-btn span { display: none; } } /* one more toolbar button („Błąd mowy”) */
 @container (max-width: 520px) {
   .report-toolbar .tb-sep { display: none; }
   .report-toolbar .tb-btn { padding: 0 6px; }
