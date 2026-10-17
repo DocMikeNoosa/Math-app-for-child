@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Ustaw hasło — RadVox Pro</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="reset">
+  <main class="auth">
+    <div class="auth-card">
+      <a class="brand" href="/"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span data-brand>RadVox Pro</span></a>
+      <div class="card">
+        <h1>Ustaw hasło</h1>
+        <p class="sub">Konto: <b id="who">…</b></p>
+        <div id="msg" class="msg" hidden></div>
+        <form id="form" novalidate>
+          <div class="field"><label for="password">Nowe hasło <span class="faint">(min. 10 znaków, litera i cyfra)</span></label><input id="password" name="password" type="password" autocomplete="new-password" required autofocus /></div>
+          <div class="field"><label for="password2">Powtórz hasło</label><input id="password2" name="password2" type="password" autocomplete="new-password" required /></div>
+          <button class="btn btn-primary btn-lg" type="submit">Zapisz hasło i zaloguj</button>
+        </form>
+      </div>
+      <p class="auth-foot"><a href="/login">Wróć do logowania</a></p>
+    </div>
+  </main>
+  <script type="module" src="/site/auth.js"></script>
+</body>
+</html>

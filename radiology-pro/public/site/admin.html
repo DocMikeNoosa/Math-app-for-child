@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Administrator — RadVox Pro</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="manifest" href="/admin.webmanifest" />
+  <meta name="theme-color" content="#05070a" />
+  <link rel="apple-touch-icon" href="/icons/radvox-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="admin">
+  <nav class="nav">
+    <div class="wrap">
+      <a class="brand" href="/admin"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span><span data-brand>RadVox Pro</span> <span class="dim" style="font-weight:500">· administrator</span></span></a>
+      <span class="grow"></span>
+      <a class="btn btn-sm" href="/app/">Aplikacja</a>
+      <a class="btn btn-sm btn-ghost" href="/logout">Wyloguj</a>
+    </div>
+  </nav>
+  <main class="shell">
+    <div class="wrap">
+      <div class="admin-tabs" role="tablist">
+        <button role="tab" data-tab="dash" aria-selected="true">Pulpit</button>
+        <button role="tab" data-tab="trials" aria-selected="false">Okresy próbne</button>
+        <button role="tab" data-tab="friends" aria-selected="false" class="gold-tab">★ Przyjaciele</button>
+        <button role="tab" data-tab="users" aria-selected="false">Użytkownicy</button>
+        <button role="tab" data-tab="orgs" aria-selected="false">Organizacje</button>
+        <button role="tab" data-tab="learning" aria-selected="false">Nauka globalna AI</button>
+        <button role="tab" data-tab="tickets" aria-selected="false">Zgłoszenia <span class="pill err" id="ticketCount" hidden></span></button>
+        <button role="tab" data-tab="speech" aria-selected="false">Błędy mowy</button>
+        <button role="tab" data-tab="usage" aria-selected="false">Zużycie i koszty AI</button>
+        <button role="tab" data-tab="payments" aria-selected="false">Płatności</button>
+        <button role="tab" data-tab="plans" aria-selected="false">Plany i ceny</button>
+        <button role="tab" data-tab="settings" aria-selected="false">Ustawienia</button>
+        <button role="tab" data-tab="log" aria-selected="false">Dziennik i poczta</button>
+      </div>
+
+      <!-- dashboard -->
+      <section data-panel="dash" style="padding:0">
+        <div class="card" id="pendingCard" hidden>
+          <div class="card-head"><h3>Czekają na zatwierdzenie okresu próbnego <span class="pill warn" id="pendingCount"></span></h3></div>
+          <p class="dim small" style="margin:0 0 10px">Te konta czekają, bo wyglądają na kolejny okres próbny tej samej osoby (uwagi poniżej) albo włączone jest ręczne zatwierdzanie. Ustaw liczbę dni i opisów dla całego okresu próbnego.</p>
+          <div class="table-wrap"><table><thead><tr><th>Użytkownik</th><th>Telefon / uwagi</th><th>Zgłoszenie</th><th>Dni</th><th>Opisy</th><th></th></tr></thead><tbody id="pendingRows"></tbody></table></div>
+        </div>
+        <div class="kpis" id="kpis"></div>
+        <div class="cols">
+          <div>
+            <div class="card">
+              <div class="card-head"><h3>Ostatnie 30 dni</h3><span class="dim small" id="chartNote"></span></div>
+              <svg class="chart" id="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Opisy dziennie i koszt AI"></svg>
+              <div class="chart-axis"><span id="axisFrom"></span><span id="axisTo"></span></div>
+              <div class="legend"><span><i style="background:rgba(89,212,255,.55)"></i>opisy dziennie</span><span><i style="background:var(--warn)"></i>koszt AI dziennie</span></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Wygasające w ciągu 7 dni</h3></div>
+              <div class="table-wrap"><table><thead><tr><th>Użytkownik</th><th>Plan</th><th>Status</th><th>Do</th></tr></thead><tbody id="expiring"></tbody></table></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Zaległe płatności</h3></div>
+              <div class="table-wrap"><table><thead><tr><th>Użytkownik</th><th>Plan</th><th>Do</th></tr></thead><tbody id="pastDue"></tbody></table></div>
+            </div>
+          </div>
+          <div>
+            <div class="card">
+              <div class="card-head"><h3>Najwyższy koszt AI (ten miesiąc)</h3></div>
+              <div class="table-wrap"><table><thead><tr><th>Użytkownik</th><th class="num">Opisy</th><th class="num">Koszt</th><th class="num">% ceny</th></tr></thead><tbody id="topCost"></tbody></table></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Języki dyktatu (ten miesiąc)</h3></div>
+              <ul class="config-list" id="byLang"></ul>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Serwer teraz</h3><button class="btn btn-sm" id="backupNow">Zrób kopię bazy</button></div>
+              <ul class="config-list" id="server"></ul>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Konfiguracja serwera</h3><button class="btn btn-sm" id="runJobs">Uruchom zadania</button></div>
+              <ul class="config-list" id="config"></ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- trials: who is trying the app, what it costs, and a standard e-mail to invite them to a paid plan -->
+      <section data-panel="trials" style="padding:0" hidden>
+        <div class="kpis" id="trialKpis"></div>
+        <div class="card">
+          <div class="card-head"><h3>Wiadomość do użytkowników okresu próbnego</h3></div>
+          <div class="field"><label for="tAudience">Do kogo</label>
+            <select id="tAudience"><option value="ending">Okres próbny kończy się w ciągu 3 dni</option><option value="ended">Okres próbny zakończył się (ostatnie 60 dni), bez zakupu</option><option value="active">Wszyscy w trakcie okresu próbnego</option><option value="ids">Zaznaczeni w tabeli poniżej</option></select></div>
+          <div class="field"><label for="tSubject">Temat</label><input id="tSubject" maxlength="200" /></div>
+          <div class="field"><label for="tBody">Treść <span class="dim small">— {imię}, {okres} i {link} uzupełnią się same</span></label><textarea id="tBody" rows="9"></textarea></div>
+          <div class="field"><label class="check"><input type="checkbox" id="tConsent" checked /> Tylko do osób, które przy rejestracji zgodziły się na informacje o ofercie (wymóg prawa — przed wyłączeniem zapytaj prawnika)</label></div>
+          <div class="actions"><button class="btn btn-sm" id="tPreview">Sprawdź odbiorców</button><button class="btn btn-sm btn-primary" id="tSend">Wyślij</button><span class="dim small" id="tInfo"></span></div>
+          <p class="dim small" style="margin:8px 0 0">Ta sama osoba nie dostanie dwóch takich wiadomości w ciągu 7 dni. E-mail o końcu okresu próbnego wysyła się sam.</p>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Kto próbuje</h3><span class="dim small" id="trialCount"></span></div>
+          <div class="table-wrap"><table><thead><tr><th></th><th>Użytkownik</th><th>Status</th><th>Opisy</th><th>Koszt AI</th><th>Zgoda</th><th>Ostatnia wiad.</th></tr></thead><tbody id="trialRows"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- friends: free accounts that use their own API key -->
+      <section data-panel="friends" style="padding:0" hidden>
+        <div class="friend-hero friend">
+          <span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span>
+          <div style="flex:1;min-width:240px"><h2>Przyjaciele</h2><p class="dim small">Pełna aplikacja za darmo, ze złotą ikoną. Za AI każdy przyjaciel płaci sam — swoim kluczem API, który wkleja sam. <b>Ty nie płacisz nic.</b></p></div>
+        </div>
+        <div class="kpis" id="friendKpis"></div>
+        <div class="card">
+          <div class="card-head"><h3>1. Dodaj przyjaciela</h3></div>
+          <form id="friendForm" autocomplete="off">
+            <div class="row">
+              <div class="field"><label for="fName">Imię i nazwisko</label><input id="fName" name="name" placeholder="np. Anna Kowalska" /></div>
+              <div class="field"><label for="fEmail">E-mail</label><input id="fEmail" name="email" type="email" required placeholder="anna@example.com" /></div>
+            </div>
+            <div class="field"><label>Hasło</label>
+              <label class="radio-card"><input type="radio" name="pwdMode" value="link" checked /><div><b>Przyjaciel sam wybierze hasło</b> (zalecane)<div class="dim small">Dostanie link (ważny 7 dni), ustawi hasło i aplikacja przeprowadzi go przez resztę.</div></div></label>
+              <label class="radio-card"><input type="radio" name="pwdMode" value="start" /><div><b>Ustaw hasło startowe</b><div class="dim small">Przekażesz mu je sam (np. SMS-em); przy pierwszym logowaniu ustawi własne.</div>
+                <div class="row" id="startPwdRow" hidden><div class="field"><input name="password" id="fPwd" autocomplete="off" placeholder="min. 10 znaków, litera i cyfra" /></div><div class="field" style="flex:0 0 auto"><button class="btn btn-sm" type="button" id="genPwd">Wygeneruj</button></div></div></div></label>
+            </div>
+            <div class="field"><label class="check"><input type="checkbox" name="sendEmail" /> Wyślij też zaproszenie e-mailem (wiadomość i tak pojawi się poniżej; hasła nie wysyłamy e-mailem)</label></div>
+            <button class="btn btn-primary" type="submit">Utwórz konto i pokaż zaproszenie</button>
+          </form>
+          <div id="inviteOut" class="invite-out" style="margin-top:14px" hidden></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>2. Twoi przyjaciele</h3><span class="dim small" id="friendNote"></span></div>
+          <div class="table-wrap"><table><thead><tr><th>Przyjaciel</th><th>Stan</th><th>Tylko on?</th><th class="num">Opisy (mies.)</th><th class="num">Ich koszt AI</th><th>Ostatnio</th><th>Co możesz zrobić</th></tr></thead><tbody id="friendRows"></tbody></table></div>
+          <p class="dim small" style="margin:10px 0 0"><b>Tylko on?</b> — ile przeglądarek i miejsc logowania w 30 dni; ⚠ gdy wygląda na to, że konta używa więcej osób (decydujesz Ty). Konto działa na 2 komputerach naraz, a jeden klucz API może być tylko na jednym koncie. <b>Zawieś</b> — przyjaciel nie może się zalogować, klucz zostaje (przywrócisz jednym kliknięciem). <b>Zmień dostęp</b> — okres próbny, płatna subskrypcja albo plan gratis. Kliknij imię, aby zobaczyć wszystkie szczegóły konta.</p>
+        </div>
+      </section>
+
+      <!-- users -->
+      <section data-panel="users" style="padding:0" hidden>
+        <div class="toolbar">
+          <input id="q" type="search" placeholder="Szukaj: e-mail, nazwisko, NIP, PWZ…" />
+          <select id="filter">
+            <option value="all">Wszyscy</option><option value="active">Aktywni (płatni)</option><option value="trial">Okres próbny</option>
+            <option value="pending">Czekają na zatwierdzenie</option><option value="friend">Przyjaciele (własny klucz)</option><option value="expiring">Wygasają w 7 dni</option><option value="expired">Wygaśli</option><option value="past_due">Zaległa płatność</option>
+            <option value="blocked">Zablokowani</option><option value="admins">Administratorzy</option>
+            <option value="org">W organizacjach</option><option value="orgadmins">Administratorzy IT</option>
+          </select>
+          <span class="grow"></span>
+          <a class="btn btn-sm" href="/api/admin/export/users.csv">CSV</a>
+          <button class="btn btn-sm btn-primary" id="addUser">+ Dodaj użytkownika</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Użytkownik</th><th>Plan</th><th>Status</th><th>Dostęp do</th><th class="num">Opisy (mies.)</th><th class="num">Koszt AI</th><th class="num">Marża</th><th>Ostatnio</th></tr></thead>
+          <tbody id="users"></tbody>
+        </table></div>
+        <p class="dim small" id="usersNote" style="margin-top:10px"></p>
+      </section>
+
+      <!-- organisations -->
+      <section data-panel="orgs" style="padding:0" hidden>
+        <div class="toolbar">
+          <span class="dim small">Firmy (np. teleradiologia) z jedną licencją na wiele miejsc. Użytkownikami zarządza dział IT firmy w konsoli IT.</span>
+          <span class="grow"></span>
+          <button class="btn btn-sm btn-primary" id="addOrg">+ Nowa organizacja</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Organizacja</th><th>Status</th><th>Licencja do</th><th class="num">Miejsca</th><th class="num">Pracujący (mies.)</th><th class="num">Opisy (mies.)</th><th class="num">Koszt AI</th><th class="num">Przychód / mies.</th><th class="num">Marża</th><th></th></tr></thead>
+          <tbody id="orgs"></tbody>
+        </table></div>
+      </section>
+
+      <!-- central learning -->
+      <section data-panel="learning" style="padding:0" hidden>
+        <div class="msg info small">Archiwum nauki zapisuje <b>na stałe</b> każdą lekcję od każdego radiologa (po usunięciu danych identyfikujących). Widzisz je tylko Ty — nie ma do niego dostępu dział IT, firma-klient ani żaden użytkownik, i nigdy nie trafia do przeglądarki. Wiedza globalna działa dopiero po Twojej akceptacji („Opublikuj”); osobisty styl radiologa ma zawsze pierwszeństwo.</div>
+        <div class="kpis" id="lkpis"></div>
+        <div class="cols">
+          <div>
+            <div class="card">
+              <div class="card-head"><h3>Nowa wersja wiedzy globalnej</h3></div>
+              <form id="lnew">
+                <div class="row">
+                  <div class="field"><label>Metoda</label><select name="method"><option value="ai">Analiza AI (zalecana — łączy i uogólnia lekcje)</option><option value="counts">Same liczby (bez AI)</option></select></div>
+                </div>
+                <div class="row">
+                  <div class="field"><label>Min. różnych radiologów na lekcję</label><input name="minContributors" type="number" min="2" max="50" value="3" /></div>
+                  <div class="field"><label>Min. różnych organizacji</label><input name="minOrgs" type="number" min="1" max="20" value="1" /></div>
+                </div>
+                <div class="field"><label>Notatka</label><input name="note" maxlength="500" placeholder="np. po pierwszym miesiącu pilotażu" /></div>
+                <button class="btn btn-primary" type="submit">Utwórz szkic</button>
+              </form>
+              <p class="dim small" style="margin-top:10px">Lekcja trafia do wiedzy globalnej tylko wtedy, gdy tę samą poprawkę zrobiło niezależnie co najmniej tylu radiologów — nawyk jednej osoby nie staje się regułą dla wszystkich, a pojedynczego radiologa nie da się rozpoznać.</p>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Archiwum</h3><a class="btn btn-sm" href="/api/admin/learning/export">Eksport całego archiwum (JSONL)</a></div>
+              <div class="table-wrap"><table><thead><tr><th>Rodzaj lekcji</th><th class="num">Lekcje</th><th class="num">Wspólne (≥2 osoby)</th><th class="num">Zgłoszenia</th></tr></thead><tbody id="lkinds"></tbody></table></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Zatrzymane przez filtr (30 dni)</h3><span class="dim small" id="lqcount"></span></div>
+              <p class="dim small" style="margin-top:0">Lekcje bez sensu, niemedyczne, obraźliwe, z linkami lub losowymi literami nie trafiają do wspólnej wiedzy (osobista nauka tej osoby działa dalej). Kto często wysyła takie treści, jest automatycznie wykluczany z nauki globalnej — widać to i można cofnąć w szczegółach użytkownika.</p>
+              <div class="table-wrap"><table><thead><tr><th>Kiedy</th><th>Rodzaj</th><th>Treść</th><th>Powód</th></tr></thead><tbody id="lquar"></tbody></table></div>
+            </div>
+          </div>
+          <div>
+            <div class="card">
+              <div class="card-head"><h3>Wersje</h3><button class="btn btn-sm" id="lunpub">Wyłącz wiedzę globalną</button></div>
+              <div class="table-wrap"><table><thead><tr><th>#</th><th>Utworzono</th><th>Metoda</th><th>Status</th><th></th></tr></thead><tbody id="lversions"></tbody></table></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- tickets -->
+      <section data-panel="tickets" style="padding:0" hidden>
+        <div class="card"><div class="card-head"><h3>Zgłoszenia od działów IT</h3></div><div id="ticketList" class="small"></div></div>
+      </section>
+
+      <!-- speech-recognition error log -->
+      <section data-panel="speech" style="padding:0" hidden>
+        <div class="card">
+          <div class="card-head"><h3>Dziennik rozpoznawania mowy</h3><span class="grow"></span>
+            <select id="speechDaysSel" class="btn-sm" title="Okres raportu dla klientów"><option value="0">wszystkie wpisy</option><option value="30">ostatnie 30 dni</option><option value="90">ostatnie 90 dni</option></select>
+            <a class="btn btn-sm btn-primary" href="/api/admin/speech-log/report" target="_blank" rel="noopener" id="speechReport">Raport dla klientów (PDF)</a>
+            <a class="btn btn-sm" href="/api/admin/speech-log/export" id="speechExport">Pobierz (Excel)</a></div>
+          <p class="dim small" style="margin:0 0 10px">Lekarze wysyłają tu przyciskiem „Błąd mowy” to, co przeglądarka usłyszała, obok gotowego opisu, i zaznaczają rodzaj błędu (albo „Bez błędów”). Liczby są porównywane automatycznie. Tak widać, jak często rozpoznawanie mowy się myli — zwłaszcza w liczbach, stronach i przeczeniach — i czy potrzebny jest lepszy silnik mowy. „Raport dla klientów” to strona ze statystykami (opisy końcowe poprawne, błędy poprawione przez AI, rodzaje błędów, trend tygodniowy, metoda i przedział ufności) — w nowym oknie kliknij „Drukuj / zapisz PDF”. Identyfikatory (PESEL itp.) są usuwane przed wysłaniem; wpisy są przechowywane <span id="speechDays">180</span> dni.</p>
+          <div class="kpis" id="speechKpis"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Według lekarza</h3></div>
+          <div class="table-wrap"><table><thead><tr><th>Lekarz</th><th class="num">Wpisy</th><th class="num">Z błędem</th><th class="num">% błędów</th><th class="num">Liczby</th><th class="num">Strona</th><th class="num">Przeczenie</th><th class="num">Termin</th><th class="num">Słowo</th><th class="num">Inne</th></tr></thead><tbody id="speechUsers"></tbody></table></div>
+        </div>
+        <div class="card"><div class="card-head"><h3>Wpisy</h3></div><div id="speechList" class="small"></div></div>
+      </section>
+
+      <!-- usage -->
+      <section data-panel="usage" style="padding:0" hidden>
+        <div class="toolbar"><label for="month" style="margin:0">Miesiąc</label><input id="month" type="month" /><span class="grow"></span><a class="btn btn-sm" href="/api/admin/export/usage.csv">CSV</a></div>
+        <div class="card">
+          <div class="card-head"><h3>Koszt AI na użytkownika</h3><span class="dim small">ceny API: Opus $4 / $20 za 1 mln tokenów wejścia / wyjścia</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Użytkownik</th><th>Plan</th><th class="num">Opisy</th><th class="num">Zapytania</th><th class="num">Zapyt./opis</th><th class="num">Tokeny we / wy</th><th class="num">Cache odczyt</th><th class="num">Koszt</th><th class="num">Koszt / opis</th><th class="num">% ceny planu</th><th class="num">Błędy</th></tr></thead><tbody id="perUser"></tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Ostatnie 12 miesięcy</h3></div>
+          <div class="table-wrap"><table><thead><tr><th>Miesiąc</th><th class="num">Opisy</th><th class="num">Zapytania</th><th class="num">Koszt USD</th><th class="num">Koszt PLN</th><th class="num">Koszt / opis</th></tr></thead><tbody id="months"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- payments -->
+      <section data-panel="payments" style="padding:0" hidden>
+        <div class="toolbar"><span class="dim small">Płatności online (Stripe) zapisują się automatycznie; przelewy dodajesz przy użytkowniku („Przedłuż”).</span><span class="grow"></span><a class="btn btn-sm" href="/api/admin/export/payments.csv">CSV dla księgowości</a></div>
+        <div class="table-wrap"><table><thead><tr><th>Data</th><th>Użytkownik</th><th>Firma / NIP</th><th>Plan</th><th>Okres do</th><th>Sposób</th><th>Ref.</th><th class="num">Kwota</th></tr></thead><tbody id="paymentsTable"></tbody></table></div>
+      </section>
+
+      <!-- plans -->
+      <section data-panel="plans" style="padding:0" hidden>
+        <div class="card">
+          <div class="card-head"><h3>Plany</h3><div class="actions"><button class="btn btn-sm" id="addPlan">+ Plan</button><button class="btn btn-sm btn-primary" id="savePlans">Zapisz plany</button></div></div>
+          <p class="dim small">Ceny netto (PLN / miesiąc). Limit = opisy miesięcznie (z 10% tolerancją). Urządzenia = jednocześnie zalogowane. „Stripe price” — identyfikator ceny z panelu Stripe (price_…) dla płatności kartą; puste = tylko przelew. Plan „trial” to okres próbny (nie jest pokazywany w cenniku).</p>
+          <div class="table-wrap"><table><thead><tr><th>ID</th><th>Nazwa</th><th class="num">Cena</th><th class="num">Limit</th><th class="num">Urządz.</th><th>W cenniku</th><th>Wyróżniony</th><th>Stripe price (mies.)</th><th>Stripe price (rok)</th><th></th></tr></thead><tbody id="plansTable"></tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Kalkulator marży</h3></div>
+          <p class="dim small">Szacunek na podstawie rzeczywistego średniego kosztu AI na opis z bieżącego miesiąca (lub wartości wpisanej ręcznie).</p>
+          <div class="row" style="max-width:520px"><div class="field"><label for="calcCost">Koszt AI na opis (zł)</label><input id="calcCost" type="number" step="0.01" min="0" /></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Plan</th><th class="num">Cena netto</th><th class="num">Koszt AI przy pełnym limicie</th><th class="num">Marża przy pełnym limicie</th><th class="num">Koszt przy 50% limitu</th><th class="num">Marża przy 50%</th></tr></thead><tbody id="calc"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- settings -->
+      <section data-panel="settings" style="padding:0" hidden>
+        <div class="cols">
+          <div class="card">
+            <div class="card-head"><h3>Ustawienia</h3></div>
+            <form id="settingsForm">
+              <div class="row">
+                <div class="field"><label for="sRate">Kurs USD → PLN (do raportów kosztów)</label><input id="sRate" name="usdPln" type="number" step="0.01" /></div>
+                <div class="field"><label for="sTrial">Okres próbny (dni)</label><input id="sTrial" name="trialDays" type="number" min="0" max="90" /></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="sGrace">Tolerancja ponad limit (0.1 = 10%)</label><input id="sGrace" name="graceRatio" type="number" step="0.05" min="0" max="1" /></div>
+                <div class="field"><label for="sAlert">Alert kosztu AI (część ceny planu)</label><input id="sAlert" name="costAlertRatio" type="number" step="0.05" /></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="sPastDue">Dni dostępu po nieudanej płatności</label><input id="sPastDue" name="graceDaysPastDue" type="number" min="0" max="30" /></div>
+                <div class="field"><label for="sAnnual">Plan roczny = cena × miesięcy</label><input id="sAnnual" name="annualMonths" type="number" min="1" max="12" step="1" /></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="sBg">Limit zapytań w tle na opis (koszt AI)</label><input id="sBg" name="maxBackgroundCalls" type="number" min="0" max="20" /></div>
+                <div class="field"></div>
+              </div>
+              <div class="field"><label for="sBankName">Odbiorca przelewu (nazwa firmy)</label><input id="sBankName" name="bankName" /></div>
+              <div class="field"><label for="sBank">Numer konta do przelewów</label><input id="sBank" name="bankAccount" placeholder="PL00 0000 0000 0000 0000 0000 0000" /></div>
+              <div class="field"><label class="check"><input type="checkbox" name="registrationOpen" /> Rejestracja otwarta (nowi użytkownicy mogą sami założyć konto próbne)</label></div>
+              <div class="field"><label class="check"><input type="checkbox" name="verifyEmail" /> Okres próbny startuje po potwierdzeniu adresu e-mail (link w wiadomości)</label></div>
+              <div class="field"><label class="check"><input type="checkbox" name="trialApproval" /> Każdy okres próbny wymaga mojego zatwierdzenia (wyłączone: start automatyczny, a podejrzane konta czekają w Pulpicie)</label></div>
+              <div class="field"><label for="sTrialReports">Opisy na cały okres próbny</label><input id="sTrialReports" name="trialReports" type="number" min="1" max="10000" /></div>
+              <div class="field"><label for="sTrialDaily">Opisy dziennie w okresie próbnym</label><input id="sTrialDaily" name="trialDailyReports" type="number" min="1" max="10000" /></div>
+              <div class="field"><label for="sTrialsDev">Okresy próbne z jednego komputera w 90 dni (koledzy w szpitalu dzielą komputer), potem kolejne czekają</label><input id="sTrialsDev" name="trialsPerDevice" type="number" min="1" max="1000" /></div>
+              <div class="field"><label for="sTrialsIp">Okresy próbne z jednego adresu internetowego w 30 dni (szpital ma jeden), potem kolejne czekają</label><input id="sTrialsIp" name="trialsPerIp" type="number" min="1" max="1000" /></div>
+              <div class="field"><label for="sTrialsDay">Nowe automatyczne okresy próbne na dobę, potem kolejne czekają</label><input id="sTrialsDay" name="trialsPerDay" type="number" min="1" max="10000" /></div>
+              <div class="field"><label for="sTrialBudget">Miesięczny budżet AI na okresy próbne (zł; po przekroczeniu nowe czekają; 0 = bez limitu)</label><input id="sTrialBudget" name="trialBudgetPln" type="number" min="0" max="1000000" /></div>
+              <h3 style="margin-top:18px">RODO, bezpieczeństwo, nauka</h3>
+              <div class="row">
+                <div class="field"><label for="sTerms">Wersja regulaminu / informacji RODO <span class="faint">(zmiana = wszyscy akceptują ponownie)</span></label><input id="sTerms" name="termsVersion" maxlength="20" /></div>
+                <div class="field"><label for="sIdle">Wylogowanie nieużywanego urządzenia po (dniach)</label><input id="sIdle" name="sessionIdleDays" type="number" min="1" max="30" /></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="sAudit">Dziennik zdarzeń przechowywany (dni)</label><input id="sAudit" name="auditRetentionDays" type="number" min="180" max="3650" /></div>
+                <div class="field"><label for="sOutbox">Kopie e-maili przechowywane (dni)</label><input id="sOutbox" name="outboxRetentionDays" type="number" min="7" max="365" /></div>
+              </div>
+              <div class="field"><label class="check"><input type="checkbox" name="globalLearning" /> Używaj opublikowanej wiedzy globalnej w zapytaniach AI</label></div>
+              <div class="field"><label class="check"><input type="checkbox" name="itShowUsage" /> Działy IT widzą liczbę opisów poszczególnych osób (domyślnie nie — tylko konta i problemy)</label></div>
+              <div class="field"><label for="sAnn">Komunikat dla wszystkich użytkowników <span class="faint">(pasek w aplikacji, np. „Dziś 22:00–22:15 prace serwisowe”; puste = brak)</span></label><input id="sAnn" name="announcement" maxlength="300" /></div>
+              <button class="btn btn-primary" type="submit">Zapisz ustawienia</button>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Jak to działa</h3></div>
+            <ul class="small dim" style="padding-left:18px;margin:0">
+              <li>Zadania automatyczne (co godzinę): wygaszanie subskrypcji, przypomnienia e-mail 7 i 1 dzień przed końcem, alerty kosztu AI do administratora.</li>
+              <li>Płatność kartą (Stripe) przedłuża dostęp automatycznie co miesiąc / rok.</li>
+              <li>Przelew: po zaksięgowaniu kliknij użytkownika → „Przedłuż” i wpisz kwotę oraz numer faktury.</li>
+              <li>Opis liczy się raz, nawet jeśli AI było wołane kilka razy dla tego samego badania (przetwarzanie w tle, poprawki).</li>
+              <li>Koszty są liczone z rzeczywistego zużycia tokenów zwracanego przez API.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- log -->
+      <section data-panel="log" style="padding:0" hidden>
+        <div class="cols">
+          <div class="card"><div class="card-head"><h3>Dziennik zdarzeń</h3></div><div class="table-wrap" style="max-height:640px"><table><thead><tr><th>Czas</th><th>Kto</th><th>Akcja</th><th>Dotyczy</th><th>Szczegóły</th></tr></thead><tbody id="audit"></tbody></table></div></div>
+          <div class="card"><div class="card-head"><h3>Poczta wychodząca</h3></div><div id="outbox" class="small"></div></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="overlay" id="overlay" hidden></div>
+  <aside class="drawer" id="drawer" hidden aria-label="Szczegóły użytkownika"></aside>
+  <div class="modal" id="modal" hidden role="dialog" aria-modal="true"></div>
+  <script type="module" src="/site/admin.js"></script>
+</body>
+</html>

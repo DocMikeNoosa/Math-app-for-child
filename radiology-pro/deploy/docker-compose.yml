@@ -1,0 +1,47 @@
+# RadVox Pro on one server: the app + Caddy (automatic HTTPS certificate, compression).
+# Start / update:  docker compose up -d --build      Logs:  docker compose logs -f app      Stop: docker compose down
+# Settings are read from .env in this folder (copy .env.example → .env and fill it in). See ../DEPLOY.md.
+services:
+  app:
+    build: ..
+    image: radvox-pro:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      TRUST_PROXY: "1"            # the real client address comes from Caddy (the app is not reachable directly)
+    volumes:
+      - ./data:/data              # database + daily backups (./data/backups) on the server's disk
+    expose:
+      - "3000"                    # only Caddy can reach the app; port 3000 is NOT open to the internet
+    stop_grace_period: 40s        # an update waits for AI answers already in progress
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "10" }
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?Ustaw DOMAIN w pliku .env}
+      EXTRA_DOMAINS: ${EXTRA_DOMAINS:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data          # HTTPS certificates
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+volumes:
+  caddy-data:
+  caddy-config:

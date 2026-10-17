@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#05070b" />
+  <title>RadVox Pro — dyktujesz patologię, opis jest gotowy</title>
+  <meta name="description" content="RadVox Pro zamienia dyktat radiologa (po polsku lub po angielsku) w gotowy opis po polsku — z Twoich szablonów, z wnioskami ułożonymi według istotności klinicznej, w Twoim stylu. Okres próbny bez karty." />
+  <meta property="og:title" content="RadVox Pro — dyktujesz patologię, opis jest gotowy" />
+  <meta property="og:description" content="Opisy TK, MR, RTG i USG z dyktatu, w Twoim stylu. 14 dni za darmo." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="/site/img/og.jpg" />
+  <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="preload" href="/fonts/inter-latin-ext-700-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/site/landing.css" />
+</head>
+<body>
+  <div class="bg" aria-hidden="true"><div class="aurora a1"></div><div class="aurora a2"></div><div class="aurora a3"></div><div class="grid-lines"></div><div class="grain"></div></div>
+
+  <!-- ============================================================ nav -->
+  <nav class="nav" id="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/" aria-label="RadVox Pro — strona główna">
+        <span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span>
+        <span data-brand>RadVox Pro</span>
+      </a>
+      <div class="nav-links">
+        <a href="#jak">Jak działa</a>
+        <a href="#funkcje">Funkcje</a>
+        <a href="#firmy">Dla firm</a>
+        <a href="#cennik">Cennik</a>
+        <a href="#faq">Pytania</a>
+      </div>
+      <span class="grow"></span>
+      <a class="nbtn ghost" href="/login">Zaloguj</a>
+      <a class="nbtn primary" href="/register"><span>Wypróbuj za darmo</span></a>
+    </div>
+  </nav>
+
+  <!-- ============================================================ hero -->
+  <header class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <a class="chip-new" href="#jak"><span class="dot"></span>Nowość: dyktat po angielsku → opis po polsku<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></a>
+        <h1 class="display">Dyktujesz patologię.<br /><span class="grad">Opis jest gotowy.</span></h1>
+        <p class="lead">RadVox Pro wstawia dyktat do Twojego szablonu, usuwa zdania, którym dyktat przeczy, układa zmiany według istotności klinicznej i pisze wnioski — <b>Twoim stylem</b>. Ty sprawdzasz i kopiujesz do RIS.</p>
+        <div class="cta-row">
+          <a class="btn-xl primary" href="/register"><span>Zacznij <b id="heroTrial">14</b> dni za darmo</span><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <a class="btn-xl glass" href="#demo-film"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5 3.5-5 3.5z"/></svg><span>Zobacz na żywo</span></a>
+        </div>
+        <ul class="trust">
+          <li><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Bez karty płatniczej</li>
+          <li><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>BLIK · Przelewy24 · karta · faktura VAT</li>
+          <li><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Chrome / Edge, bez instalacji</li>
+        </ul>
+      </div>
+
+      <!-- live demo -->
+      <div class="demo-wrap" id="demo-film">
+        <div class="demo-glow" aria-hidden="true"></div>
+        <div class="demo" role="img" aria-label="Animacja: dyktat zamienia się w gotowy opis badania (przypadek fikcyjny)">
+          <div class="demo-bar">
+            <span class="lights"><i></i><i></i><i></i></span>
+            <span class="demo-title" id="dTitle">TK głowy bez kontrastu · uraz</span>
+            <span class="demo-lang" id="dLang">PL → PL</span>
+          </div>
+          <div class="demo-body">
+            <div class="demo-left">
+              <div class="orb" id="dOrb"><span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></div>
+              <div class="wave" id="dWave" aria-hidden="true"></div>
+              <div class="dict-label"><span id="dState">Dyktat</span><span class="mono" id="dTime">00:00</span></div>
+              <div class="dict" id="dDict"></div>
+              <button class="prep" id="dPrep" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5 13.8 11.3 12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/></svg>Przygotuj opis</button>
+            </div>
+            <div class="demo-right">
+              <div class="doc" id="dDoc"></div>
+            </div>
+          </div>
+          <div class="demo-foot"><span class="mono">przypadek fikcyjny · animacja poglądowa</span><span class="safety" id="dSafety"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg><span id="dSafetyText">Siatka bezpieczeństwa aktywna</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track" id="marquee"></div>
+    </div>
+  </header>
+
+  <!-- ============================================================ statement -->
+  <section class="statement reveal">
+    <div class="wrap">
+      <p class="big">Prawidłowe struktury są już w&nbsp;Twoim szablonie.<br /><span class="dimmed">Dyktujesz tylko to, co nieprawidłowe —</span> <span class="grad">resztę RadVox Pro składa za Ciebie.</span></p>
+      <div class="kpis">
+        <div class="kpi"><b data-count="397">0</b><span>szablonów badań po polsku</span></div>
+        <div class="kpi"><b data-count="112">0</b><span>gotowych fraz i fragmentów</span></div>
+        <div class="kpi"><b>PL · EN</b><span>dyktat w dwóch językach</span></div>
+        <div class="kpi"><b>4</b><span>poziomy pilności we wnioskach</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ how -->
+  <section id="jak" class="how">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker">Jak to działa</span>
+        <h2>Trzy kroki, które robisz i tak.<br /><span class="grad">Tylko szybciej.</span></h2>
+      </div>
+      <ol class="steps">
+        <li class="step reveal">
+          <span class="num">01</span>
+          <div class="step-vis v-tpl"><span>TK głowy — uraz</span><span>TK KUB</span><span class="on">Angio-TK tętnic płucnych</span><span>MR kręgosłupa L</span></div>
+          <h3>Wybierz szablon</h3>
+          <p>Klawisz <kbd>T</kbd> i kilka liter. Swoje szablony dodasz jednym wklejeniem. Opcjonalnie dane kliniczne ze skierowania.</p>
+        </li>
+        <li class="step reveal">
+          <span class="num">02</span>
+          <div class="step-vis v-mic"><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span></div>
+          <h3>Podyktuj tylko patologię</h3>
+          <p>W dowolnej kolejności, po polsku lub po angielsku, mikrofonem lub przyciskiem PowerMic. Komendy głosowe: „przygotuj opis”, „kopiuj opis”.</p>
+        </li>
+        <li class="step reveal">
+          <span class="num">03</span>
+          <div class="step-vis v-copy"><span class="ln w90"></span><span class="ln w70 hl"></span><span class="ln w80"></span><span class="ln w50 hl"></span><span class="ok"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></div>
+          <h3>Sprawdź i skopiuj</h3>
+          <p>Każda zmiana względem szablonu jest podświetlona, niezgodne liczby i strony — oznaczone. Jedno kliknięcie i opis jest w RIS.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ============================================================ features (bento) -->
+  <section id="funkcje" class="features">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker">Funkcje</span>
+        <h2>Zbudowany przez radiologa ostrodyżurowego.<br /><span class="grad">Zna logikę opisu.</span></h2>
+        <p>Nie ogólny „asystent AI”, tylko narzędzie, które wie, co jest najważniejsze, co trzeba zaprzeczyć i co powinno trafić do wniosków.</p>
+      </div>
+
+      <div class="bento">
+        <article class="tile t-wide reveal">
+          <div class="tile-txt">
+            <span class="tag">Siatka bezpieczeństwa</span>
+            <h3>Dyktat ma zawsze pierwszeństwo przed szablonem</h3>
+            <p>Zdania szablonu sprzeczne z dyktatem znikają — w całym opisie, nie tylko obok nowej zmiany. Dyktujesz krwiaka, a „bez cech krwawienia” nie zostanie.</p>
+          </div>
+          <div class="vis-safety" aria-hidden="true">
+            <div class="s-line add">Ostry krwiak podtwardówkowy nad lewą półkulą, grubości 8 mm.</div>
+            <div class="s-line strike">Bez cech krwawienia wewnątrzczaszkowego.</div>
+            <div class="s-line">Układ komorowy symetryczny, nieposzerzony.</div>
+            <div class="s-line strike">Struktury linii pośrodkowej nieprzemieszczone.</div>
+            <div class="s-line add">Przemieszczenie struktur linii pośrodkowej w prawo o 4 mm.</div>
+          </div>
+        </article>
+
+        <article class="tile reveal">
+          <span class="tag">Istotność kliniczna</span>
+          <h3>Najgroźniejsze na górze</h3>
+          <p>Cztery poziomy pilności. Zmiany przypadkowe i wiekowe zostają w opisie, ale nie zaśmiecają wniosków.</p>
+          <div class="vis-tiers" aria-hidden="true">
+            <div class="tier t1"><i></i>Zagrażające życiu</div>
+            <div class="tier t2"><i></i>Ostre, istotne</div>
+            <div class="tier t3"><i></i>Istotne nieostre</div>
+            <div class="tier t4"><i></i>Przypadkowe / wiekowe</div>
+          </div>
+        </article>
+
+        <article class="tile reveal">
+          <span class="tag">Angielski → polski</span>
+          <h3>Myślisz po angielsku? Opis i tak po polsku</h3>
+          <p>Nie tłumaczenie słowo w słowo, tylko polski radiologiczny — Twoją terminologią.</p>
+          <div class="vis-lang" aria-hidden="true">
+            <div class="pair"><span class="en">free fluid in the pelvis</span><span class="arr">→</span><span class="pl">wolny płyn w miednicy</span></div>
+            <div class="pair"><span class="en">no midline shift</span><span class="arr">→</span><span class="pl">bez przemieszczenia linii pośrodkowej</span></div>
+            <div class="pair"><span class="en">fat stranding</span><span class="arr">→</span><span class="pl">pasmowate zagęszczenia tkanki tłuszczowej</span></div>
+          </div>
+        </article>
+
+        <article class="tile reveal">
+          <span class="tag">Uczenie AI</span>
+          <h3>Pisze coraz bardziej jak Ty</h3>
+          <p>Każda Twoja poprawka przed skopiowaniem uczy AI Twojego stylu — na każdym komputerze.</p>
+          <div class="vis-learn" aria-hidden="true">
+            <div class="cap"><svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5-9 5z"/><path d="M7 11.5V16c0 1.4 2.2 3 5 3s5-1.6 5-3v-4.5"/><path d="M21 9v5"/></svg></div>
+            <div class="diff"><del>Bez zmian ogniskowych.</del><ins>Nie stwierdza się zmian ogniskowych.</ins></div>
+          </div>
+        </article>
+
+        <article class="tile reveal">
+          <span class="tag">Prywatność</span>
+          <h3>PESEL znika, zanim cokolwiek wyjdzie</h3>
+          <p>Numery PESEL są usuwane przed wysłaniem do AI. Bieżący opis i lista dzisiejszych opisów zostają w Twojej przeglądarce.</p>
+          <div class="vis-pesel" aria-hidden="true"><span class="mono">Pacjent, PESEL <span class="num">85010112345</span></span><span class="mono redacted">Pacjent, PESEL <span class="tagp">[PESEL]</span></span></div>
+        </article>
+
+        <article class="tile t-wide reveal">
+          <div class="tile-txt">
+            <span class="tag">Obok PACS</span>
+            <h3>Wąskie okno obok przeglądarki obrazów</h3>
+            <p>RadVox Pro mieści się w pasku obok PACS. Przycisk nagrywania Nuance PowerMic, komendy głosowe, skróty klawiszowe — ręce zostają na myszy, wzrok na obrazie.</p>
+            <ul class="mini">
+              <li><kbd>Spacja</kbd> dyktat</li><li><kbd>Ctrl</kbd>+<kbd>Enter</kbd> przygotuj opis</li><li><kbd>T</kbd> szablon</li>
+            </ul>
+          </div>
+          <div class="vis-pacs" aria-hidden="true">
+            <div class="pacs"><div class="scan"><span class="sweep"></span></div><div class="pacs-strip"><i></i><i></i><i></i><i></i></div></div>
+            <div class="side"><span class="mic"></span><span class="l w80"></span><span class="l w60"></span><span class="l w90 hl"></span><span class="l w70"></span><span class="l w50 hl"></span><span class="go">Kopiuj opis</span></div>
+          </div>
+        </article>
+
+        <article class="tile reveal">
+          <span class="tag">Wnioski</span>
+          <h3>Krótkie, pogrupowane, pilne pierwsze</h3>
+          <p>Wnioski według układów, krótkie formy rozpoznań. „Wskazana pilna konsultacja…” — tylko, gdy ją podyktujesz.</p>
+        </article>
+
+        <article class="tile reveal">
+          <span class="tag">Klasyfikacje</span>
+          <h3>Tylko z podyktowanych danych</h3>
+          <p>Fleischner, Bosniak, TI-RADS, LI-RADS, ASPECTS, Fazekas. Gdy brakuje danych — ostrzeżenie zamiast zgadywania.</p>
+        </article>
+
+        <article class="tile reveal">
+          <span class="tag">Szablony</span>
+          <h3>397 szablonów + Twoje własne</h3>
+          <p>TK, angio-TK, MR (z sercem i piersią), RTG, mammografia, USG. Urazowe i nieurazowe, dorośli i dzieci, badania łączone.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ product shot -->
+  <section class="shot">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker">Aplikacja</span>
+        <h2>Spokojny, ciemny interfejs<br /><span class="grad">na długi dyżur.</span></h2>
+      </div>
+      <figure class="frame reveal" id="frame">
+        <div class="frame-bar"><span class="lights"><i></i><i></i><i></i></span><span class="url"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>radvox.pl/app</span></div>
+        <img src="/site/img/app.jpg" width="1600" height="936" alt="Zrzut ekranu aplikacji RadVox Pro: dyktat po lewej, gotowy opis z podświetlonymi zmianami i wnioskami po prawej (przypadek fikcyjny)" loading="lazy" decoding="async" />
+        <figcaption>Prawdziwy zrzut ekranu · przypadek fikcyjny</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============================================================ for companies -->
+  <section id="firmy" class="orgs">
+    <div class="wrap orgs-grid">
+      <div class="reveal">
+        <span class="kicker">Dla firm teleradiologicznych i szpitali</span>
+        <h2>Licencja na zespół.<br /><span class="grad">Twoje IT zarządza kontami.</span></h2>
+        <ul class="ticks">
+          <li><b>Licencja na miejsca</b> — jedna faktura, dowolna liczba radiologów.</li>
+          <li><b>Konsola IT</b> — import listy z Excela, hasła tymczasowe, blokada konta jednym kliknięciem.</li>
+          <li><b>Logowanie dwuetapowe</b>, limit urządzeń, automatyczne wylogowanie.</li>
+          <li><b>Sprawdzone pod obciążeniem</b> — symulacja 200 radiologów pracujących jednocześnie, bez błędów.</li>
+          <li><b>RODO</b> — umowa powierzenia, eksport i usuwanie danych, szyfrowane kopie zapasowe.</li>
+        </ul>
+        <div class="cta-row">
+          <a class="btn-xl primary" href="#kontakt" id="orgContact"><span>Porozmawiajmy o pilotażu</span><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+        </div>
+      </div>
+      <div class="console reveal" aria-hidden="true">
+        <div class="c-head"><b>Konsola IT</b><span>Teleradiologia — przykład</span></div>
+        <div class="c-seats"><div><b>186</b> / 200</div><span>zajęte miejsca</span><div class="meter"><i></i></div></div>
+        <div class="c-rows">
+          <div class="c-row"><span class="av">AK</span><span class="nm">Anna K.</span><span class="pill ok">aktywna</span></div>
+          <div class="c-row"><span class="av">PZ</span><span class="nm">Piotr Z.</span><span class="pill ok">aktywny</span></div>
+          <div class="c-row"><span class="av">MW</span><span class="nm">Maria W.</span><span class="pill warn">1. logowanie</span></div>
+          <div class="c-row"><span class="av">JN</span><span class="nm">Jan N.</span><span class="pill">zablokowany</span></div>
+        </div>
+        <div class="c-foot"><span class="btnlike">Import listy osób</span><span class="btnlike pri">+ Dodaj osobę</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ pricing -->
+  <section id="cennik" class="pricing">
+    <div class="wrap">
+      <div class="sec-head reveal center">
+        <span class="kicker">Cennik dla lekarzy</span>
+        <h2>Kup sam — <span class="grad">bez umowy z&nbsp;firmą.</span></h2>
+        <p><span id="trialDays">14</span> dni za darmo, bez karty. Potem miesięcznie albo rocznie: BLIK, Przelewy24, karta lub przelew. Faktura VAT.</p>
+      </div>
+      <div class="toggle reveal" role="group" aria-label="Okres rozliczenia">
+        <button type="button" data-interval="month" aria-pressed="true">Miesięcznie</button>
+        <button type="button" data-interval="year" aria-pressed="false">Rocznie <span class="save" id="yearSave">2 mies. gratis</span></button>
+        <span class="knob" aria-hidden="true"></span>
+      </div>
+      <div class="plans" id="plans"></div>
+      <div class="pay-row reveal"><span>Płatności:</span><span class="paychip">BLIK</span><span class="paychip">Przelewy24</span><span class="paychip">Karta</span><span class="paychip">Przelew / faktura proforma</span></div>
+      <p class="fine">Ceny netto + 23% VAT. „Opis” = jedno badanie przygotowane przez AI — kolejne poprawki tego samego opisu się nie liczą. Płatność z góry nie odnawia się automatycznie.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ security -->
+  <section class="security">
+    <div class="wrap">
+      <div class="sec-head reveal center">
+        <span class="kicker">Bezpieczeństwo i RODO</span>
+        <h2>Dane medyczne traktujemy <span class="grad">jak dane medyczne.</span></h2>
+      </div>
+      <div class="sec-grid">
+        <div class="sec-item reveal"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><h3>Szyfrowane połączenie i kopie</h3><p>HTTPS, kopie zapasowe szyfrowane AES-256.</p></div>
+        <div class="sec-item reveal"><svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg><h3>Logowanie dwuetapowe</h3><p>Kod z telefonu — hasło to za mało.</p></div>
+        <div class="sec-item reveal"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h6"/><path d="M15 15l5 5M20 15l-5 5"/></svg><h3>PESEL usuwany automatycznie</h3><p>Zanim tekst trafi do modelu AI.</p></div>
+        <div class="sec-item reveal"><svg viewBox="0 0 24 24"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg><h3>Bez archiwum opisów</h3><p>Bieżący opis zostaje w przeglądarce lekarza.</p></div>
+        <div class="sec-item reveal"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><h3>Twoje prawa RODO</h3><p>Kopia danych i usunięcie konta — samodzielnie, z poziomu konta.</p></div>
+        <div class="sec-item reveal"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg><h3>Lekarz decyduje</h3><p>RadVox Pro redaguje tekst — nie analizuje obrazów i nie stawia rozpoznań.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ faq -->
+  <section id="faq" class="faq">
+    <div class="wrap narrow">
+      <div class="sec-head reveal center"><span class="kicker">Pytania</span><h2>Zanim zaczniesz</h2></div>
+      <div class="qa reveal">
+        <details><summary>Czy AI może dopisać zmiany, których nie podyktowałem?</summary><p>AI ma zakaz dopisywania czegokolwiek, czego nie ma w dyktacie lub szablonie. Każde zdanie zmienione względem szablonu jest podświetlone, a niezgodne liczby, wymiary i strony ciała — oznaczone ostrzeżeniem. Opis zawsze sprawdza i podpisuje lekarz.</p></details>
+        <details><summary>Czy to działa z moim RIS?</summary><p>Tak — z każdym. Gotowy opis kopiujesz jednym kliknięciem (albo komendą „kopiuj opis”) i wklejasz do RIS. Bez wdrożenia i bez działu IT.</p></details>
+        <details><summary>Jakiego mikrofonu potrzebuję?</summary><p>Wystarczy dowolny mikrofon. Obsługujemy przycisk nagrywania Nuance PowerMic. Rozpoznawanie mowy działa w Chrome i Edge.</p></details>
+        <details><summary>Czy mogę kupić sam, bez umowy z firmą?</summary><p>Tak. Zakładasz konto, przez 14 dni korzystasz za darmo, potem wybierasz plan i płacisz BLIK-iem, Przelewy24, kartą lub przelewem — za miesiąc albo za rok z góry. Fakturę VAT wystawiamy na Twoje dane (NIP).</p></details>
+        <details><summary>Co z danymi pacjentów?</summary><p>Nie dyktuj danych osobowych — numery PESEL są dodatkowo usuwane automatycznie. Dyktat jest przetwarzany tylko w celu przygotowania opisu i nie jest archiwizowany. Na serwerze zapisujemy to, z czego AI uczy się Twojego stylu (szablony, reguły, przykłady poprawek). Szczegóły: <a href="/privacy">informacja o przetwarzaniu danych</a>.</p></details>
+        <details><summary>Czy RadVox Pro stawia rozpoznania?</summary><p>Nie. RadVox Pro nie analizuje obrazów — redaguje tekst, który dyktujesz, według Twoich szablonów i reguł. Za treść opisu odpowiada lekarz.</p></details>
+        <details><summary>Co się stanie po okresie próbnym?</summary><p>Nic nie jest pobierane automatycznie. Jeśli chcesz pracować dalej, wybierasz plan na stronie konta. Szablony i nauczony styl zostają.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ final cta -->
+  <section class="final" id="kontakt">
+    <div class="wrap">
+      <div class="final-card reveal">
+        <div class="final-orb" aria-hidden="true"></div>
+        <h2 class="display-2">Następny dyżur<br /><span class="grad">z RadVox Pro.</span></h2>
+        <p>Załóż konto w minutę — pierwszy opis jeszcze dziś.</p>
+        <div class="cta-row center">
+          <a class="btn-xl primary" href="/register"><span>Wypróbuj <b class="trialN">14</b> dni za darmo</span><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <a class="btn-xl glass" href="mailto:" id="contactLink"><span>Kontakt dla firm</span></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <a class="brand" href="/"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span data-brand>RadVox Pro</span></a>
+      <span class="foot-note">Narzędzie do redagowania opisów. Nie zastępuje oceny lekarza.</span>
+      <span class="grow"></span>
+      <a href="/terms">Regulamin</a><a href="/privacy">Prywatność (RODO)</a><a href="/login">Logowanie</a>
+      <span class="copy">© <span id="year"></span></span>
+    </div>
+  </footer>
+
+  <script type="module" src="/site/landing.js"></script>
+</body>
+</html>

@@ -1,0 +1,1925 @@
+// RadVox Pro — hosted (SaaS) version of the radiology dictation app.
+// Public: landing page, login / registration / password reset, Stripe webhook.
+// Logged in: the dictation app (/app/), account page, AI endpoints (metered per user).
+// Administrator: /admin — users, subscriptions, usage, AI costs, payments, plans, settings, audit log.
+import './lib/env.js';
+import http from 'node:http';
+import crypto from 'node:crypto';
+import { readFile, stat } from 'node:fs/promises';
+import { gzip } from 'node:zlib';
+import { promisify } from 'node:util';
+import { readFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
+import { analyzeStyle, cleanLearnInput, cleanProfile, cleanTranslations } from './lib/learn.js';
+import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
+import { scrubIdentifiers } from './public/js/polish-text.js';
+import { ERROR_TYPES, summarize, toCSV, stats as speechStats, statsPage, PRINT_SCRIPT } from './public/js/speech-log.js';
+import { openDb, closeDb, one, all, run, tx, audit, monthOf, getSetting, setSetting } from './lib/db.js';
+import {
+  COOKIE, parseCookies, sessionCookie, sessionUser, createSession, deleteSession, deleteUserSessions, userSessions,
+  createUser, getUser, getUserByEmail, verifyPassword, passwordProblem, setPassword, publicUser, EMAIL_RE,
+  loginBlocked, noteFailure, clearFailures, createOneTimeToken, useOneTimeToken, peekOneTimeToken, setTempPassword,
+  isLockedOut, create2faTicket, use2faTicket,
+} from './lib/auth.js';
+import { newSecret, verifyTotp, otpauthUri } from './lib/totp.js';
+import { openLearningDb, closeLearningDb, captureLearning, forgetContributor, archiveStats, setExcluded, contributorStatus, quarantineList, versions as learningVersions, getVersion, updateVersionContent, publishVersion, unpublishAll, exportArchive } from './lib/learning.js';
+import { createGlobalVersion, guidanceFor, invalidateGlobal, publishedId, cleanGlobal, GLOBAL_DEFAULTS } from './lib/global-learning.js';
+import { getOrg, listOrgs, seatsUsed, orgUsers, createOrg, updateOrg, tempPassword, parseUserList, ORG_STATUS, TEMP_PASSWORD_RE } from './lib/orgs.js';
+import { aiLimiter, BusyError } from './lib/limiter.js';
+import { validNpwz, cleanNpwz } from './lib/npwz.js';
+import { isDisposableEmail, trialFlags } from './lib/trial-guard.js';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
+import { lastBackup, backupNow } from './lib/backup.js';
+import { plans, planById, settings, access, quotaCheck, quotaOf, monthUsage, costUsd, DEFAULT_PLANS, DEFAULT_SETTINGS } from './lib/plans.js';
+import { extendSubscription, stripeEnabled, createCheckout, createPrepaidCheckout, createPortal, verifyStripeSignature, handleStripeEvent } from './lib/billing.js';
+import { sendMail, adminEmail, mailConfigured } from './lib/mail.js';
+import { runJobs, startJobs } from './lib/jobs.js';
+import { BRAND } from './lib/brand.js';
+import { aiConfigured, PROVIDER, withOwnKey, usingOwnKey, ownKeyProblem, checkOwnKey, isCreditProblem, BILLING_URL } from './lib/ai-client.js';
+import { seal, open as openSecret, maskKey, fingerprint } from './lib/secret-box.js';
+import { sharingSignals } from './lib/sharing.js';
+
+const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC = path.join(APP_DIR, 'public');
+const DIST = path.join(APP_DIR, 'dist');
+const VERSION = JSON.parse(readFileSync(path.join(APP_DIR, 'package.json'), 'utf8')).version;
+const PROD = process.env.NODE_ENV === 'production';
+// In production the app is served from dist/ (bundled, minified and obfuscated by `npm run build`).
+const APP_ROOT = () => (PROD && existsSync(path.join(DIST, 'app', 'index.html')) ? path.join(DIST, 'app') : PUBLIC);
+const SITE_ROOT = () => (PROD && existsSync(path.join(DIST, 'site')) ? path.join(DIST, 'site') : path.join(PUBLIC, 'site'));
+const MAX_BODY = 200 * 1024;
+const MIME = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json; charset=utf-8',
+  '.woff2': 'font/woff2', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.txt': 'text/plain; charset=utf-8', '.webmanifest': 'application/manifest+json',
+};
+// Same-origin JSON requests carry this header (a cross-site form or script cannot set it → CSRF protection).
+const CSRF_HEADER = 'x-radiopis';
+// Keys of the app's local storage that follow the user to every device: own templates, the style profile and
+// everything learned from the radiologist's corrections (style pairs, conclusion changes, example reports, EN→PL
+// pairs) — so the AI keeps learning on every workstation. PESEL numbers are removed before storing.
+// Never synced: the current report and today's list of reports (they stay on the device).
+export const SYNC_KEYS = ['radvox.templates.v1', 'radvox.profile.v1', 'radvox.style.v1', 'radvox.learned.v1'];
+const SYNC_MAX = 1_500_000;
+const LEARNING_KEYS = new Set(['radvox.style.v1', 'radvox.learned.v1', 'radvox.profile.v1']);
+// Archiving runs after the answer, one sync at a time with other requests served in between
+// (200 people opening the app at once must not freeze the server).
+const captureQueue = [];
+function queueCapture(fn) {
+  captureQueue.push(fn);
+  if (captureQueue.length === 1) setImmediate(drainCaptures);
+}
+function drainCaptures() {
+  const fn = captureQueue.shift();
+  try { fn(); } catch (err) { console.error('learning capture', err); }
+  if (captureQueue.length) setImmediate(drainCaptures);
+}
+
+const aiAvailable = () => aiConfigured();
+
+// ---------------------------------------------------------------- helpers
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'same-origin',
+  'Permissions-Policy': 'microphone=(self), camera=(), geolocation=(), hid=(self)',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com",
+};
+function headers(extra = {}) {
+  const h = { ...SECURITY_HEADERS, ...extra };
+  if (PROD) h['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+  return h;
+}
+function sendJson(res, status, data, extra = {}) {
+  res.writeHead(status, headers({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...extra }));
+  res.end(JSON.stringify(data));
+}
+function redirect(res, to, extra = {}) {
+  res.writeHead(302, headers({ Location: to, 'Cache-Control': 'no-store', ...extra }));
+  res.end();
+}
+function readRaw(req, limit = MAX_BODY) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) {
+        reject(new ClaudeError('Zbyt duże zapytanie.', 413));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+async function readJson(req, limit) {
+  const raw = await readRaw(req, limit);
+  try { return raw ? JSON.parse(raw) : {}; } catch { throw new ClaudeError('Nieprawidłowy JSON.', 400); }
+}
+// Behind the reverse proxy (Caddy) the real address is the LAST entry of X-Forwarded-For (the one the proxy added);
+// earlier entries can be forged by the client. TRUST_PROXY=1 only when the app is reachable through the proxy alone.
+const clientIp = (req) => (process.env.TRUST_PROXY ? String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() : '') || req.socket.remoteAddress || '';
+const isSecure = (req) => PROD || req.headers['x-forwarded-proto'] === 'https';
+function baseUrl(req) {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, '');
+  return `${isSecure(req) ? 'https' : 'http'}://${req.headers.host}`;
+}
+const str = (v, len = 200) => (typeof v === 'string' ? v.trim().slice(0, len) : '');
+
+function currentUser(req) {
+  const token = parseCookies(req.headers.cookie)[COOKIE];
+  const s = sessionUser(token);
+  return s ? { ...s, token } : null;
+}
+
+// ---------------------------------------------------------------- static files
+// Text files are kept in memory, gzip-compressed once (the app script shrinks ~4×) and re-read only when the file
+// changes — 200 people opening the app at 8:00 cost almost nothing.
+const gzipAsync = promisify(gzip);
+const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.svg', '.json', '.txt', '.webmanifest']);
+const fileCache = new Map(); // path → { key, data, gz: Promise<Buffer> }
+async function cachedFile(file, st) {
+  const key = `${st.size}-${st.mtimeMs}`;
+  let c = fileCache.get(file);
+  if (!c || c.key !== key) {
+    const data = await readFile(file);
+    c = { key, data, gz: COMPRESSIBLE.has(path.extname(file)) && data.length > 1024 ? gzipAsync(data, { level: 6 }) : null };
+    if (fileCache.size > 500) fileCache.clear();
+    fileCache.set(file, c);
+  }
+  return c;
+}
+
+async function serveFile(res, root, rel, { cache = 'no-cache', status = 200, req = null } = {}) {
+  const file = path.normalize(path.join(root, rel));
+  if (!file.startsWith(root + path.sep) && file !== root) {
+    res.writeHead(403, headers());
+    return res.end('Forbidden');
+  }
+  if (!PROD || rel.endsWith('.html') || rel.endsWith('.js')) {
+    // never serve source maps or internal notes
+    if (/\.(map|md|mjs)$/i.test(file)) { res.writeHead(404, headers()); return res.end(); }
+  }
+  try {
+    const st = await stat(file);
+    if (!st.isFile()) throw new Error('not a file');
+    const etag = `W/"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+    if (req && req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers({ ETag: etag, 'Cache-Control': cache }));
+      return res.end();
+    }
+    const c = await cachedFile(file, st);
+    const h = { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': cache, ETag: etag, Vary: 'Accept-Encoding' };
+    let body = c.data;
+    if (c.gz && /\bgzip\b/.test(String(req?.headers['accept-encoding'] || ''))) {
+      body = await c.gz;
+      h['Content-Encoding'] = 'gzip';
+    }
+    h['Content-Length'] = body.length;
+    res.writeHead(status, headers(h));
+    res.end(req?.method === 'HEAD' ? undefined : body);
+  } catch {
+    res.writeHead(404, headers({ 'Content-Type': 'text/plain; charset=utf-8' }));
+    res.end('Nie znaleziono');
+  }
+}
+const sitePage = (res, name, req = null) => serveFile(res, SITE_ROOT(), `${name}.html`, { req });
+
+// ---------------------------------------------------------------- AI usage metering
+function recordUsage(user, { kind, reportId = '', model = '', usage = null, ms = 0, ok = true, lang = '', globalVersion = null }) {
+  const u = usage || {};
+  const cost = usage ? costUsd(model, u) : 0;
+  const own = user.sub_status === 'friend'; // a friend pays with their own API key: never the owner's cost
+  run(`INSERT INTO usage(user_id, ts, month, kind, report_id, model, input_tokens, output_tokens, cache_write, cache_read, cost_usd, own_cost_usd, ms, ok, lang, global_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  user.id, Date.now(), monthOf(), kind, String(reportId).slice(0, 64), model || '', u.input_tokens || 0, u.output_tokens || 0,
+  u.cache_creation_input_tokens || 0, u.cache_read_input_tokens || 0, own ? 0 : cost, own ? cost : 0, ms, ok ? 1 : 0, lang, globalVersion);
+  if (own && ok && usage && user.credit_out) run('UPDATE users SET credit_out = 0 WHERE id = ?', user.id); // topped up: works again
+}
+
+/** A friend's API credit ran out: remember it (account page, app, owner) and e-mail them at most once a day. */
+async function noteCreditOut(user, req) {
+  const now = Date.now();
+  run('UPDATE users SET credit_out = ? WHERE id = ? AND credit_out = 0', now, user.id);
+  if (now - (user.credit_mailed || 0) < 86400000) return;
+  run('UPDATE users SET credit_mailed = ? WHERE id = ?', now, user.id);
+  await sendMail(user.email, `${BRAND.name}: doładuj konto API`, `Dzień dobry,\n\nskończyły się środki na Twoim koncie API, dlatego AI w ${BRAND.name} nie może teraz przygotowywać opisów.\n\nDoładowanie trwa minutę (jak telefon na kartę):\n1. Otwórz: ${BILLING_URL}\n2. Kliknij „Buy credits”, wybierz kwotę (proponujemy 20 USD) i zapłać kartą.\n3. Wróć do aplikacji — działa od razu.\n\nInstrukcja krok po kroku: ${baseUrl(req)}/klucz-api#doladowanie`).catch(() => {});
+}
+
+/** Run an AI request: a friend's request goes out with their own API key, everyone else's with the service's. */
+function runAs(ctx, fn) {
+  if (ctx?.user.sub_status === 'friend' && ctx.user.api_key_enc) {
+    const key = openSecret(ctx.user.api_key_enc);
+    if (key) return withOwnKey(key, fn);
+  }
+  return fn();
+}
+
+function validReport(report) {
+  return report && typeof report === 'object' && ['header', 'body', 'conclusion'].every((k) => typeof report[k] === 'string')
+    && report.header.length + report.body.length + report.conclusion.length < 60000;
+}
+export function cleanStyleExamples(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((x) => x && typeof x.ai === 'string' && typeof x.final === 'string' && x.ai.trim() && x.final.trim())
+    .slice(-20).map((x) => ({ ai: x.ai.trim().slice(0, 600), final: x.final.trim().slice(0, 600) }));
+}
+const strList = (v, max, len) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()).slice(-max).map((x) => x.trim().slice(0, len)) : []);
+export function cleanLearned(l) {
+  if (!l || typeof l !== 'object') return null;
+  const out = {
+    conclusion_removed: strList(l.conclusionRemoved, 30, 300),
+    conclusion_added: strList(l.conclusionAdded, 20, 300),
+    restored: strList(l.restored, 20, 400),
+    example_reports: (Array.isArray(l.exampleReports) ? l.exampleReports : [])
+      .filter((r) => r && typeof r.body === 'string' && typeof r.conclusion === 'string')
+      .slice(-2).map((r) => ({ body: r.body.slice(0, 6000), conclusion: r.conclusion.slice(0, 2000) })),
+  };
+  return Object.values(out).some((v) => v.length) ? out : null;
+}
+
+/** AI errors for the browser. A bad server API key (401) is the operator's problem, not the user's login. */
+function sendAiError(res, err, ctx = null, req = null) {
+  if (usingOwnKey()) {
+    if (isCreditProblem(err)) {
+      if (ctx) noteCreditOut(ctx.user, req).catch(() => {});
+      return sendJson(res, 402, { error: 'Skończyły się środki na Twoim koncie API — doładuj je, a AI od razu zadziała.', code: 'own_credit', billingUrl: BILLING_URL });
+    }
+    const problem = ownKeyProblem(err);
+    if (problem) return sendJson(res, 402, { error: `${problem} (strona konta → „Twój klucz API”)`, code: 'own_key' });
+  }
+  if (err.status === 401) {
+    console.error('AI: authentication failed — check the API key / AWS credentials');
+    return sendJson(res, 503, { error: 'Usługa AI chwilowo niedostępna — administrator został powiadomiony.' });
+  }
+  if (err instanceof BusyError) return sendJson(res, err.status, { error: err.message, code: err.code }, { 'Retry-After': String(err.retryAfter) });
+  if (err.status === 429) return sendJson(res, 429, { error: err.message, code: 'ai_rate' }, { 'Retry-After': '10' });
+  return sendJson(res, err.status, { error: err.message });
+}
+
+/** Login + active subscription (+ optional quota) for the AI endpoints. Sends the error itself. */
+function guardAi(res, ctx, reportId = null) {
+  if (!ctx) { sendJson(res, 401, { error: 'Sesja wygasła — zaloguj się ponownie.', code: 'login' }); return null; }
+  const a = access(ctx.user);
+  if (!a.ok) { sendJson(res, 402, { error: a.reason, code: a.code }); return null; }
+  if (ctx.user.sub_status === 'friend') {
+    if (!ctx.user.api_key_enc) { sendJson(res, 402, { error: 'Dodaj swój klucz API Anthropic na stronie konta — wersja dla przyjaciół korzysta z Twojego klucza.', code: 'own_key' }); return null; }
+  } else if (!aiAvailable()) { sendJson(res, 503, { error: 'AI chwilowo niedostępne.', code: 'no_api_key' }); return null; }
+  if (reportId !== null) {
+    const q = quotaCheck(ctx.user, reportId);
+    if (!q.ok) { sendJson(res, 402, { error: q.reason, code: q.code }); return null; }
+    return q;
+  }
+  return { ok: true };
+}
+
+async function handleFormat(req, res, ctx) {
+  const body = await readJson(req);
+  const reportId = str(body.reportId, 64) || `r-${Date.now()}`;
+  const q = guardAi(res, ctx, reportId);
+  if (!q) return;
+  if (body.background === true) {
+    // cost guard: background pre-processing during dictation pauses is capped per report
+    const n = one("SELECT COUNT(*) AS n FROM usage WHERE user_id = ? AND report_id = ? AND kind = 'format'", ctx.user.id, reportId).n;
+    if (n >= settings().maxBackgroundCalls) return sendJson(res, 429, { error: 'Przetwarzanie w tle wstrzymane dla tego opisu — użyj „Przygotuj opis”.', code: 'bg_limit' });
+  }
+  const raw = body.template ? cleanRaw(body.template) : null;
+  const template = raw ? parseTemplate(raw) : getTemplate(body.templateId);
+  if (!template) return sendJson(res, 400, { error: 'Nieznany szablon.' });
+  if (!validReport(body.report)) return sendJson(res, 400, { error: 'Nieprawidłowa struktura raportu.' });
+  const dictation = String(body.dictation || '').slice(0, 20000);
+  const instruction = String(body.instruction || '').slice(0, 2000);
+  const translate = body.translate === true;
+  if (!translate && !dictation.trim() && !instruction.trim()) return sendJson(res, 400, { error: 'Brak dyktowanego tekstu.' });
+  const lang = (v) => (v === 'en' ? 'en' : 'pl');
+  const started = Date.now();
+  const langTag = `${lang(body.inputLang)}>${lang(body.outputLang)}`;
+  // central learning: the published global knowledge (server-side only — never sent to the browser)
+  const global = settings().globalLearning ? guidanceFor(template.id || str(body.templateId, 80), { inputLang: lang(body.inputLang), outputLang: lang(body.outputLang) }) : null;
+  const globalVersion = global ? publishedId() : null;
+  try {
+    const result = await aiLimiter.run(ctx.user.id, () => formatWithClaude({
+      template, report: body.report, dictation, instruction,
+      style: String(body.style || '').slice(0, 4000),
+      styleExamples: cleanStyleExamples(body.styleExamples),
+      learned: cleanLearned(body.learned),
+      keep: strList(body.keep, 40, 600),
+      clinical: String(body.clinical || '').slice(0, 2000),
+      profile: cleanProfile(body.profile),
+      samples: strList(body.samples, 6, 3000),
+      translations: cleanTranslations(body.translations, 6),
+      inputLang: lang(body.inputLang), outputLang: lang(body.outputLang), translate, global,
+      mode: ['fast', 'accurate', 'turbo'].includes(body.mode) ? body.mode : 'fast',
+    }), { background: body.background === true });
+    const { usage, ...out } = result;
+    recordUsage(ctx.user, { kind: 'format', reportId, model: result.model, usage, ms: Date.now() - started, lang: langTag, globalVersion });
+    sendJson(res, 200, { ...out, quota: { used: q.used ?? null, limit: q.quota ?? null, warn: Boolean(q.warn) } });
+  } catch (err) {
+    if (err instanceof BusyError) {
+      if (err.code === 'busy') recordEvent(ctx.user.id, 'ai', 'busy', '', req.headers['user-agent']);
+      return sendAiError(res, err); // refused before calling the AI: nothing to meter
+    }
+    recordUsage(ctx.user, { kind: 'format', reportId: '', ms: Date.now() - started, ok: false, lang: langTag });
+    recordEvent(ctx.user.id, 'ai', String(err.status || 500), '', req.headers['user-agent']);
+    if (err instanceof ClaudeError) return sendAiError(res, err, ctx, req);
+    console.error(err);
+    sendJson(res, 500, { error: 'Błąd serwera.' });
+  }
+}
+
+async function handleLearn(req, res, ctx) {
+  const body = await readJson(req);
+  if (!guardAi(res, ctx)) return;
+  const input = cleanLearnInput(body);
+  const evidence = input.samples.length + input.edits.length + input.conclusion_removed.length + input.conclusion_added.length + input.answers.length + input.translations.length + input.glossary_current.length;
+  if (!evidence) return sendJson(res, 400, { error: 'Brak materiału do nauki — dodaj przykłady swoich opisów.' });
+  // style analysis is heavier: at most 20 per user per month
+  const learns = one("SELECT COUNT(*) AS n FROM usage WHERE user_id = ? AND month = ? AND kind = 'learn' AND ok = 1", ctx.user.id, monthOf()).n;
+  if (ctx.user.role !== 'admin' && learns >= 20) return sendJson(res, 429, { error: 'Limit analiz stylu w tym miesiącu (20) został wykorzystany.' });
+  const started = Date.now();
+  try {
+    const { usage, model, ...out } = await aiLimiter.run(ctx.user.id, () => analyzeStyle(input));
+    recordUsage(ctx.user, { kind: 'learn', model, usage, ms: Date.now() - started });
+    sendJson(res, 200, out);
+  } catch (err) {
+    if (err instanceof BusyError) return sendAiError(res, err);
+    recordUsage(ctx.user, { kind: 'learn', ms: Date.now() - started, ok: false });
+    if (err instanceof ClaudeError) return sendAiError(res, err, ctx, req);
+    console.error(err);
+    sendJson(res, 500, { error: 'Błąd serwera.' });
+  }
+}
+
+// ---------------------------------------------------------------- accounts
+function bankDetails() {
+  const b = settings();
+  return b.bankAccount ? { account: b.bankAccount, name: b.bankName || BRAND.company || BRAND.name, title: `${BRAND.name} — {email}` } : null;
+}
+
+function acceptTerms(userId, ip = '') {
+  const v = settings().termsVersion || '1.0';
+  run('UPDATE users SET terms_version = ?, terms_at = ? WHERE id = ?', v, Date.now(), userId);
+  audit(userId, 'terms.accept', userId, `wersja ${v}${ip ? `, ${ip}` : ''}`);
+}
+
+/**
+ * RODO erasure: personal data removed (name, e-mail, PWZ, phone, notes, password, sessions, synced data,
+ * tokens, the pseudonymous link in the learning archive). Kept: anonymous usage rows (billing / statistics)
+ * and the anonymous lessons in the learning archive.
+ */
+function eraseUser(u, actorId) {
+  tx(() => {
+    run(`UPDATE users SET email = ?, name = 'Usunięty użytkownik', npwz = '', phone = '', company = '', nip = '', note = '', pwd = '!',
+         blocked = 1, must_change_pwd = 0, totp_secret = '', totp_on = 0, api_key_enc = '', key_hash = '', stripe_customer = NULL WHERE id = ?`, `u${u.id}${DELETED_DOMAIN}`, u.id);
+    run('DELETE FROM sessions WHERE user_id = ?', u.id);
+    run('DELETE FROM user_data WHERE user_id = ?', u.id);
+    run('DELETE FROM tokens WHERE user_id = ?', u.id);
+    run('DELETE FROM speech_log WHERE user_id = ?', u.id);
+    // the e-mail address also disappears from older log entries
+    run("UPDATE audit SET detail = replace(detail, ?, '[usunięty użytkownik]') WHERE instr(detail, ?) > 0", u.email, u.email);
+  });
+  forgetContributor(u.id);
+  audit(actorId, 'rodo.erase', u.id);
+}
+
+// ---- speech-recognition error log ("Błąd mowy"): heard text next to the final report, sent on purpose by the radiologist
+export const SPEECH_LOG_DAYS = 180;
+const SLOG_TYPES = new Set(['none', ...ERROR_TYPES.map(([id]) => id)]);
+function recordSpeechLog(userId, b) {
+  const types = Array.isArray(b.types) ? [...new Set(b.types.filter((t) => SLOG_TYPES.has(t)))] : [];
+  if (!types.length) return { error: 'Zaznacz „Bez błędów” albo rodzaj błędu.' };
+  const report = scrubIdentifiers(str(b.report, 20_000));
+  if (!report) return { error: 'Brak opisu.' };
+  const recent = one('SELECT COUNT(*) AS n FROM speech_log WHERE user_id = ? AND ts > ?', userId, Date.now() - 3600_000).n;
+  if (recent >= 60) return { error: 'Za dużo wpisów w ciągu godziny — spróbuj później.' };
+  const nums = (v) => (Array.isArray(v) ? v.filter((x) => /^\d+(\.\d+)?$/.test(String(x))).slice(0, 50).map(String) : []);
+  const auto = { missing: nums(b.auto?.missing), added: nums(b.auto?.added) };
+  run('DELETE FROM speech_log WHERE ts < ?', Date.now() - SPEECH_LOG_DAYS * 86400000);
+  const clean = types.includes('none') ? ['none'] : types;
+  run('INSERT INTO speech_log(user_id, ts, title, lang, heard, report, types, note, auto, fixed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    userId, Date.now(), str(b.title, 200), b.lang === 'en' ? 'en' : 'pl', scrubIdentifiers(str(b.heard, 20_000)), report,
+    JSON.stringify(clean), scrubIdentifiers(str(b.note, 2000)), JSON.stringify(auto), clean[0] !== 'none' && b.fixed === true ? 1 : 0);
+  return { ok: true };
+}
+function speechLogRows(limit = 500) {
+  return all(`SELECT s.*, u.email AS author, u.name AS author_name FROM speech_log s LEFT JOIN users u ON u.id = s.user_id
+    WHERE s.ts >= ? ORDER BY s.ts DESC LIMIT ?`, Date.now() - SPEECH_LOG_DAYS * 86400000, limit)
+    .map((r) => ({ ...r, types: JSON.parse(r.types || '[]'), auto: JSON.parse(r.auto || '{}'), fixed: Boolean(r.fixed) }));
+}
+
+// ---- technical problems reported by the app (for the organisation's IT; codes only, never report content)
+export const EVENT_KINDS = ['speech', 'mic', 'clipboard', 'check', 'ai'];
+export function browserOf(ua = '') {
+  const b = /Edg\/(\d+)/.exec(ua) ? `Edge ${/Edg\/(\d+)/.exec(ua)[1]}` : /Chrome\/(\d+)/.exec(ua) ? `Chrome ${/Chrome\/(\d+)/.exec(ua)[1]}` : /Firefox\/(\d+)/.exec(ua) ? `Firefox ${/Firefox\/(\d+)/.exec(ua)[1]}` : /Safari\//.test(ua) ? 'Safari' : 'inna przeglądarka';
+  const os = /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Linux/.test(ua) ? 'Linux' : '';
+  return `${b}${os ? ` · ${os}` : ''}`;
+}
+function recordEvent(userId, kind, code, detail = '', ua = '') {
+  if (!userId || !EVENT_KINDS.includes(kind)) return false;
+  const recent = one('SELECT COUNT(*) AS n FROM client_events WHERE user_id = ? AND ts > ?', userId, Date.now() - 3600_000).n;
+  if (recent >= 40) return false; // a broken workstation must not flood the table
+  run('INSERT INTO client_events(user_id, ts, kind, code, detail, ua) VALUES (?, ?, ?, ?, ?, ?)', userId, Date.now(), kind, String(code || '').slice(0, 40), String(detail || '').slice(0, 1500), browserOf(ua));
+  return true;
+}
+
+// What each reported problem means and what the organisation's IT can do about it (shown in the IT console).
+const EVENT_HELP = {
+  'speech:network': 'Rozpoznawanie mowy nie łączy się z usługą przeglądarki (Chrome → Google, Edge → Microsoft). Najczęściej blokuje ją zapora / proxy / inspekcja TLS. Odblokuj ruch przeglądarki do usług mowy producenta — szczegóły: Pomoc → Zapora i proxy. Sprawdź „Testem stanowiska”.',
+  'speech:not-allowed': 'Przeglądarka nie ma dostępu do mikrofonu. Zezwól na mikrofon dla adresu RadVox Pro (kłódka przy adresie) albo zasadą AudioCaptureAllowedUrls; sprawdź też Ustawienia Windows → Prywatność → Mikrofon.',
+  'speech:service-not-allowed': 'Rozpoznawanie mowy jest wyłączone zasadami przeglądarki lub systemu. Sprawdź zasady Chrome / Edge oraz czy przeglądarka nie działa w trybie gościa / incognito.',
+  'speech:audio-capture': 'Przeglądarka nie widzi mikrofonu: sprawdź podłączenie, domyślne urządzenie nagrywania w Windows i czy mikrofonu nie blokuje inny program.',
+  'speech:language-not-supported': 'Przeglądarka nie obsługuje języka polskiego — zaktualizuj Chrome / Edge.',
+  'speech:*': 'Błąd rozpoznawania mowy w przeglądarce. Uruchom „Test stanowiska” na tym komputerze.',
+  'mic:no-data': 'Przycisk mikrofonu (PowerMic / SpeechMike) nie wysyła danych do przeglądarki — zwykle przechwytuje go program Nuance / Dragon / SpeechMike Control Center albo blokują go zasady (WebHidAllowDevicesForUrls). Zamknij ten program lub zezwól na urządzenie. Alternatywa: tryb klawisza (przycisk wysyła np. F9).',
+  'mic:open-failed': 'Nie można otworzyć mikrofonu — używa go inny program. Zamknij oprogramowanie Nuance / Dragon / SpeechMike i spróbuj ponownie.',
+  'mic:unclear': 'Nie udało się nauczyć przycisku mikrofonu — spróbuj ponownie, naciskając tylko przycisk nagrywania (bez ruszania kulką).',
+  'mic:*': 'Problem z przyciskiem mikrofonu — raport diagnostyczny: Ustawienia aplikacji → Diagnostyka mikrofonu.',
+  'clipboard:denied': 'Przeglądarka blokuje kopiowanie do schowka. Zezwól na schowek dla adresu RadVox Pro (zasada ClipboardAllowedForUrls).',
+  'clipboard:*': 'Problem z kopiowaniem do schowka — sprawdź zasady schowka przeglądarki.',
+  'ai:busy': 'Serwer AI był chwilowo przeciążony (aplikacja ponawia sama). Jeśli zdarza się często — zgłoś dostawcy.',
+  'ai:429': 'Limit zapytań do AI u dostawcy usługi — po stronie dostawcy; jeśli się powtarza, zgłoś.',
+  'ai:*': 'Błąd usługi AI po stronie dostawcy — jeśli się powtarza, zgłoś problem (przycisk obok).',
+};
+
+/** Where to go after logging in. */
+function homeFor(user) {
+  if (user.must_change_pwd) return '/change-password';
+  // a friend is guided step by step (rules → API key) until the account is ready
+  if (user.sub_status === 'friend' && !user.blocked && (['terms'].includes(access(user).code) || !user.api_key_enc)) return '/witaj';
+  if (user.role !== 'admin' && access(user).code === 'terms') return '/accept';
+  if (user.role === 'admin') return '/admin';
+  if (user.role === 'orgadmin') return '/it';
+  return access(user).ok ? '/app/' : '/account';
+}
+
+function mePayload(ctx) {
+  const u = ctx.user;
+  const p = planById(u.plan);
+  const used = monthUsage(u.id);
+  const org = getOrg(u.org_id);
+  return {
+    user: publicUser(u),
+    org: org ? { name: org.name, status: org.status, subUntil: org.sub_until, contact: org.contact, devices: org.devices } : null,
+    twoFactor: Boolean(u.totp_on), termsVersion: u.terms_version, termsAcceptedAt: u.terms_at,
+    plan: u.sub_status === 'friend' ? { id: 'friend', name: 'Wersja dla przyjaciół (własny klucz API)', pricePln: 0, quota: 0, devices: 2 } : org ? { id: 'org', name: `Licencja: ${org.name}`, pricePln: 0, quota: quotaOf(u), devices: org.devices } : { id: p.id, name: p.name, pricePln: p.pricePln, quota: quotaOf(u), devices: p.devices },
+    usage: { month: monthOf(), reports: used.reports },
+    access: access(u),
+    friend: u.sub_status === 'friend' ? { key: maskKey(openSecret(u.api_key_enc)), ownCostUsd: one('SELECT COALESCE(SUM(own_cost_usd),0) AS c FROM usage WHERE user_id = ? AND month = ?', u.id, monthOf()).c, creditOut: u.credit_out || 0, billingUrl: BILLING_URL } : null,
+    sessions: userSessions(u.id).map((s) => ({ ...s, current: s.id === ctx.sessionId, id: undefined })),
+    payments: all('SELECT ts, amount_pln, provider, plan, period_until FROM payments WHERE user_id = ? ORDER BY ts DESC LIMIT 24', u.id),
+    plans: plans().filter((x) => x.public).map(({ stripePrice, stripePriceYear, ...x }) => ({ ...x, online: Boolean(stripeEnabled() && stripePrice), onlineYear: Boolean(stripeEnabled() && stripePriceYear) })),
+    annualMonths: settings().annualMonths,
+    prepaid: stripeEnabled(),
+    bank: bankDetails(),
+    brand: BRAND,
+  };
+}
+
+async function handleAuth(req, res, route) {
+  const body = await readJson(req, 20_000);
+  const ip = clientIp(req);
+  const ua = String(req.headers['user-agent'] || '');
+  const secure = isSecure(req);
+  // this browser's long-lived id: recorded at every login (personal accounts: the owner sees how many browsers use one)
+  const knownDev = /^[\w-]{16,64}$/.test(parseCookies(req.headers.cookie).rv_dev || '') ? parseCookies(req.headers.cookie).rv_dev : '';
+  const dev = knownDev || crypto.randomUUID();
+  const withDev = (cookie) => (knownDev ? cookie : [cookie, `rv_dev=${dev}; Path=/; Max-Age=63072000; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`]);
+
+  if (route === 'login') {
+    const email = str(body.email, 254).toLowerCase();
+    if (loginBlocked(email, ip)) return sendJson(res, 429, { error: 'Zbyt wiele prób logowania. Spróbuj ponownie za 15 minut.' });
+    const user = getUserByEmail(email);
+    if (!user || !(await verifyPassword(String(body.password || ''), user.pwd))) {
+      noteFailure(email, ip);
+      return sendJson(res, 401, { error: 'Nieprawidłowy e-mail lub hasło.' });
+    }
+    if (user.blocked) return sendJson(res, 403, { error: access(user).reason || 'Konto zablokowane — skontaktuj się z administratorem.' });
+    clearFailures(email);
+    if (user.totp_on) return sendJson(res, 200, { need2fa: true, ticket: create2faTicket(user.id) });
+    const token = createSession(user, { ip, ua, device: dev });
+    audit(user.id, 'login', user.id, ip);
+    return sendJson(res, 200, { ok: true, next: homeFor(user) }, { 'Set-Cookie': withDev(sessionCookie(token, { secure })) });
+  }
+
+  if (route === 'login-2fa') {
+    const r = use2faTicket(body.ticket, (id) => verifyTotp(getUser(id)?.totp_secret, body.code));
+    if (r.error === 'expired') return sendJson(res, 401, { error: 'Logowanie wygasło — wpisz e-mail i hasło ponownie.', code: 'expired' });
+    if (r.error) { noteFailure(`2fa:${body.ticket}`, ip); return sendJson(res, 401, { error: `Nieprawidłowy kod (pozostało prób: ${r.left}).` }); }
+    const user = getUser(r.userId);
+    if (!user || user.blocked) return sendJson(res, 403, { error: 'Konto zablokowane — skontaktuj się z administratorem.' });
+    const token = createSession(user, { ip, ua, device: dev });
+    audit(user.id, 'login', user.id, `${ip} (2FA)`);
+    return sendJson(res, 200, { ok: true, next: homeFor(user) }, { 'Set-Cookie': withDev(sessionCookie(token, { secure })) });
+  }
+
+  if (route === 'register') {
+    if (!settings().registrationOpen) return sendJson(res, 403, { error: 'Rejestracja jest chwilowo zamknięta.' });
+    const email = str(body.email, 254).toLowerCase();
+    if (!EMAIL_RE.test(email)) return sendJson(res, 400, { error: 'Podaj prawidłowy adres e-mail.' });
+    if (isDisposableEmail(email)) return sendJson(res, 400, { error: 'Użyj swojego stałego adresu e-mail (adresy jednorazowe nie są przyjmowane).' });
+    const problem = passwordProblem(body.password);
+    if (problem) return sendJson(res, 400, { error: problem });
+    if (!str(body.name)) return sendJson(res, 400, { error: 'Podaj imię i nazwisko.' });
+    const npwz = cleanNpwz(body.npwz);
+    if ((npwz || settings().requireNpwz) && !validNpwz(npwz)) return sendJson(res, 400, { error: 'Numer prawa wykonywania zawodu ma 7 cyfr — sprawdź go albo zostaw puste pole.' });
+    if (body.accept !== true) return sendJson(res, 400, { error: 'Zaakceptuj regulamin i politykę prywatności.' });
+    if (loginBlocked(email, ip)) return sendJson(res, 429, { error: 'Zbyt wiele prób. Spróbuj później.' });
+    if (getUserByEmail(email)) { noteFailure(email, ip); return sendJson(res, 409, { error: 'Konto z tym adresem już istnieje — zaloguj się.' }); }
+    // this browser: an id kept in a long-lived cookie and in the page's storage — repeat sign-ups from it are noticed
+    const cookies = parseCookies(req.headers.cookie);
+    const device = /^[\w-]{16,64}$/.test(cookies.rv_dev || '') ? cookies.rv_dev : /^[\w-]{16,64}$/.test(String(body.device || '')) ? String(body.device) : crypto.randomUUID();
+    let user = await createUser({ email, password: body.password, name: body.name, npwz: npwz.slice(0, 20), phone: str(body.phone, 30) });
+    run("UPDATE users SET sub_status = 'verify', sub_until = 0, signup_ip = ?, signup_device = ?, marketing_ok = ? WHERE id = ?", ip, device, body.marketing === true ? 1 : 0, user.id);
+    acceptTerms(user.id, ip);
+    if (settings().verifyEmail) await sendVerifyMail(getUser(user.id), req);
+    else await startOrQueueTrial(getUser(user.id), req);
+    user = getUser(user.id);
+    const token = createSession(user, { ip, ua, device });
+    const devCookie = `rv_dev=${device}; Path=/; Max-Age=63072000; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+    return sendJson(res, 200, { ok: true, next: access(user).ok ? '/app/' : '/account' }, { 'Set-Cookie': [sessionCookie(token, { secure }), devCookie] });
+  }
+
+  if (route === 'logout') {
+    const ctx = currentUser(req);
+    if (ctx) deleteSession(ctx.token);
+    return sendJson(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie('', { secure, clear: true }) });
+  }
+
+  if (route === 'forgot') {
+    const email = str(body.email, 254).toLowerCase();
+    const user = getUserByEmail(email);
+    if (user && !loginBlocked(email, ip)) {
+      noteFailure(email, ip); // also limits how many reset e-mails can be requested
+      const t = createOneTimeToken(user.id, 'reset', 2);
+      await sendMail(user.email, `${BRAND.name}: ustaw nowe hasło`, `Dzień dobry,\n\naby ustawić nowe hasło, otwórz link (ważny 2 godziny):\n${baseUrl(req)}/reset?token=${t}\n\nJeśli to nie Ty prosisz o zmianę hasła, zignoruj tę wiadomość.`);
+    }
+    return sendJson(res, 200, { ok: true }); // same answer whether the account exists or not
+  }
+
+  if (route === 'reset-check') {
+    const u = peekOneTimeToken(body.token, 'reset') || peekOneTimeToken(body.token, 'invite');
+    return sendJson(res, u ? 200 : 400, u ? { ok: true, email: u.email } : { error: 'Link wygasł lub jest nieprawidłowy.' });
+  }
+
+  if (route === 'reset') {
+    const problem = passwordProblem(body.password);
+    if (problem) return sendJson(res, 400, { error: problem });
+    const user = useOneTimeToken(body.token, 'reset') || useOneTimeToken(body.token, 'invite');
+    if (!user) return sendJson(res, 400, { error: 'Link wygasł lub jest nieprawidłowy.' });
+    await setPassword(user.id, body.password);
+    deleteUserSessions(user.id);
+    audit(user.id, 'password.reset', user.id);
+    const token = createSession(user, { ip, ua, device: dev });
+    return sendJson(res, 200, { ok: true, next: homeFor(getUser(user.id)) }, { 'Set-Cookie': withDev(sessionCookie(token, { secure })) });
+  }
+  return sendJson(res, 404, { error: 'Nie znaleziono.' });
+}
+
+/** E-mail with the link that confirms the address (and starts the trial). */
+async function sendVerifyMail(user, req) {
+  const t = createOneTimeToken(user.id, 'verify', 48);
+  await sendMail(user.email, `${BRAND.name}: potwierdź adres e-mail`, `Dzień dobry,\n\nkliknij link, aby potwierdzić adres i rozpocząć bezpłatny okres próbny (link ważny 48 godzin):\n${baseUrl(req)}/verify?token=${t}\n\nJeśli to nie Ty zakładasz konto, zignoruj tę wiadomość.`);
+}
+
+/**
+ * Self-registered account with a confirmed address: start the trial now, or — if the owner approves every trial or
+ * the account looks like a repeat trial — put it in the owner's approval queue with the reasons.
+ */
+async function startOrQueueTrial(user, req) {
+  const s = settings();
+  const flags = trialFlags(user, { trialsPerIp: s.trialsPerIp, trialsPerDevice: s.trialsPerDevice, trialsPerDay: s.trialsPerDay, trialBudgetPln: s.trialBudgetPln, usdPln: s.usdPln });
+  const base = baseUrl(req);
+  if (s.trialApproval || flags.length) {
+    run("UPDATE users SET sub_status = 'pending', sub_until = 0, trial_flags = ? WHERE id = ?", flags.join('; '), user.id);
+    await sendMail(user.email, `${BRAND.name}: konto czeka na zatwierdzenie`, `Dzień dobry,\n\ndziękujemy za rejestrację. Sprawdzamy zgłoszenie — gdy okres próbny zostanie zatwierdzony, dostaniesz e-mail z linkiem do aplikacji.\nKonto: ${base}/account`);
+    if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: prośba o okres próbny — ${user.email}`, `${user.name} <${user.email}>, tel.: ${user.phone || '—'}${flags.length ? `\nUwaga: ${flags.join('; ')}` : ''}\n\nZatwierdź lub odrzuć: ${base}/admin`);
+    audit(user.id, 'trial.queued', user.id, flags.join('; ') || 'zatwierdzanie ręczne');
+    return 'pending';
+  }
+  run("UPDATE users SET plan = 'trial', sub_status = 'trial', sub_until = ?, trial_reports = ?, trial_flags = '' WHERE id = ?", Date.now() + s.trialDays * 86400000, s.trialReports, user.id);
+  await sendMail(user.email, `Witamy w ${BRAND.name}`, `Dzień dobry,\n\nTwój bezpłatny okres próbny jest aktywny: ${s.trialDays} dni, do ${s.trialReports} opisów.\nAplikacja: ${base}/app/\nKonto i subskrypcja: ${base}/account`);
+  if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: nowy okres próbny — ${user.email}`, `${user.name} <${user.email}>, tel.: ${user.phone || '—'}`);
+  audit(user.id, 'trial.start', user.id, `${s.trialDays} dni, ${s.trialReports} opisów`);
+  return 'trial';
+}
+
+async function handleMe(req, res, ctx, route) {
+  if (!ctx) return sendJson(res, 401, { error: 'Zaloguj się.', code: 'login' });
+  if (route === '' && req.method === 'GET') return sendJson(res, 200, mePayload(ctx));
+  if (route === 'speech-log' && req.method === 'POST') {
+    const r = recordSpeechLog(ctx.user.id, await readJson(req, 200_000));
+    return sendJson(res, r.ok ? 200 : 400, r);
+  }
+  const body = await readJson(req, 20_000);
+  const u = ctx.user;
+  if (route === 'api-key-check') {
+    // "I have topped up": test the saved key now, so the friend knows at once whether it works again
+    if (u.sub_status !== 'friend' || !u.api_key_enc) return sendJson(res, 400, { error: 'Najpierw dodaj klucz API.' });
+    const check = await checkOwnKey(openSecret(u.api_key_enc));
+    if (check.ok && !check.unchecked) run('UPDATE users SET credit_out = 0 WHERE id = ?', u.id);
+    if (check.ok) return sendJson(res, 200, { ok: true, unchecked: Boolean(check.unchecked), ...mePayload({ ...ctx, user: getUser(u.id) }) });
+    return sendJson(res, 400, { error: check.credit ? 'Środki jeszcze nie dotarły albo wpłata się nie udała. Wpłata zwykle pojawia się po chwili — spróbuj za minutę.' : check.problem, code: check.credit ? 'own_credit' : 'own_key', billingUrl: check.credit ? BILLING_URL : undefined });
+  }
+  if (route === 'api-key') {
+    if (u.sub_status !== 'friend') return sendJson(res, 403, { error: 'Własny klucz API jest tylko w wersji dla przyjaciół.' });
+    if (req.method === 'DELETE') { run("UPDATE users SET api_key_enc = '', key_hash = '' WHERE id = ?", u.id); audit(u.id, 'apikey.remove', u.id); return sendJson(res, 200, mePayload({ ...ctx, user: getUser(u.id) })); }
+    const k = String(body.key || '').trim();
+    if (!/^sk-ant-[A-Za-z0-9_-]{20,200}$/.test(k)) return sendJson(res, 400, { error: 'To nie wygląda na klucz API Anthropic — klucz zaczyna się od „sk-ant-”. Skopiuj go jeszcze raz (platform.claude.com → API keys) i wklej w całości.' });
+    // a quick test with Anthropic first, so a friend learns at once what is wrong instead of during dictation
+    // one key = one person: the same key on a second account means the account (or the key) is being shared
+    const fp = fingerprint(k);
+    const other = one('SELECT id, email FROM users WHERE key_hash = ? AND id <> ?', fp, u.id);
+    if (other) {
+      audit(u.id, 'apikey.duplicate', u.id, `ten sam klucz co ${other.email}`);
+      return sendJson(res, 409, { error: 'Ten klucz API jest już używany na innym koncie RadVox Pro. Konto i klucz są osobiste — utwórz własny klucz na swoim koncie Anthropic (instrukcja: /klucz-api).', code: 'own_key' });
+    }
+    const check = await checkOwnKey(k);
+    if (!check.ok) { audit(u.id, 'apikey.rejected', u.id, maskKey(k)); return sendJson(res, 400, { error: check.problem, code: check.credit ? 'own_credit' : 'own_key', billingUrl: check.credit ? BILLING_URL : undefined }); }
+    run('UPDATE users SET api_key_enc = ?, key_hash = ?, credit_out = 0 WHERE id = ?', seal(k), fp, u.id);
+    audit(u.id, 'apikey.set', u.id, maskKey(k));
+    return sendJson(res, 200, { ...mePayload({ ...ctx, user: getUser(u.id) }), keyChecked: !check.unchecked });
+  }
+  if (route === 'resend-verify') {
+    if (u.sub_status !== 'verify') return sendJson(res, 400, { error: 'Adres jest już potwierdzony.' });
+    if (loginBlocked(u.email, clientIp(req))) return sendJson(res, 429, { error: 'Zbyt wiele prób. Spróbuj później.' });
+    noteFailure(u.email, clientIp(req)); // limits how many e-mails can be requested
+    await sendVerifyMail(u, req);
+    return sendJson(res, 200, { ok: true });
+  }
+  if (route === 'update') {
+    run('UPDATE users SET name = ?, npwz = ?, company = ?, nip = ?, phone = ? WHERE id = ?',
+      str(body.name, 120) || u.name, typeof body.npwz === 'string' ? str(body.npwz, 20) : u.npwz, str(body.company, 200), String(body.nip || '').replace(/[^\d]/g, '').slice(0, 10), str(body.phone, 30), u.id);
+    return sendJson(res, 200, mePayload({ ...ctx, user: getUser(u.id) }));
+  }
+  if (route === 'password') {
+    if (!(await verifyPassword(String(body.current || ''), u.pwd))) return sendJson(res, 400, { error: 'Obecne hasło jest nieprawidłowe.' });
+    const problem = passwordProblem(body.next);
+    if (problem) return sendJson(res, 400, { error: problem });
+    await setPassword(u.id, body.next);
+    deleteUserSessions(u.id, ctx.sessionId);
+    audit(u.id, 'password.change', u.id);
+    return sendJson(res, 200, { ok: true });
+  }
+  if (route === 'first-password') {
+    // first login with a temporary password from the IT administrator: choose an own password
+    if (!u.must_change_pwd) return sendJson(res, 400, { error: 'Hasło jest już ustawione — zmień je na stronie konta.' });
+    const problem = passwordProblem(body.next);
+    if (problem) return sendJson(res, 400, { error: problem });
+    // (pattern check instead of another slow password hash: temporary passwords always look like "abcd-ef23-gh45")
+    if (TEMP_PASSWORD_RE.test(String(body.next).trim())) return sendJson(res, 400, { error: 'Wybierz własne hasło — inne niż tymczasowe.' });
+    if (settings().termsVersion && body.accept !== true) return sendJson(res, 400, { error: 'Zaakceptuj regulamin i informację o przetwarzaniu danych.' });
+    await setPassword(u.id, body.next);
+    if (body.accept === true) acceptTerms(u.id, clientIp(req));
+    deleteUserSessions(u.id, ctx.sessionId);
+    audit(u.id, 'password.first', u.id);
+    return sendJson(res, 200, { ok: true, next: homeFor(getUser(u.id)) });
+  }
+  if (route === 'event') {
+    // the app reports a technical problem (speech recognition, microphone, clipboard, workstation check)
+    const ok = recordEvent(u.id, str(body.kind, 20), str(body.code, 40), str(body.detail, 1500), req.headers['user-agent']);
+    return sendJson(res, 200, { ok });
+  }
+  if (route === 'accept') {
+    if (body.accept !== true) return sendJson(res, 400, { error: 'Zaznacz akceptację.' });
+    acceptTerms(u.id, clientIp(req));
+    return sendJson(res, 200, { ok: true, next: homeFor(getUser(u.id)) });
+  }
+  if (route === 'export') {
+    // RODO art. 15 and 20: a copy of all personal data in a machine-readable form
+    audit(u.id, 'rodo.export', u.id);
+    const data = {
+      exportedAt: new Date().toISOString(), service: BRAND.name,
+      account: { ...publicUser(u), termsVersion: u.terms_version, termsAcceptedAt: u.terms_at, twoFactor: Boolean(u.totp_on), lastLogin: u.last_login },
+      organisation: getOrg(u.org_id) ? { name: getOrg(u.org_id).name } : null,
+      devices: userSessions(u.id).map(({ id, ...x }) => x),
+      usageByMonth: all("SELECT month, COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN report_id END) AS reports, COUNT(*) AS aiCalls FROM usage WHERE user_id = ? GROUP BY month ORDER BY month", u.id),
+      payments: all('SELECT ts, amount_pln, provider, plan, period_until FROM payments WHERE user_id = ?', u.id),
+      speechLog: all('SELECT ts, title, lang, heard, report, types, note FROM speech_log WHERE user_id = ? ORDER BY ts', u.id),
+      syncedAppData: Object.fromEntries(all('SELECT key, value, updated_at FROM user_data WHERE user_id = ?', u.id).map((r) => [r.key, { updatedAt: r.updated_at, value: r.value }])),
+      securityLog: all('SELECT ts, action, detail FROM audit WHERE target_id = ? OR actor_id = ? ORDER BY ts DESC LIMIT 500', u.id, u.id),
+    };
+    res.writeHead(200, headers({ 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="moje-dane-${monthOf()}.json"`, 'Cache-Control': 'no-store' }));
+    return res.end(JSON.stringify(data, null, 2));
+  }
+  if (route === 'delete') {
+    // RODO art. 17 for individual accounts; members of an organisation are removed by their IT (the controller)
+    if (u.org_id) return sendJson(res, 400, { error: 'Konto należy do organizacji — o usunięcie poproś dział IT.' });
+    if (u.role === 'admin') return sendJson(res, 400, { error: 'Konta administratora nie można usunąć w ten sposób.' });
+    if (!(await verifyPassword(String(body.password || ''), u.pwd))) return sendJson(res, 400, { error: 'Nieprawidłowe hasło.' });
+    eraseUser(u, u.id);
+    return sendJson(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie('', { secure: isSecure(req), clear: true }) });
+  }
+  if (route === '2fa/setup') {
+    if (u.totp_on) return sendJson(res, 400, { error: 'Logowanie dwuetapowe jest już włączone.' });
+    const secret = newSecret();
+    run('UPDATE users SET totp_secret = ? WHERE id = ?', secret, u.id);
+    return sendJson(res, 200, { secret, uri: otpauthUri(secret, u.email, BRAND.name) });
+  }
+  if (route === '2fa/enable') {
+    if (!u.totp_secret || !verifyTotp(u.totp_secret, body.code)) return sendJson(res, 400, { error: 'Nieprawidłowy kod — sprawdź godzinę w telefonie i spróbuj ponownie.' });
+    run('UPDATE users SET totp_on = 1 WHERE id = ?', u.id);
+    deleteUserSessions(u.id, ctx.sessionId);
+    audit(u.id, '2fa.enable', u.id);
+    return sendJson(res, 200, { ok: true });
+  }
+  if (route === '2fa/disable') {
+    if (!u.totp_on) return sendJson(res, 400, { error: 'Logowanie dwuetapowe nie jest włączone.' });
+    if (!(await verifyPassword(String(body.password || ''), u.pwd)) || !verifyTotp(u.totp_secret, body.code)) return sendJson(res, 400, { error: 'Nieprawidłowe hasło lub kod.' });
+    run("UPDATE users SET totp_on = 0, totp_secret = '' WHERE id = ?", u.id);
+    audit(u.id, '2fa.disable', u.id);
+    return sendJson(res, 200, { ok: true });
+  }
+  if (route === 'logout-others') {
+    deleteUserSessions(u.id, ctx.sessionId);
+    return sendJson(res, 200, { ok: true });
+  }
+  if ((route === 'checkout' || route === 'portal') && u.org_id) return sendJson(res, 400, { error: 'Licencję opłaca Twoja organizacja — skontaktuj się z działem IT.' });
+  if (route === 'checkout') {
+    try {
+      const interval = body.interval === 'year' ? 'year' : 'month';
+      const url = body.mode === 'prepaid' ? await createPrepaidCheckout(u, str(body.plan, 40), interval, baseUrl(req)) : await createCheckout(u, str(body.plan, 40), interval, baseUrl(req));
+      return sendJson(res, 200, { url });
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+  }
+  if (route === 'portal') {
+    try { return sendJson(res, 200, { url: await createPortal(u, baseUrl(req)) }); } catch (err) { return sendJson(res, 400, { error: err.message }); }
+  }
+  return sendJson(res, 404, { error: 'Nie znaleziono.' });
+}
+
+async function handleSync(req, res, ctx, key) {
+  if (!ctx) return sendJson(res, 401, { error: 'Zaloguj się.', code: 'login' });
+  if (req.method === 'GET' && !key) {
+    const rows = all('SELECT key, value, updated_at FROM user_data WHERE user_id = ?', ctx.user.id);
+    return sendJson(res, 200, Object.fromEntries(rows.map((r) => [r.key, { value: r.value, at: r.updated_at }])));
+  }
+  if (!SYNC_KEYS.includes(key)) return sendJson(res, 400, { error: 'Nieznany klucz.' });
+  if (req.method === 'PUT') {
+    const raw = await readRaw(req, SYNC_MAX + 1000);
+    let value;
+    try { value = JSON.parse(raw).value; } catch { return sendJson(res, 400, { error: 'Nieprawidłowy JSON.' }); }
+    if (typeof value !== 'string' || value.length > SYNC_MAX) return sendJson(res, 413, { error: 'Za dużo danych.' });
+    value = scrubIdentifiers(value);
+    run('INSERT INTO user_data(user_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at', ctx.user.id, key, value, Date.now());
+    // every lesson is also kept permanently (de-identified) in the learning archive — the app's memory drops old ones
+    sendJson(res, 200, { ok: true });
+    if (LEARNING_KEYS.has(key)) queueCapture(() => captureLearning(ctx.user.id, ctx.user.org_id, key, value)); // after the answer
+    return;
+  }
+  if (req.method === 'DELETE') {
+    run('DELETE FROM user_data WHERE user_id = ? AND key = ?', ctx.user.id, key);
+    return sendJson(res, 200, { ok: true });
+  }
+  return sendJson(res, 405, { error: 'Metoda niedozwolona.' });
+}
+
+// ---------------------------------------------------------------- administrator
+const usdPln = () => settings().usdPln;
+
+/** The ready-to-send invitation for a friend (e-mail, WhatsApp, SMS): link + what to do, in plain words. */
+function friendMessage(req, user, link, startPwd = '') {
+  const first = String(user.name || '').replace(/^(lek\.|dr n\. med\.|dr|prof\.)\s+/i, '').split(/\s+/)[0];
+  const step1 = link.includes('/reset?')
+    ? `1. Otwórz link i wybierz swoje hasło (link ważny 7 dni):\n${link}`
+    : startPwd
+      ? `1. Wejdź na ${link} i zaloguj się:\n   e-mail: ${user.email}\n   hasło startowe: ${startPwd}\n   Przy pierwszym logowaniu ustawisz własne hasło.`
+      : `1. Wejdź na ${link} i zaloguj się swoim hasłem (e-mail: ${user.email}).`;
+  return `Cześć${first ? ` ${first}` : ''}!\n\nZałożyłem Ci darmowe konto w ${BRAND.name} (wersja dla przyjaciół). Aplikacja przeprowadzi Cię przez wszystko krok po kroku:\n\n`
+    + `${step1}\n\n`
+    + `2. Zaznacz jedną zgodę (sprawdzasz każdy opis przed użyciem).\n\n`
+    + `3. Załóż swój klucz API i wklej go w aplikacji — nie musisz wiedzieć, co to jest, aplikacja wszystko wyjaśni (ok. 10 minut). Instrukcja: ${baseUrl(req)}/klucz-api\n\n`
+    + `Aplikacja jest dla Ciebie za darmo. Za korzystanie z AI płacisz sam niewielkie kwoty z własnego konta API (doładowujesz je jak telefon na kartę). Konto jest osobiste — tylko dla Ciebie.`;
+}
+
+/** One friend for the owner's "Przyjaciele" tab. */
+function friendRow(u, month = monthOf()) {
+  const row = adminUserRow(u, month);
+  const own = one('SELECT COALESCE(SUM(own_cost_usd), 0) AS c FROM usage WHERE user_id = ? AND month = ?', u.id, month).c;
+  const state = u.blocked ? 'suspended' : !u.last_login ? 'invited' : !u.api_key_enc ? 'nokey' : u.credit_out ? 'nocredit' : 'ready';
+  return { ...row, state, ownCostUsd: own, ownCostPln: own * usdPln(), sharing: sharingSignals(u.id) };
+}
+
+function adminUserRow(u, month = monthOf()) {
+  const used = monthUsage(u.id, month);
+  const p = planById(u.plan);
+  const org = getOrg(u.org_id);
+  return {
+    id: u.id, email: u.email, name: u.name, role: u.role, blocked: Boolean(u.blocked), plan: u.plan, planName: org ? org.name : p.name,
+    subStatus: org ? 'org' : u.sub_status, subUntil: org ? org.sub_until : u.sub_until, quota: quotaOf(u), quotaOverride: u.quota_override, trialReports: u.trial_reports, trialFlags: u.trial_flags || '', friend: u.sub_status === 'friend', ownKey: Boolean(u.api_key_enc),
+    orgId: org?.id || null, orgName: org?.name || '', mustChangePwd: Boolean(u.must_change_pwd), twoFactor: Boolean(u.totp_on),
+    reports: used.reports, calls: used.calls, costUsd: used.costUsd, costPln: used.costUsd * usdPln(), pricePln: org ? org.price_per_seat : p.pricePln,
+    lastLogin: u.last_login, createdAt: u.created_at, npwz: u.npwz, company: u.company, nip: u.nip, phone: u.phone, note: u.note,
+    stripe: Boolean(u.stripe_sub), access: access(u).ok,
+  };
+}
+
+// How long the server was "frozen" (busy with one task while others wait): measured continuously, reset hourly.
+const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+loopDelay.enable();
+setInterval(() => loopDelay.reset(), 3600_000).unref();
+
+function serverHealth() {
+  const mem = process.memoryUsage();
+  return {
+    loop: { p99Ms: Math.round(loopDelay.percentile(99) / 1e6), maxMs: Math.round(loopDelay.max / 1e6) },
+    uptimeS: Math.round(process.uptime()), rssMb: Math.round(mem.rss / 1048576), heapMb: Math.round(mem.heapUsed / 1048576),
+    sessions: one('SELECT COUNT(*) AS n FROM sessions WHERE last_seen > ?', Date.now() - 15 * 60_000).n,
+    ai: aiLimiter.snapshot(), backup: lastBackup(), node: process.version,
+  };
+}
+
+function overview() {
+  const now = Date.now();
+  const month = monthOf();
+  const users = all("SELECT * FROM users WHERE role <> 'admin' AND org_id IS NULL");
+  const activePaid = users.filter((u) => u.sub_status === 'active' && u.sub_until > now && !u.blocked);
+  const trials = users.filter((u) => u.sub_status === 'trial' && u.sub_until > now);
+  const orgs = orgRows(month);
+  const orgMrr = orgs.reduce((s, o) => s + o.revenuePln, 0);
+  const mrr = activePaid.reduce((s, u) => s + (planById(u.plan).pricePln || 0), 0) + orgMrr;
+  const m = one("SELECT COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN user_id || ':' || report_id END) AS reports, COUNT(*) AS calls, COALESCE(SUM(cost_usd),0) AS cost, SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) AS errors, COALESCE(AVG(CASE WHEN ok=1 AND kind='format' THEN ms END),0) AS avgMs FROM usage WHERE month = ?", month);
+  const paidThisMonth = one('SELECT COALESCE(SUM(amount_pln),0) AS s FROM payments WHERE ts >= ?', Date.parse(`${month}-01T00:00:00Z`)).s;
+  const costPln = m.cost * usdPln();
+  const byLang = all("SELECT lang, COUNT(*) AS calls FROM usage WHERE month = ? AND kind='format' GROUP BY lang ORDER BY calls DESC", month);
+  const expiring = users.filter((u) => u.sub_until > now && u.sub_until - now < 7 * 86400000 && !(u.stripe_sub && u.sub_status === 'active'))
+    .sort((a, b) => a.sub_until - b.sub_until).map((u) => adminUserRow(u, month));
+  const pastDue = users.filter((u) => u.sub_status === 'past_due').map((u) => adminUserRow(u, month));
+  const topCost = all('SELECT user_id, SUM(cost_usd) AS c FROM usage WHERE month = ? GROUP BY user_id ORDER BY c DESC LIMIT 5', month)
+    .map((r) => adminUserRow(getUser(r.user_id), month));
+  // daily series for the last 30 days
+  const since = now - 30 * 86400000;
+  const daily = all(`SELECT strftime('%Y-%m-%d', ts / 1000, 'unixepoch') AS day,
+      COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN user_id || ':' || report_id END) AS reports,
+      COALESCE(SUM(cost_usd),0) AS cost FROM usage WHERE ts >= ? GROUP BY day ORDER BY day`, since);
+  return {
+    month, usdPln: usdPln(),
+    users: { total: users.length, paid: activePaid.length, trial: trials.length, expired: users.filter((u) => u.sub_status === 'expired').length, blocked: users.filter((u) => u.blocked).length },
+    mrrPln: mrr, paidThisMonthPln: paidThisMonth,
+    ai: { reports: m.reports, calls: m.calls, costUsd: m.cost, costPln, errors: m.errors || 0, avgMs: Math.round(m.avgMs || 0), costPerReportPln: m.reports ? costPln / m.reports : 0, callsPerReport: m.reports ? m.calls / m.reports : 0 },
+    marginPln: mrr - costPln,
+    orgs: { count: orgs.length, seats: orgs.reduce((s, o) => s + o.seats, 0), seatsUsed: orgs.reduce((s, o) => s + o.seatsUsed, 0), mrrPln: orgMrr,
+      expiring: orgs.filter((o) => o.subUntil > now && o.subUntil - now < 7 * 86400000) },
+    byLang, expiring, pastDue, topCost, daily,
+    pending: users.filter((u) => u.sub_status === 'pending' && !u.blocked).sort((a, b) => a.created_at - b.created_at).map((u) => adminUserRow(u, month)),
+    trialDefaults: { days: settings().trialDays, reports: settings().trialReports },
+    server: serverHealth(),
+    config: { ai: aiAvailable(), model: MODEL, provider: PROVIDER, stripe: stripeEnabled(), stripeWebhook: Boolean(process.env.STRIPE_WEBHOOK_SECRET), mail: mailConfigured(), adminEmail: adminEmail(), version: VERSION, prod: PROD },
+  };
+}
+
+function csv(rows) {
+  if (!rows.length) return '';
+  const cols = Object.keys(rows[0]);
+  const cell = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    // formula injection guard for spreadsheets
+    const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+    return /[",;\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  };
+  return `﻿${cols.join(';')}\n${rows.map((r) => cols.map((c) => cell(r[c])).join(';')).join('\n')}\n`;
+}
+const iso = (ms) => (ms ? new Date(ms).toISOString().slice(0, 19).replace('T', ' ') : '');
+
+async function handleAdmin(req, res, ctx, parts) {
+  if (!ctx) return sendJson(res, 401, { error: 'Zaloguj się.', code: 'login' });
+  if (ctx.user.role !== 'admin') return sendJson(res, 403, { error: 'Brak uprawnień.' });
+  const me = ctx.user.id;
+  const [section, idStr, action] = parts;
+  const url = new URL(req.url, 'http://x');
+  const method = req.method;
+
+  if (section === 'overview' && method === 'GET') return sendJson(res, 200, { ...overview(), me2fa: Boolean(ctx.user.totp_on) });
+  if (section === 'orgs') return handleAdminOrgs(req, res, me, idStr, action);
+  if (section === 'learning') return handleAdminLearning(req, res, me, idStr, action);
+  if (section === 'tickets') {
+    if (method === 'GET') return sendJson(res, 200, { tickets: all('SELECT t.*, o.name AS org, u.email AS author FROM tickets t LEFT JOIN orgs o ON o.id = t.org_id LEFT JOIN users u ON u.id = t.user_id ORDER BY t.status = \'closed\', t.ts DESC LIMIT 300') });
+    if (method === 'PATCH' && idStr) {
+      const b = await readJson(req, 20_000);
+      const t = one('SELECT * FROM tickets WHERE id = ?', Number(idStr));
+      if (!t) return sendJson(res, 404, { error: 'Nie znaleziono.' });
+      run('UPDATE tickets SET status = ?, answer = ?, answered_at = ? WHERE id = ?', b.status === 'closed' ? 'closed' : 'open', str(b.answer, 4000), Date.now(), t.id);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+  if (section === 'speech-log') {
+    if (!idStr && method === 'GET') {
+      const rows = speechLogRows();
+      const users = new Map();
+      for (const r of rows) {
+        const k = r.author || '—';
+        const u = users.get(k) || { author: k, name: r.author_name || '', entries: [] };
+        u.entries.push(r);
+        users.set(k, u);
+      }
+      return sendJson(res, 200, { entries: rows, summary: summarize(rows), byUser: [...users.values()].map((u) => ({ author: u.author, name: u.name, ...summarize(u.entries) })), days: SPEECH_LOG_DAYS });
+    }
+    if (idStr === 'report' && method === 'GET') {
+      // printable statistics for potential buyers (save as PDF); the page's one script is allowed by its hash
+      const days = Number(url.searchParams.get('days')) || 0;
+      const from = days > 0 ? Date.now() - days * 86400000 : 0;
+      const html = statsPage(speechStats(speechLogRows(100_000), { from }), { product: BRAND.name, scope: days > 0 ? `ostatnie ${days} dni` : 'wszystkie wpisy' });
+      const hash = crypto.createHash('sha256').update(PRINT_SCRIPT).digest('base64');
+      audit(me, 'speechlog.report', null, days ? `${days} dni` : 'wszystko');
+      res.writeHead(200, headers({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
+        'Content-Security-Policy': `default-src 'none'; script-src 'sha256-${hash}'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` }));
+      return res.end(html);
+    }
+    if (idStr === 'export' && method === 'GET') {
+      audit(me, 'speechlog.export');
+      res.writeHead(200, headers({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="radvoxpro-bledy-mowy-${new Date().toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' }));
+      return res.end(toCSV(speechLogRows(5000)));
+    }
+    if (idStr && method === 'DELETE') {
+      run('DELETE FROM speech_log WHERE id = ?', Number(idStr));
+      audit(me, 'speechlog.delete', null, idStr);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+  if (section === 'backup' && method === 'POST') {
+    try { return sendJson(res, 200, await backupNow()); } catch (err) { return sendJson(res, 500, { error: `Kopia nie powiodła się: ${err.message}` }); }
+  }
+
+  if (section === 'users' && !idStr && method === 'GET') {
+    const q = (url.searchParams.get('q') || '').toLowerCase();
+    const filter = url.searchParams.get('filter') || 'all';
+    const month = url.searchParams.get('month') || monthOf();
+    const now = Date.now();
+    let users = all('SELECT * FROM users ORDER BY created_at DESC');
+    if (q) users = users.filter((u) => `${u.email} ${u.name} ${u.npwz} ${u.company} ${u.nip}`.toLowerCase().includes(q));
+    const f = {
+      pending: (u) => u.sub_status === 'pending',
+      friend: (u) => u.sub_status === 'friend',
+      active: (u) => u.sub_status === 'active' && u.sub_until > now,
+      trial: (u) => u.sub_status === 'trial' && u.sub_until > now,
+      expiring: (u) => u.sub_until > now && u.sub_until - now < 7 * 86400000,
+      expired: (u) => u.sub_until <= now || u.sub_status === 'expired',
+      past_due: (u) => u.sub_status === 'past_due',
+      blocked: (u) => u.blocked,
+      admins: (u) => u.role === 'admin',
+      orgadmins: (u) => u.role === 'orgadmin',
+      org: (u) => Boolean(u.org_id),
+    }[filter];
+    if (f) users = users.filter(f);
+    return sendJson(res, 200, { users: users.map((u) => adminUserRow(u, month)), month });
+  }
+
+  if (section === 'friends' && !idStr && method === 'GET') {
+    const month = monthOf();
+    const friends = all("SELECT * FROM users WHERE sub_status = 'friend' AND role = 'user' ORDER BY blocked, name COLLATE NOCASE").map((u) => friendRow(u, month));
+    const count = (st) => friends.filter((f) => f.state === st).length;
+    return sendJson(res, 200, { friends, month, kpis: { total: friends.length, ready: count('ready'), waiting: count('nokey') + count('invited'), suspended: count('suspended'), reports: friends.reduce((a, f) => a + f.reports, 0), sharing: friends.filter((f) => f.sharing.flags.length && !f.blocked).length } });
+  }
+  if (section === 'friends' && !idStr && method === 'POST') {
+    // add a friend: a new account with an invitation link, or (after the owner confirms) an existing account
+    const body = await readJson(req, 10_000);
+    const email = str(body.email, 254).toLowerCase();
+    if (!EMAIL_RE.test(email)) return sendJson(res, 400, { error: 'Wpisz poprawny adres e-mail.' });
+    let user = getUserByEmail(email);
+    let link;
+    if (user) {
+      if (user.sub_status === 'friend') return sendJson(res, 409, { error: 'Ta osoba już jest przyjacielem — znajdziesz ją w tabeli poniżej.' });
+      if (user.org_id || user.role !== 'user') return sendJson(res, 409, { error: 'To konto należy do organizacji albo jest kontem administratora — nie może być kontem przyjaciela.' });
+      if (body.convert !== true) return sendJson(res, 409, { error: `Konto ${email} już istnieje (${user.name || 'bez nazwy'}).`, exists: true });
+      run("UPDATE users SET plan = 'friend', sub_status = 'friend', sub_until = 0, blocked = 0 WHERE id = ?", user.id);
+      audit(me, 'user.friend', user.id, 'istniejące konto → przyjaciel');
+      link = `${baseUrl(req)}/login`;
+    } else {
+      // the owner either lets the friend choose a password (link, recommended) or gives a starting password that the
+      // friend must replace at the first login
+      const startPwd = typeof body.password === 'string' && body.password ? body.password : '';
+      if (startPwd) { const problem = passwordProblem(startPwd); if (problem) return sendJson(res, 400, { error: `Hasło startowe: ${problem}` }); }
+      user = await createUser({ email, password: startPwd || `${crypto.randomUUID()}A1`, name: str(body.name, 120), mustChangePwd: Boolean(startPwd) }, me);
+      run("UPDATE users SET plan = 'friend', sub_status = 'friend', sub_until = 0 WHERE id = ?", user.id);
+      audit(me, 'user.friend', user.id, startPwd ? 'utworzono jako przyjaciel (hasło startowe)' : 'utworzono jako przyjaciel');
+      link = startPwd ? `${baseUrl(req)}/login` : `${baseUrl(req)}/reset?token=${createOneTimeToken(user.id, 'invite', 24 * 7)}`;
+      body.startPwd = startPwd;
+    }
+    user = getUser(user.id);
+    const message = friendMessage(req, user, link, body.startPwd || '');
+    let mailed = false;
+    // passwords never go into stored e-mails: with a starting password the e-mail says it comes separately
+    if (body.sendEmail === true) { await sendMail(user.email, `Zaproszenie do ${BRAND.name} — wersja dla przyjaciół`, friendMessage(req, user, link, body.startPwd ? '(przekażę Ci je osobno, np. SMS-em)' : '')); mailed = true; }
+    return sendJson(res, 200, { user: friendRow(user), link, message, mailed, converted: !body.startPwd && link.endsWith('/login') });
+  }
+
+  if (section === 'users' && !idStr && method === 'POST') {
+    const body = await readJson(req, 20_000);
+    const email = str(body.email, 254).toLowerCase();
+    if (!EMAIL_RE.test(email)) return sendJson(res, 400, { error: 'Nieprawidłowy e-mail.' });
+    if (getUserByEmail(email)) return sendJson(res, 409, { error: 'Taki użytkownik już istnieje.' });
+    const tempPassword = `${crypto.randomUUID()}A1`;
+    const plan = plans().some((p) => p.id === body.plan) ? body.plan : 'trial';
+    let user = await createUser({ email, password: tempPassword, name: str(body.name, 120), role: body.role === 'admin' ? 'admin' : 'user', plan: plan === 'trial' ? 'trial' : plan, npwz: str(body.npwz, 20), company: str(body.company, 200), nip: str(body.nip, 20), phone: str(body.phone, 30) }, me);
+    if (body.friend === true) { run("UPDATE users SET plan = 'friend', sub_status = 'friend', sub_until = 0 WHERE id = ?", user.id); user = getUser(user.id); audit(me, 'user.friend', user.id, 'utworzono jako przyjaciel'); }
+    else if (plan !== 'trial') user = extendSubscription(user.id, { plan, interval: body.interval === 'year' ? 'year' : 'month', count: Number(body.count) || 1, amountPln: Number(body.amountPln) || 0, provider: 'manual', note: 'utworzono przez administratora' }, me);
+    const t = createOneTimeToken(user.id, 'invite', 24 * 7);
+    const link = `${baseUrl(req)}/reset?token=${t}`;
+    if (body.sendEmail !== false) await sendMail(user.email, `Zaproszenie do ${BRAND.name}`, body.friend === true
+      ? friendMessage(req, user, link)
+      : `Dzień dobry,\n\nzałożyliśmy dla Ciebie konto w ${BRAND.name}. Ustaw hasło (link ważny 7 dni):\n${link}`);
+    return sendJson(res, 200, { user: adminUserRow(user), link });
+  }
+
+  if (section === 'users' && idStr) {
+    const u = getUser(Number(idStr));
+    if (!u) return sendJson(res, 404, { error: 'Nie ma takiego użytkownika.' });
+    if (!action && method === 'GET') {
+      const months = all("SELECT month, COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN report_id END) AS reports, COUNT(*) AS calls, COALESCE(SUM(cost_usd),0) AS cost, SUM(input_tokens) AS input, SUM(output_tokens) AS output, SUM(cache_read) AS cacheRead, SUM(cache_write) AS cacheWrite FROM usage WHERE user_id = ? GROUP BY month ORDER BY month DESC LIMIT 12", u.id);
+      return sendJson(res, 200, {
+        user: adminUserRow(u),
+        sharing: sharingSignals(u.id),
+        learning: contributorStatus(u.id),
+        months: months.map((m) => ({ ...m, costPln: m.cost * usdPln() })),
+        byLang: all("SELECT lang, COUNT(*) AS calls FROM usage WHERE user_id = ? AND kind='format' GROUP BY lang", u.id),
+        payments: all('SELECT * FROM payments WHERE user_id = ? ORDER BY ts DESC', u.id),
+        sessions: userSessions(u.id).map(({ id, ...s }) => s),
+        audit: all('SELECT a.*, x.email AS actor FROM audit a LEFT JOIN users x ON x.id = a.actor_id WHERE a.target_id = ? ORDER BY a.ts DESC LIMIT 100', u.id),
+      });
+    }
+    if (!action && method === 'PATCH') {
+      const b = await readJson(req, 20_000);
+      const changes = [];
+      const set = (col, val, label) => { run(`UPDATE users SET ${col} = ? WHERE id = ?`, val, u.id); changes.push(label); };
+      if (typeof b.name === 'string') set('name', str(b.name, 120), 'nazwa');
+      if (typeof b.email === 'string') {
+        const e = str(b.email, 254).toLowerCase();
+        if (!EMAIL_RE.test(e)) return sendJson(res, 400, { error: 'Nieprawidłowy e-mail.' });
+        const other = getUserByEmail(e);
+        if (other && other.id !== u.id) return sendJson(res, 409, { error: 'Ten e-mail jest już używany.' });
+        set('email', e, `e-mail ${e}`);
+      }
+      if (typeof b.plan === 'string' && plans().some((p) => p.id === b.plan)) set('plan', b.plan, `plan ${b.plan}`);
+      if (typeof b.blocked === 'boolean') { set('blocked', b.blocked ? 1 : 0, b.blocked ? 'zablokowano' : 'odblokowano'); if (b.blocked) deleteUserSessions(u.id); }
+      if ('quotaOverride' in b) set('quota_override', b.quotaOverride === null || b.quotaOverride === '' ? null : Math.max(0, Number(b.quotaOverride) || 0), `limit ${b.quotaOverride ?? 'z planu'}`);
+      if (typeof b.note === 'string') set('note', b.note.slice(0, 2000), 'notatka');
+      if (typeof b.subUntil === 'number') set('sub_until', b.subUntil, `dostęp do ${iso(b.subUntil).slice(0, 10)}`);
+      if (['trial', 'active', 'past_due', 'canceled', 'expired'].includes(b.subStatus)) set('sub_status', b.subStatus, `status ${b.subStatus}`);
+      if ('orgId' in b) {
+        const orgId = b.orgId ? Number(b.orgId) : null;
+        if (orgId && !getOrg(orgId)) return sendJson(res, 400, { error: 'Nie ma takiej organizacji.' });
+        if (orgId !== (u.org_id || null)) {
+          set('org_id', orgId, orgId ? `organizacja ${orgId}` : 'bez organizacji');
+          if (orgId) { set('plan', 'org', 'plan organizacji'); set('sub_status', 'org', 'status org'); }
+          else { set('plan', 'trial', 'plan trial'); set('sub_status', 'expired', 'status expired'); if (u.role === 'orgadmin') set('role', 'user', 'rola user'); }
+        }
+      }
+      if (['admin', 'user', 'orgadmin'].includes(b.role) && b.role !== u.role) {
+        if (u.id === me && b.role !== 'admin') return sendJson(res, 400, { error: 'Nie możesz odebrać sobie uprawnień administratora.' });
+        if (b.role === 'orgadmin' && !getUser(u.id).org_id) return sendJson(res, 400, { error: 'Administrator IT musi należeć do organizacji.' });
+        set('role', b.role, `rola ${b.role}`);
+      }
+      for (const k of ['npwz', 'company', 'nip', 'phone']) if (typeof b[k] === 'string') set(k, str(b[k], 200), k);
+      if (b.friend === true && u.sub_status !== 'friend' && !u.org_id) { set('plan', 'friend', 'plan przyjaciel'); set('sub_status', 'friend', 'wersja dla przyjaciół'); set('sub_until', 0, 'bez terminu'); }
+      if (b.friend === false && u.sub_status === 'friend') { set('plan', 'trial', 'plan trial'); set('sub_status', 'expired', 'koniec wersji dla przyjaciół'); set('api_key_enc', '', 'klucz usunięty'); set('key_hash', '', 'odcisk klucza'); }
+      audit(me, 'user.update', u.id, changes.join(', '));
+      return sendJson(res, 200, { user: adminUserRow(getUser(u.id)) });
+    }
+    if (action === 'approve-trial' && method === 'POST') {
+      const b = await readJson(req, 2_000);
+      const days = Math.round(Math.min(90, Math.max(1, Number(b.days) || settings().trialDays)));
+      const reports = Math.round(Math.min(10000, Math.max(1, Number(b.reports) || settings().trialReports)));
+      const until = Date.now() + days * 86400000;
+      run("UPDATE users SET plan = 'trial', sub_status = 'trial', sub_until = ?, trial_reports = ?, blocked = 0 WHERE id = ?", until, reports, u.id);
+      audit(ctx.user.id, 'user.trial.approve', u.id, `${days} dni, ${reports} opisów`);
+      await sendMail(u.email, `${BRAND.name}: okres próbny zatwierdzony`, `Dzień dobry,\n\nTwój okres próbny jest aktywny: ${days} dni, do ${reports} opisów.\nAplikacja: ${baseUrl(req)}/app/`);
+      return sendJson(res, 200, { ok: true, user: adminUserRow(getUser(u.id)) });
+    }
+    if (action === 'reject-trial' && method === 'POST') {
+      run("UPDATE users SET sub_status = 'expired', sub_until = 0, blocked = 1 WHERE id = ?", u.id);
+      run('DELETE FROM sessions WHERE user_id = ?', u.id);
+      audit(ctx.user.id, 'user.trial.reject', u.id, u.email);
+      await sendMail(u.email, `${BRAND.name}: zgłoszenie`, `Dzień dobry,\n\nniestety nie możemy teraz uruchomić okresu próbnego dla tego konta. W razie pytań odpowiedz na tę wiadomość.`);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === 'extend' && method === 'POST') {
+      const b = await readJson(req, 20_000);
+      const updated = extendSubscription(u.id, {
+        plan: plans().some((p) => p.id === b.plan) ? b.plan : u.plan,
+        interval: b.interval === 'year' ? 'year' : 'month', count: Math.min(36, Math.max(1, Number(b.count) || 1)),
+        until: typeof b.until === 'number' ? b.until : null,
+        amountPln: b.amountPln === '' || b.amountPln === undefined ? null : Number(b.amountPln),
+        provider: ['transfer', 'manual', 'stripe', 'free'].includes(b.provider) ? b.provider : 'manual', ref: str(b.ref, 120), note: str(b.note, 500),
+      }, me);
+      return sendJson(res, 200, { user: adminUserRow(updated) });
+    }
+    if (action === 'learning' && method === 'POST') {
+      // the owner keeps one user's lessons out of the central learning (their personal learning keeps working)
+      const b = await readJson(req, 2_000);
+      setExcluded(u.id, b.excluded === true, 'owner');
+      audit(me, 'learning.exclude', u.id, b.excluded === true ? 'wykluczono z nauki globalnej' : 'przywrócono do nauki globalnej');
+      return sendJson(res, 200, { learning: contributorStatus(u.id) });
+    }
+    if (action === 'invite-link' && method === 'POST') {
+      // a fresh invitation for a friend (the old link expired or got lost); a friend who already logged in gets the login page
+      const link = u.last_login ? `${baseUrl(req)}/login` : `${baseUrl(req)}/reset?token=${createOneTimeToken(u.id, 'invite', 24 * 7)}`;
+      audit(me, 'user.invite_link', u.id);
+      return sendJson(res, 200, { link, message: friendMessage(req, u, link) });
+    }
+    if (action === 'change-access' && method === 'POST') {
+      // the owner moves a friend (or any individual account) to a trial, to "must pay", gives a paid plan free, or back to friend
+      if (u.org_id || u.role !== 'user') return sendJson(res, 400, { error: 'Tylko konta indywidualne.' });
+      const b = await readJson(req, 4_000);
+      const app = `${baseUrl(req)}/app/`;
+      let mail = '';
+      if (b.mode === 'trial') {
+        const days = Math.round(Math.min(90, Math.max(1, Number(b.days) || settings().trialDays)));
+        const reports = Math.round(Math.min(10000, Math.max(1, Number(b.reports) || settings().trialReports)));
+        run("UPDATE users SET plan = 'trial', sub_status = 'trial', sub_until = ?, trial_reports = ?, blocked = 0, api_key_enc = '', key_hash = '' WHERE id = ?", Date.now() + days * 86400000, reports, u.id);
+        audit(me, 'user.access', u.id, `okres próbny ${days} dni, ${reports} opisów`);
+        mail = `Dzień dobry,\n\nTwoje konto ${BRAND.name} działa teraz w okresie próbnym: ${days} dni, do ${reports} opisów. Nie potrzebujesz już własnego klucza API.\nAplikacja: ${app}`;
+      } else if (b.mode === 'pay') {
+        const paid = plans().filter((p) => p.id !== 'trial' && p.pricePln > 0);
+        const plan = paid.find((p) => p.id === b.plan) || paid[0];
+        run("UPDATE users SET plan = ?, sub_status = 'expired', sub_until = 0, blocked = 0, api_key_enc = '', key_hash = '' WHERE id = ?", plan?.id || 'trial', u.id);
+        audit(me, 'user.access', u.id, `wymaga subskrypcji (${plan?.id || '—'})`);
+        mail = `Dzień dobry,\n\nwersja dla przyjaciół na Twoim koncie ${BRAND.name} została zakończona. Aby dalej korzystać z aplikacji, wybierz plan na stronie konta: ${baseUrl(req)}/account`;
+      } else if (b.mode === 'gift') {
+        const plan = plans().find((p) => p.id === b.plan && p.id !== 'trial') || plans().find((p) => p.id !== 'trial');
+        const months = Math.round(Math.min(36, Math.max(1, Number(b.months) || 1)));
+        run("UPDATE users SET sub_until = 0, blocked = 0, api_key_enc = '', key_hash = '' WHERE id = ?", u.id);
+        extendSubscription(u.id, { plan: plan.id, interval: 'month', count: months, amountPln: 0, provider: 'free', note: 'gratis od administratora' }, me);
+        mail = `Dzień dobry,\n\nmasz teraz plan ${plan.name} w ${BRAND.name} gratis na ${months} mies. Nie potrzebujesz już własnego klucza API — AI jest wliczone.\nAplikacja: ${app}`;
+      } else if (b.mode === 'friend') {
+        run("UPDATE users SET plan = 'friend', sub_status = 'friend', sub_until = 0, blocked = 0 WHERE id = ?", u.id);
+        audit(me, 'user.friend', u.id, 'wersja dla przyjaciół');
+        mail = `Cześć,\n\nmasz wersję dla przyjaciół w ${BRAND.name} — za darmo, z własnym kluczem API. Jeśli aplikacja poprosi o klucz, wklej go na stronie konta: ${baseUrl(req)}/account (instrukcja: ${baseUrl(req)}/klucz-api)`;
+      } else return sendJson(res, 400, { error: 'Wybierz, co zrobić z kontem.' });
+      if (b.notify === true) await sendMail(u.email, `${BRAND.name}: zmiana dostępu`, mail);
+      return sendJson(res, 200, { ok: true, user: adminUserRow(getUser(u.id)) });
+    }
+    if (action === 'reset-link' && method === 'POST') {
+      const t = createOneTimeToken(u.id, 'reset', 24);
+      const link = `${baseUrl(req)}/reset?token=${t}`;
+      audit(me, 'user.reset_link', u.id);
+      return sendJson(res, 200, { link });
+    }
+    if (action === 'reset-2fa' && method === 'POST') {
+      run("UPDATE users SET totp_on = 0, totp_secret = '' WHERE id = ?", u.id);
+      deleteUserSessions(u.id);
+      audit(me, 'user.reset_2fa', u.id);
+      if (u.id !== me) await sendMail(u.email, `${BRAND.name}: logowanie dwuetapowe wyłączone`, `Dzień dobry,\n\nlogowanie dwuetapowe na Twoim koncie ${BRAND.name} zostało wyłączone przez administratora usługi. Zaloguj się hasłem i włącz je ponownie na stronie konta.`);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === 'logout' && method === 'POST') {
+      deleteUserSessions(u.id);
+      audit(me, 'user.logout_all', u.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (!action && method === 'DELETE') {
+      if (u.id === me) return sendJson(res, 400, { error: 'Nie możesz usunąć własnego konta.' });
+      run('DELETE FROM users WHERE id = ?', u.id);
+      forgetContributor(u.id);
+      audit(me, 'user.delete', u.id);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+
+  if (section === 'plans') {
+    if (method === 'GET') return sendJson(res, 200, { plans: plans(), defaults: DEFAULT_PLANS });
+    if (method === 'PUT') {
+      const b = await readJson(req, 50_000);
+      if (!Array.isArray(b.plans) || !b.plans.length) return sendJson(res, 400, { error: 'Brak planów.' });
+      const clean = b.plans.map((p) => ({
+        id: str(p.id, 30).toLowerCase().replace(/[^a-z0-9_-]/g, ''), name: str(p.name, 60), pricePln: Math.max(0, Number(p.pricePln) || 0),
+        quota: Math.max(0, Math.round(Number(p.quota) || 0)), devices: Math.min(10, Math.max(1, Math.round(Number(p.devices) || 1))),
+        public: Boolean(p.public), featured: Boolean(p.featured), stripePrice: str(p.stripePrice, 80), stripePriceYear: str(p.stripePriceYear, 80),
+        ...(p.id === 'trial' ? { days: Math.max(1, Number(p.days) || 14), public: false } : {}),
+      })).filter((p) => p.id && p.name);
+      if (!clean.some((p) => p.id === 'trial')) return sendJson(res, 400, { error: 'Plan „trial” (okres próbny) musi istnieć.' });
+      if (new Set(clean.map((p) => p.id)).size !== clean.length) return sendJson(res, 400, { error: 'Identyfikatory planów muszą być unikalne.' });
+      setSetting('plans', clean);
+      audit(me, 'plans.update', null, clean.map((p) => `${p.id}:${p.pricePln}/${p.quota}`).join(' '));
+      return sendJson(res, 200, { plans: clean });
+    }
+  }
+
+  if (section === 'trials') {
+    const now = Date.now();
+    const DAY = 86400000;
+    const rows = all("SELECT * FROM users WHERE role = 'user' AND org_id IS NULL AND plan = 'trial' AND blocked = 0 ORDER BY created_at DESC LIMIT 1000");
+    const totalOf = (id) => one("SELECT COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN report_id END) AS reports, COALESCE(SUM(cost_usd),0) AS cost FROM usage WHERE user_id = ?", id);
+    const statusOf = (u) => (u.sub_status === 'verify' ? 'verify' : u.sub_status === 'pending' ? 'pending' : u.sub_status === 'trial' && u.sub_until > now ? 'active' : 'ended');
+    const recipients = (b) => {
+      const ids = new Set((Array.isArray(b.ids) ? b.ids : []).map(Number));
+      return rows.filter((u) => {
+        const st = statusOf(u);
+        if (b.audience === 'ids') { if (!ids.has(u.id)) return false; }
+        else if (b.audience === 'ending') { if (!(st === 'active' && u.sub_until - now <= 3 * DAY)) return false; }
+        else if (b.audience === 'ended') { if (!(st === 'ended' && now - u.sub_until <= 60 * DAY)) return false; }
+        else if (b.audience === 'active') { if (st !== 'active') return false; }
+        else return false;
+        if (b.onlyConsent !== false && !u.marketing_ok) return false;
+        if (u.last_message_at && now - u.last_message_at < 7 * DAY) return false; // never twice in a week
+        return true;
+      });
+    };
+    if (!idStr && method === 'GET') {
+      const self = one("SELECT COUNT(*) AS n FROM users WHERE role = 'user' AND org_id IS NULL AND signup_device <> ''").n;
+      const converted = one("SELECT COUNT(*) AS n FROM users WHERE role = 'user' AND org_id IS NULL AND signup_device <> '' AND plan <> 'trial'").n;
+      const costMonth = one("SELECT COALESCE(SUM(g.cost_usd),0) AS c FROM usage g JOIN users u ON u.id = g.user_id WHERE g.month = ? AND u.plan = 'trial' AND u.org_id IS NULL", monthOf()).c;
+      const list = rows.map((u) => {
+        const t = totalOf(u.id);
+        return { id: u.id, name: u.name, email: u.email, phone: u.phone, status: statusOf(u), subUntil: u.sub_until, createdAt: u.created_at, reports: t.reports, limit: u.trial_reports ?? settings().trialReports, costPln: t.cost * usdPln(), marketingOk: Boolean(u.marketing_ok), lastMessageAt: u.last_message_at, flags: u.trial_flags || '' };
+      });
+      const count = (st) => list.filter((u) => u.status === st).length;
+      return sendJson(res, 200, {
+        summary: { active: count('active'), verify: count('verify'), pending: count('pending'), ended: list.filter((u) => u.status === 'ended' && now - u.subUntil <= 60 * DAY).length, converted, selfRegistered: self, costMonthPln: costMonth * usdPln(), budgetPln: settings().trialBudgetPln },
+        users: list,
+        template: {
+          subject: `Jak Ci idzie z ${BRAND.name}?`,
+          body: `Dzień dobry {imię},\n\ndziękujemy, że wypróbowujesz ${BRAND.name}. {okres}\n\nJeśli program przyspiesza Twoje opisy, możesz pracować dalej bez przerwy — wybierz plan na stronie konta:\n{link}\n\nMasz pytania albo uwagi? Odpowiedz na tę wiadomość.\n\nPozdrawiam,\nzespół ${BRAND.name}`,
+        },
+      });
+    }
+    if (idStr === 'message' && method === 'POST') {
+      const b = await readJson(req, 50_000);
+      const list = recipients(b).slice(0, 500);
+      if (b.preview) return sendJson(res, 200, { count: list.length, emails: list.map((u) => u.email) });
+      const subject = str(b.subject, 200), text = String(b.body || '').slice(0, 10_000);
+      if (!subject || !text.trim()) return sendJson(res, 400, { error: 'Wpisz temat i treść wiadomości.' });
+      const fmt = (ms) => new Date(ms).toLocaleDateString('pl-PL', { timeZone: 'Europe/Warsaw' });
+      for (const u of list) {
+        const first = String(u.name || '').replace(/^(lek\.|dr\.?|dr n\. med\.|prof\.)\s*/i, '').split(/\s+/)[0] || '';
+        const okres = statusOf(u) === 'active' ? `Twój okres próbny trwa do ${fmt(u.sub_until)}.` : u.sub_until ? `Twój okres próbny zakończył się ${fmt(u.sub_until)}, a szablony i wszystko, czego program się nauczył, nadal czekają na koncie.` : '';
+        const fill = (t) => t.replaceAll('{imię}', first).replaceAll('{okres}', okres).replaceAll('{link}', `${baseUrl(req)}/account`);
+        await sendMail(u.email, fill(subject), fill(text));
+        run('UPDATE users SET last_message_at = ? WHERE id = ?', now, u.id);
+      }
+      audit(me, 'trials.message', null, `${list.length} odbiorców: ${subject}`);
+      return sendJson(res, 200, { sent: list.length });
+    }
+  }
+
+  if (section === 'settings') {
+    if (method === 'GET') return sendJson(res, 200, { settings: settings(), defaults: DEFAULT_SETTINGS });
+    if (method === 'PUT') {
+      const b = await readJson(req, 20_000);
+      const cur = settings();
+      const num = (v, d, min, max) => (Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Number(v))) : d);
+      const next = {
+        usdPln: num(b.usdPln, cur.usdPln, 1, 20), trialDays: Math.round(num(b.trialDays, cur.trialDays, 0, 90)),
+        registrationOpen: typeof b.registrationOpen === 'boolean' ? b.registrationOpen : cur.registrationOpen,
+        requireNpwz: typeof b.requireNpwz === 'boolean' ? b.requireNpwz : cur.requireNpwz,
+        trialApproval: typeof b.trialApproval === 'boolean' ? b.trialApproval : cur.trialApproval,
+        verifyEmail: typeof b.verifyEmail === 'boolean' ? b.verifyEmail : cur.verifyEmail,
+        trialsPerIp: Math.round(num(b.trialsPerIp, cur.trialsPerIp, 1, 1000)),
+        trialsPerDevice: Math.round(num(b.trialsPerDevice, cur.trialsPerDevice, 1, 1000)),
+        trialsPerDay: Math.round(num(b.trialsPerDay, cur.trialsPerDay, 1, 10000)),
+        trialBudgetPln: Math.round(num(b.trialBudgetPln, cur.trialBudgetPln, 0, 1000000)),
+        trialDailyReports: Math.round(num(b.trialDailyReports, cur.trialDailyReports, 1, 10000)),
+        trialReports: Math.round(num(b.trialReports, cur.trialReports, 1, 10000)),
+        graceRatio: num(b.graceRatio, cur.graceRatio, 0, 1), costAlertRatio: num(b.costAlertRatio, cur.costAlertRatio, 0.05, 5),
+        graceDaysPastDue: Math.round(num(b.graceDaysPastDue, cur.graceDaysPastDue, 0, 30)), annualMonths: num(b.annualMonths, cur.annualMonths, 1, 12),
+        maxBackgroundCalls: Math.round(num(b.maxBackgroundCalls, cur.maxBackgroundCalls, 0, 20)),
+        bankAccount: typeof b.bankAccount === 'string' ? str(b.bankAccount, 60) : cur.bankAccount || '',
+        bankName: typeof b.bankName === 'string' ? str(b.bankName, 120) : cur.bankName || '',
+        announcement: typeof b.announcement === 'string' ? str(b.announcement, 300) : cur.announcement || '',
+        termsVersion: typeof b.termsVersion === 'string' ? str(b.termsVersion, 20) : cur.termsVersion,
+        sessionIdleDays: Math.round(num(b.sessionIdleDays, cur.sessionIdleDays, 1, 30)),
+        auditRetentionDays: Math.round(num(b.auditRetentionDays, cur.auditRetentionDays, 180, 3650)),
+        outboxRetentionDays: Math.round(num(b.outboxRetentionDays, cur.outboxRetentionDays, 7, 365)),
+        itShowUsage: typeof b.itShowUsage === 'boolean' ? b.itShowUsage : cur.itShowUsage,
+        globalLearning: typeof b.globalLearning === 'boolean' ? b.globalLearning : cur.globalLearning,
+      };
+      setSetting('appSettings', next);
+      audit(me, 'settings.update', null, JSON.stringify(next));
+      return sendJson(res, 200, { settings: settings() });
+    }
+  }
+
+  if (section === 'usage' && method === 'GET') {
+    const month = url.searchParams.get('month') || monthOf();
+    const perUser = all(`SELECT u.id, u.email, u.name, u.plan, COUNT(DISTINCT CASE WHEN g.kind='format' AND g.ok=1 AND g.report_id<>'' THEN g.report_id END) AS reports,
+        COUNT(*) AS calls, SUM(g.input_tokens) AS input, SUM(g.output_tokens) AS output, SUM(g.cache_read) AS cacheRead, SUM(g.cache_write) AS cacheWrite,
+        COALESCE(SUM(g.cost_usd),0) AS costUsd, SUM(CASE WHEN g.ok=0 THEN 1 ELSE 0 END) AS errors
+        FROM usage g JOIN users u ON u.id = g.user_id WHERE g.month = ? GROUP BY u.id ORDER BY costUsd DESC`, month)
+      .map((r) => ({ ...r, costPln: r.costUsd * usdPln(), pricePln: planById(r.plan).pricePln, costPerReportPln: r.reports ? (r.costUsd * usdPln()) / r.reports : 0 }));
+    const months = all("SELECT month, COUNT(DISTINCT CASE WHEN kind='format' AND ok=1 AND report_id<>'' THEN user_id || ':' || report_id END) AS reports, COUNT(*) AS calls, COALESCE(SUM(cost_usd),0) AS costUsd FROM usage GROUP BY month ORDER BY month DESC LIMIT 12")
+      .map((m) => ({ ...m, costPln: m.costUsd * usdPln() }));
+    return sendJson(res, 200, { month, perUser, months });
+  }
+
+  if (section === 'payments' && method === 'GET') {
+    return sendJson(res, 200, { payments: all('SELECT p.*, u.email, u.name, u.company, u.nip FROM payments p JOIN users u ON u.id = p.user_id ORDER BY p.ts DESC LIMIT 500') });
+  }
+  if (section === 'audit' && method === 'GET') {
+    return sendJson(res, 200, { audit: all('SELECT a.*, x.email AS actor, t.email AS target FROM audit a LEFT JOIN users x ON x.id = a.actor_id LEFT JOIN users t ON t.id = a.target_id ORDER BY a.ts DESC LIMIT 300') });
+  }
+  if (section === 'outbox' && method === 'GET') {
+    return sendJson(res, 200, { outbox: all('SELECT * FROM outbox ORDER BY ts DESC LIMIT 200') });
+  }
+  if (section === 'jobs' && method === 'POST') {
+    return sendJson(res, 200, await runJobs(Date.now(), baseUrl(req)));
+  }
+  if (section === 'export' && method === 'GET') {
+    const kind = idStr;
+    let rows = [];
+    if (kind === 'users.csv') rows = all('SELECT * FROM users ORDER BY id').map((u) => ({ id: u.id, email: u.email, imie_nazwisko: u.name, rola: u.role, plan: u.plan, status: u.sub_status, dostep_do: iso(u.sub_until), zablokowany: u.blocked, npwz: u.npwz, firma: u.company, nip: u.nip, telefon: u.phone, utworzono: iso(u.created_at), ostatnie_logowanie: iso(u.last_login) }));
+    else if (kind === 'usage.csv') rows = all("SELECT u.email, g.month, COUNT(DISTINCT CASE WHEN g.kind='format' AND g.ok=1 AND g.report_id<>'' THEN g.report_id END) AS opisy, COUNT(*) AS zapytania, ROUND(SUM(g.cost_usd), 4) AS koszt_usd FROM usage g JOIN users u ON u.id = g.user_id GROUP BY u.id, g.month ORDER BY g.month DESC, u.email");
+    else if (kind === 'payments.csv') rows = all('SELECT p.ts, u.email, u.name, u.company, u.nip, p.amount_pln, p.provider, p.ref, p.plan, p.period_until, p.note FROM payments p JOIN users u ON u.id = p.user_id ORDER BY p.ts DESC').map((p) => ({ ...p, ts: iso(p.ts), period_until: iso(p.period_until) }));
+    else return sendJson(res, 404, { error: 'Nieznany eksport.' });
+    res.writeHead(200, headers({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${kind}"`, 'Cache-Control': 'no-store' }));
+    audit(me, 'export', null, kind);
+    return res.end(csv(rows));
+  }
+  return sendJson(res, 404, { error: 'Nie znaleziono.' });
+}
+
+// ---------------------------------------------------------------- organisations: IT console (/it) and owner's view
+const DELETED_DOMAIN = '@usuniety.invalid';
+
+/** The organisation an IT request may manage: an IT administrator → their own; the owner → ?org=ID. Sends the error itself. */
+function itScope(res, ctx, url) {
+  if (!ctx) { sendJson(res, 401, { error: 'Zaloguj się.', code: 'login' }); return null; }
+  if (ctx.user.must_change_pwd) { sendJson(res, 403, { error: 'Najpierw ustaw własne hasło.', code: 'pwd' }); return null; }
+  let org = null;
+  if (ctx.user.role === 'admin') org = getOrg(Number(url.searchParams.get('org')));
+  else if (ctx.user.role === 'orgadmin') org = getOrg(ctx.user.org_id);
+  else { sendJson(res, 403, { error: 'Brak uprawnień.' }); return null; }
+  if (!org) { sendJson(res, 404, { error: 'Nie znaleziono organizacji.' }); return null; }
+  return org;
+}
+
+function orgPublic(org) {
+  const used = seatsUsed(org.id);
+  return {
+    id: org.id, name: org.name, nip: org.nip, seats: org.seats, seatsUsed: used, seatsFree: Math.max(0, org.seats - used),
+    status: org.status, subUntil: org.sub_until, plan: org.plan, planName: planById(org.plan).name,
+    quotaPerUser: org.quota_per_user ?? planById(org.plan).quota, quotaOverride: org.quota_per_user, devices: org.devices,
+    pricePerSeat: org.price_per_seat, contact: org.contact, note: org.note, createdAt: org.created_at,
+    access: org.status !== 'suspended' && org.sub_until > Date.now(),
+  };
+}
+
+/** All users of an organisation with this month's reports and devices — 3 queries, whatever the number of users. */
+function orgUserRows(orgId, month = monthOf()) {
+  const reports = new Map(all(`SELECT g.user_id, COUNT(DISTINCT CASE WHEN g.kind='format' AND g.ok=1 AND g.report_id<>'' THEN g.report_id END) AS reports
+      FROM usage g JOIN users u ON u.id = g.user_id WHERE u.org_id = ? AND g.month = ? GROUP BY g.user_id`, orgId, month).map((r) => [r.user_id, r.reports]));
+  const sess = new Map(all(`SELECT s.user_id, COUNT(*) AS n, MAX(s.last_seen) AS seen FROM sessions s JOIN users u ON u.id = s.user_id
+      WHERE u.org_id = ? AND s.expires_at > ? GROUP BY s.user_id`, orgId, Date.now()).map((r) => [r.user_id, r]));
+  return orgUsers(orgId).filter((u) => !u.email.endsWith(DELETED_DOMAIN)).map((u) => ({
+    id: u.id, email: u.email, name: u.name, npwz: u.npwz, role: u.role, blocked: Boolean(u.blocked), mustChangePwd: Boolean(u.must_change_pwd),
+    createdAt: u.created_at, lastLogin: u.last_login, lastSeen: sess.get(u.id)?.seen || null, devices: sess.get(u.id)?.n || 0,
+    reports: reports.get(u.id) || 0,
+  }));
+}
+
+/** Create one member of an organisation. Returns { user, tempPassword } or { error }. */
+async function addOrgUser(org, b, actorId, { checkSeats = true } = {}) {
+  const email = str(b.email, 254).toLowerCase();
+  if (!EMAIL_RE.test(email)) return { error: 'nieprawidłowy e-mail' };
+  if (getUserByEmail(email)) return { error: 'konto z tym adresem już istnieje' };
+  if (checkSeats && seatsUsed(org.id) >= org.seats) return { error: 'brak wolnych miejsc w licencji' };
+  const pass = tempPassword();
+  try {
+    const user = await createUser({ email, password: pass, name: str(b.name, 120), npwz: str(b.npwz, 20), company: org.name, nip: org.nip, role: b.role === 'orgadmin' ? 'orgadmin' : 'user', orgId: org.id, mustChangePwd: true }, actorId);
+    return { user, tempPassword: pass };
+  } catch (err) {
+    if (/UNIQUE/i.test(String(err.message))) return { error: 'konto z tym adresem już istnieje' };
+    throw err;
+  }
+}
+
+function welcomeText(req, org, user, pass) {
+  return `Dzień dobry,\n\n${org.name} założył(a) dla Ciebie konto w ${BRAND.name} — aplikacji do dyktowania opisów radiologicznych.\n\nAdres: ${baseUrl(req)}/login\nE-mail: ${user.email}\nHasło tymczasowe: ${pass}\n\nPrzy pierwszym logowaniu ustawisz własne hasło. W razie problemów skontaktuj się z działem IT${org.contact ? ` (${org.contact})` : ''}.`;
+}
+
+async function handleIt(req, res, ctx, parts) {
+  const url = new URL(req.url, 'http://x');
+  const org = itScope(res, ctx, url);
+  if (!org) return;
+  const me = ctx.user.id;
+  const method = req.method;
+  const [section, idStr, action] = parts;
+
+  if (section === 'overview' && method === 'GET') {
+    const showUsage = ctx.user.role === 'admin' || settings().itShowUsage;
+    const users = orgUserRows(org.id).map((u) => (showUsage ? u : { ...u, reports: null }));
+    return sendJson(res, 200, { org: orgPublic(org), users, month: monthOf(), me, owner: ctx.user.role === 'admin', mail: mailConfigured(), showUsage });
+  }
+
+  if (section === 'problems' && method === 'GET') {
+    // what IT needs to fix things — and nothing else (no report content, no learning, no usage details)
+    const since = Date.now() - 24 * 3600_000;
+    const errs = new Map(all(`SELECT g.user_id, COUNT(*) AS n FROM usage g JOIN users u ON u.id = g.user_id
+        WHERE u.org_id = ? AND g.ts > ? AND g.ok = 0 GROUP BY g.user_id`, org.id, since).map((r) => [r.user_id, r.n]));
+    const tot = one('SELECT COUNT(*) AS n, SUM(CASE WHEN g.ok = 0 THEN 1 ELSE 0 END) AS bad FROM usage g JOIN users u ON u.id = g.user_id WHERE u.org_id = ? AND g.ts > ?', org.id, since);
+    const people = orgUserRows(org.id);
+    const issues = [];
+    for (const u of people) {
+      if (u.blocked) continue;
+      if (isLockedOut(u.email)) issues.push({ id: u.id, email: u.email, name: u.name, kind: 'locked', text: 'Za dużo błędnych haseł — logowanie wstrzymane na 15 min (nowe hasło tymczasowe odblokowuje od razu).' });
+      if (u.mustChangePwd && Date.now() - u.createdAt > 3 * 86400000) issues.push({ id: u.id, email: u.email, name: u.name, kind: 'pending', text: 'Ma konto od ponad 3 dni, ale jeszcze się nie zalogował(a) — hasło tymczasowe mogło nie dotrzeć.' });
+      if (errs.get(u.id) >= 3) issues.push({ id: u.id, email: u.email, name: u.name, kind: 'errors', text: `Błędy AI w ostatnich 24 h: ${errs.get(u.id)} — jeśli się powtarzają, zgłoś problem.` });
+    }
+    // problems the app reported in the last 7 days, grouped per person and kind, with what to do
+    for (const ev of all(`SELECT e.user_id, e.kind, e.code, COUNT(*) AS n, MAX(e.ts) AS last, MAX(e.ua) AS ua, u.email, u.name FROM client_events e
+        JOIN users u ON u.id = e.user_id WHERE u.org_id = ? AND e.ts > ? AND e.kind <> 'check' GROUP BY e.user_id, e.kind, e.code ORDER BY last DESC LIMIT 100`, org.id, Date.now() - 7 * 86400000)) {
+      const help = EVENT_HELP[`${ev.kind}:${ev.code}`] || EVENT_HELP[`${ev.kind}:*`] || 'Problem techniczny — jeśli się powtarza, zgłoś go dostawcy.';
+      issues.push({ id: ev.user_id, email: ev.email, name: ev.name, kind: 'event', event: `${ev.kind}:${ev.code}`, count: ev.n, last: ev.last, ua: ev.ua, text: help });
+    }
+    const checks = all(`SELECT e.ts, e.detail, e.ua, u.email, u.name, u.id FROM client_events e JOIN users u ON u.id = e.user_id
+        WHERE u.org_id = ? AND e.kind = 'check' ORDER BY e.ts DESC LIMIT 20`, org.id);
+    const st = orgPublic(org);
+    const service = {
+      ai: aiAvailable(), licence: st.access, licenceUntil: st.subUntil, seatsFree: st.seatsFree,
+      errorRate24h: tot.n ? (tot.bad || 0) / tot.n : 0, busy: aiLimiter.snapshot().queued > 0, announcement: settings().announcement || '',
+    };
+    const tickets = all('SELECT t.id, t.ts, t.subject, t.body, t.status, t.answer, t.answered_at, u.email AS author FROM tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.org_id = ? ORDER BY t.ts DESC LIMIT 50', org.id);
+    return sendJson(res, 200, { service, issues, tickets, checks });
+  }
+
+  if (section === 'tickets' && method === 'POST') {
+    const b = await readJson(req, 20_000);
+    const subject = str(b.subject, 160);
+    const text = str(b.body, 4000);
+    if (!subject || !text) return sendJson(res, 400, { error: 'Wpisz temat i opis problemu.' });
+    const info = run('INSERT INTO tickets(org_id, user_id, ts, subject, body) VALUES (?, ?, ?, ?, ?)', org.id, me, Date.now(), subject, text);
+    audit(me, 'ticket.create', null, `${org.id}: ${subject}`);
+    if (adminEmail()) await sendMail(adminEmail(), `${BRAND.name}: zgłoszenie — ${org.name}: ${subject}`, `${ctx.user.email} (${org.name}) zgłasza:\n\n${text}\n\nPanel: ${baseUrl(req)}/admin#tickets`);
+    return sendJson(res, 200, { id: Number(info.lastInsertRowid) });
+  }
+
+  if (section === 'users' && !idStr && method === 'POST') {
+    const b = await readJson(req, 20_000);
+    const r = await addOrgUser(org, b, me);
+    if (r.error) return sendJson(res, r.error.includes('istnieje') ? 409 : 400, { error: `Nie dodano: ${r.error}.` });
+    let mailed = false;
+    if (b.sendEmail === true && mailConfigured()) { await sendMail(r.user.email, `Twoje konto w ${BRAND.name}`, welcomeText(req, org, r.user, r.tempPassword)); mailed = true; }
+    return sendJson(res, 200, { user: { id: r.user.id, email: r.user.email, name: r.user.name }, tempPassword: r.tempPassword, mailed });
+  }
+
+  if (section === 'import' && method === 'POST') {
+    const b = await readJson(req, 300_000);
+    const rows = Array.isArray(b.rows) ? b.rows : parseUserList(b.text);
+    if (!rows.length) return sendJson(res, 400, { error: 'Brak adresów e-mail na liście.' });
+    if (rows.length > 1000) return sendJson(res, 400, { error: 'Najwięcej 1000 osób naraz.' });
+    const created = [];
+    const skipped = [];
+    const seen = new Set();
+    let free = org.seats - seatsUsed(org.id);
+    const todo = [];
+    for (const row of rows) {
+      const email = str(row.email, 254).toLowerCase();
+      if (seen.has(email)) { skipped.push({ email, reason: 'powtórzony na liście' }); continue; }
+      seen.add(email);
+      if (!EMAIL_RE.test(email)) { skipped.push({ email, reason: 'nieprawidłowy e-mail' }); continue; }
+      if (getUserByEmail(email)) { skipped.push({ email, reason: 'konto już istnieje' }); continue; }
+      if (free <= 0) { skipped.push({ email, reason: 'brak wolnych miejsc w licencji' }); continue; }
+      free--;
+      todo.push({ ...row, email });
+    }
+    // password hashing is deliberately slow: 8 at a time keeps the server responsive for everybody else
+    for (let i = 0; i < todo.length; i += 8) {
+      const batch = await Promise.all(todo.slice(i, i + 8).map((row) => addOrgUser(org, row, me, { checkSeats: false })));
+      batch.forEach((r, j) => (r.error ? skipped.push({ email: todo[i + j].email, reason: r.error }) : created.push({ email: r.user.email, name: r.user.name, npwz: r.user.npwz, role: r.user.role, tempPassword: r.tempPassword })));
+    }
+    let mailed = 0;
+    if (b.sendEmail === true && mailConfigured()) {
+      for (const c of created) { await sendMail(c.email, `Twoje konto w ${BRAND.name}`, welcomeText(req, org, c, c.tempPassword)); mailed++; }
+    }
+    audit(me, 'org.import', null, `${org.id}: dodano ${created.length}, pominięto ${skipped.length}`);
+    return sendJson(res, 200, { created, skipped, mailed, org: orgPublic(org) });
+  }
+
+  if (section === 'users' && idStr) {
+    const u = getUser(Number(idStr));
+    if (!u || u.org_id !== org.id || u.email.endsWith(DELETED_DOMAIN)) return sendJson(res, 404, { error: 'Nie ma takiego użytkownika w organizacji.' });
+    const self = u.id === me;
+    if (!action && method === 'PATCH') {
+      const b = await readJson(req, 20_000);
+      const changes = [];
+      if (typeof b.name === 'string') { run('UPDATE users SET name = ? WHERE id = ?', str(b.name, 120), u.id); changes.push('nazwa'); }
+      if (typeof b.npwz === 'string') { run('UPDATE users SET npwz = ? WHERE id = ?', str(b.npwz, 20), u.id); changes.push('PWZ'); }
+      if (typeof b.email === 'string' && str(b.email, 254).toLowerCase() !== u.email) {
+        const e = str(b.email, 254).toLowerCase();
+        if (!EMAIL_RE.test(e)) return sendJson(res, 400, { error: 'Nieprawidłowy e-mail.' });
+        if (getUserByEmail(e)) return sendJson(res, 409, { error: 'Ten e-mail jest już używany.' });
+        run('UPDATE users SET email = ? WHERE id = ?', e, u.id); changes.push(`e-mail ${e}`);
+      }
+      if (b.role === 'user' || b.role === 'orgadmin') {
+        if (self && b.role !== u.role) return sendJson(res, 400, { error: 'Nie możesz zmienić własnej roli.' });
+        if (u.role !== b.role) { run('UPDATE users SET role = ? WHERE id = ?', b.role, u.id); changes.push(`rola ${b.role}`); }
+      }
+      if (typeof b.blocked === 'boolean' && b.blocked !== Boolean(u.blocked)) {
+        if (self) return sendJson(res, 400, { error: 'Nie możesz zablokować własnego konta.' });
+        if (!b.blocked && seatsUsed(org.id) >= org.seats) return sendJson(res, 400, { error: 'Brak wolnych miejsc w licencji — zablokuj inne konto albo poproś o więcej miejsc.' });
+        run('UPDATE users SET blocked = ? WHERE id = ?', b.blocked ? 1 : 0, u.id);
+        if (b.blocked) deleteUserSessions(u.id);
+        changes.push(b.blocked ? 'zablokowano' : 'odblokowano');
+      }
+      audit(me, 'it.user.update', u.id, changes.join(', '));
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === 'temp-password' && method === 'POST') {
+      const pass = tempPassword();
+      await setTempPassword(u.id, pass);
+      deleteUserSessions(u.id);
+      clearFailures(u.email);
+      audit(me, 'it.user.temp_password', u.id);
+      // the person is told (an IT administrator could otherwise use the temporary password to sign in as them)
+      if (u.id !== me) await sendMail(u.email, `${BRAND.name}: Twoje hasło zostało zresetowane`, `Dzień dobry,\n\nadministrator IT (${ctx.user.email}) ustawił Ci nowe hasło tymczasowe w ${BRAND.name}. Jeśli o to nie prosiłeś/aś, skontaktuj się z nami: ${BRAND.supportEmail || adminEmail() || 'administrator usługi'}.`);
+      return sendJson(res, 200, { tempPassword: pass, email: u.email });
+    }
+    if (action === 'logout' && method === 'POST') {
+      deleteUserSessions(u.id);
+      audit(me, 'it.user.logout_all', u.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === 'unlock' && method === 'POST') {
+      // after 8 wrong passwords: allow logging in again now (the password stays the same)
+      clearFailures(u.email);
+      audit(me, 'it.user.unlock', u.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === 'reset-2fa' && method === 'POST') {
+      // lost / new phone: the person logs in with the password only and can switch two-factor on again
+      if (!u.totp_on) return sendJson(res, 400, { error: 'Ta osoba nie ma włączonego logowania dwuetapowego.' });
+      run("UPDATE users SET totp_on = 0, totp_secret = '' WHERE id = ?", u.id);
+      deleteUserSessions(u.id);
+      audit(me, 'it.user.reset_2fa', u.id);
+      await sendMail(u.email, `${BRAND.name}: logowanie dwuetapowe wyłączone`, `Dzień dobry,\n\nadministrator IT (${ctx.user.email}) wyłączył logowanie dwuetapowe na Twoim koncie ${BRAND.name} (np. po zmianie telefonu). Zaloguj się hasłem i włącz je ponownie na stronie konta. Jeśli o to nie prosiłeś/aś, skontaktuj się z działem IT.`);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === 'details' && method === 'GET') {
+      // what IT needs to help one person: devices and recent technical problems — no report content
+      return sendJson(res, 200, {
+        twoFactor: Boolean(u.totp_on), lockedOut: isLockedOut(u.email),
+        devices: all('SELECT id, created_at, last_seen, ip, ua FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen DESC', u.id, Date.now()).map((d) => ({ ...d, id: d.id.slice(0, 16), browser: browserOf(d.ua), ua: undefined })),
+        events: all('SELECT ts, kind, code, detail, ua FROM client_events WHERE user_id = ? ORDER BY ts DESC LIMIT 30', u.id),
+      });
+    }
+    if (action === 'devices' && method === 'DELETE') {
+      const sid = str(url.searchParams.get('device'), 16);
+      if (!/^[0-9a-f]{16}$/.test(sid)) return sendJson(res, 400, { error: 'Nieprawidłowe urządzenie.' });
+      const n = run("DELETE FROM sessions WHERE user_id = ? AND substr(id, 1, 16) = ?", u.id, sid).changes;
+      audit(me, 'it.user.logout_device', u.id);
+      return sendJson(res, n ? 200 : 404, n ? { ok: true } : { error: 'To urządzenie jest już wylogowane.' });
+    }
+    if (!action && method === 'DELETE') {
+      if (self) return sendJson(res, 400, { error: 'Nie możesz usunąć własnego konta.' });
+      // personal data removed; the anonymous usage history stays for the organisation's statistics and billing
+      eraseUser(u, me);
+      audit(me, 'it.user.delete', u.id, '');
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+
+  if (section === 'audit' && method === 'GET') {
+    return sendJson(res, 200, {
+      audit: all(`SELECT a.ts, a.action, a.detail, x.email AS actor, t.email AS target FROM audit a
+          LEFT JOIN users x ON x.id = a.actor_id LEFT JOIN users t ON t.id = a.target_id
+          WHERE (t.org_id = ? OR x.org_id = ?) AND a.action NOT IN ('login') ORDER BY a.ts DESC LIMIT 300`, org.id, org.id),
+    });
+  }
+
+  if (section === 'export' && idStr === 'users.csv' && method === 'GET') {
+    const rows = orgUserRows(org.id).map((u) => ({
+      email: u.email, imie_nazwisko: u.name, pwz: u.npwz, rola: u.role === 'orgadmin' ? 'IT' : 'radiolog', zablokowany: u.blocked ? 'tak' : 'nie',
+      haslo_tymczasowe: u.mustChangePwd ? 'tak' : 'nie', opisy_w_miesiacu: u.reports, ostatnie_logowanie: iso(u.lastLogin), utworzono: iso(u.createdAt),
+    }));
+    audit(me, 'it.export', null, `${org.id}`);
+    res.writeHead(200, headers({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="uzytkownicy.csv"', 'Cache-Control': 'no-store' }));
+    return res.end(csv(rows) || '﻿brak\n');
+  }
+  return sendJson(res, 404, { error: 'Nie znaleziono.' });
+}
+
+/** Owner: organisations with seats, this month's usage, AI cost and margin. */
+function orgRows(month = monthOf()) {
+  const usage = new Map(all(`SELECT u.org_id, COUNT(DISTINCT CASE WHEN g.kind='format' AND g.ok=1 AND g.report_id<>'' THEN g.user_id || ':' || g.report_id END) AS reports,
+      COUNT(*) AS calls, COALESCE(SUM(g.cost_usd),0) AS cost, COUNT(DISTINCT g.user_id) AS activeUsers
+      FROM usage g JOIN users u ON u.id = g.user_id WHERE g.month = ? AND u.org_id IS NOT NULL GROUP BY u.org_id`, month).map((r) => [r.org_id, r]));
+  return listOrgs().map((o) => {
+    const x = usage.get(o.id) || { reports: 0, calls: 0, cost: 0, activeUsers: 0 };
+    const p = orgPublic(o);
+    const revenue = p.access && o.status === 'active' ? o.seats * o.price_per_seat : 0;
+    const costPln = x.cost * usdPln();
+    return { ...p, reports: x.reports, calls: x.calls, activeUsers: x.activeUsers, costUsd: x.cost, costPln, revenuePln: revenue, marginPln: revenue - costPln };
+  });
+}
+
+async function handleAdminOrgs(req, res, me, idStr, action) {
+  const method = req.method;
+  if (!idStr && method === 'GET') return sendJson(res, 200, { orgs: orgRows(), plans: plans().map((p) => ({ id: p.id, name: p.name, quota: p.quota })) });
+  if (!idStr && method === 'POST') {
+    const b = await readJson(req, 20_000);
+    if (!str(b.name)) return sendJson(res, 400, { error: 'Podaj nazwę organizacji.' });
+    const itEmail = str(b.itEmail, 254).toLowerCase();
+    if (itEmail && (!EMAIL_RE.test(itEmail) || getUserByEmail(itEmail))) return sendJson(res, 400, { error: EMAIL_RE.test(itEmail) ? 'Konto z adresem administratora IT już istnieje.' : 'Nieprawidłowy e-mail administratora IT.' });
+    const org = createOrg(b, me);
+    let it = null;
+    if (itEmail) {
+      const r = await addOrgUser(org, { email: itEmail, name: b.itName, role: 'orgadmin' }, me, { checkSeats: false });
+      if (r.error) return sendJson(res, 400, { error: r.error, org: orgPublic(org) });
+      it = { email: r.user.email, tempPassword: r.tempPassword };
+    }
+    return sendJson(res, 200, { org: orgPublic(getOrg(org.id)), it });
+  }
+  const org = getOrg(Number(idStr));
+  if (!org) return sendJson(res, 404, { error: 'Nie znaleziono organizacji.' });
+  if (!action && method === 'PATCH') {
+    const b = await readJson(req, 20_000);
+    if (b.status !== undefined && !ORG_STATUS.includes(b.status)) return sendJson(res, 400, { error: 'Nieznany status.' });
+    return sendJson(res, 200, { org: orgPublic(updateOrg(org, b, me)) });
+  }
+  if (action === 'extend' && method === 'POST') {
+    const b = await readJson(req, 20_000);
+    const months = Math.min(36, Math.max(1, Number(b.months) || 1));
+    const from = Math.max(Date.now(), org.sub_until);
+    const d = new Date(from);
+    d.setMonth(d.getMonth() + months);
+    const until = typeof b.until === 'number' ? b.until : d.getTime();
+    return sendJson(res, 200, { org: orgPublic(updateOrg(org, { subUntil: until, status: b.status === 'trial' ? 'trial' : 'active' }, me)) });
+  }
+  if (!action && method === 'DELETE') {
+    const n = one('SELECT COUNT(*) AS n FROM users WHERE org_id = ? AND email NOT LIKE ?', org.id, `%${DELETED_DOMAIN}`).n;
+    if (n) return sendJson(res, 400, { error: `Organizacja ma ${n} kont — najpierw je usuń lub przenieś.` });
+    run('DELETE FROM orgs WHERE id = ?', org.id);
+    audit(me, 'org.delete', null, `${org.id}: ${org.name}`);
+    return sendJson(res, 200, { ok: true });
+  }
+  return sendJson(res, 404, { error: 'Nie znaleziono.' });
+}
+
+// ---------------------------------------------------------------- central learning (owner only)
+async function handleAdminLearning(req, res, me, idStr, action) {
+  const method = req.method;
+  if (!idStr && method === 'GET') {
+    return sendJson(res, 200, { stats: archiveStats(), versions: learningVersions(), publishedId: publishedId(), defaults: GLOBAL_DEFAULTS, enabled: settings().globalLearning, aiCallsWithGlobal: one('SELECT COUNT(*) AS n FROM usage WHERE global_version IS NOT NULL').n, quarantine: quarantineList(30) });
+  }
+  if (idStr === 'export' && method === 'GET') {
+    audit(me, 'learning.export');
+    res.writeHead(200, headers({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Content-Disposition': `attachment; filename="radvoxpro-learning-${new Date().toISOString().slice(0, 10)}.jsonl"`, 'Cache-Control': 'no-store' }));
+    for (const line of exportArchive()) res.write(`${line}\n`);
+    return res.end();
+  }
+  if (idStr === 'unpublish' && method === 'POST') {
+    unpublishAll();
+    invalidateGlobal();
+    audit(me, 'learning.unpublish');
+    return sendJson(res, 200, { ok: true });
+  }
+  if (idStr === 'versions' && !action && method === 'POST') {
+    const b = await readJson(req, 20_000);
+    try {
+      const v = await aiLimiter.run(me, () => createGlobalVersion({ method: b.method === 'ai' ? 'ai' : 'counts', minContributors: b.minContributors, minOrgs: b.minOrgs, note: str(b.note, 500) }));
+      audit(me, 'learning.version', null, `${v.id} (${v.method})`);
+      return sendJson(res, 200, { version: v });
+    } catch (err) {
+      if (err instanceof ClaudeError || err instanceof BusyError) return sendAiError(res, err);
+      throw err;
+    }
+  }
+  if (idStr === 'versions' && action) {
+    const v = getVersion(Number(action));
+    if (!v) return sendJson(res, 404, { error: 'Nie znaleziono wersji.' });
+    if (method === 'GET') return sendJson(res, 200, { version: v });
+    if (method === 'PATCH') {
+      if (v.status !== 'draft') return sendJson(res, 400, { error: 'Można zmieniać tylko szkic (opublikowane wersje są niezmienne).' });
+      const b = await readJson(req, 300_000);
+      audit(me, 'learning.edit', null, String(v.id));
+      return sendJson(res, 200, { version: updateVersionContent(v.id, cleanGlobal(b.content)) });
+    }
+    if (method === 'POST') {
+      const pv = publishVersion(v.id);
+      invalidateGlobal();
+      audit(me, 'learning.publish', null, String(v.id));
+      return sendJson(res, 200, { version: pv });
+    }
+  }
+  return sendJson(res, 404, { error: 'Nie znaleziono.' });
+}
+
+// ---------------------------------------------------------------- router
+// One JSON line per API call (no request bodies, no report text — never patient data). LOG_REQUESTS=0 turns it off.
+const LOG_REQUESTS = process.env.LOG_REQUESTS ? process.env.LOG_REQUESTS === '1' : PROD;
+function logRequest(req, res, started, p) {
+  if (!LOG_REQUESTS || (!p.startsWith('/api/') && res.statusCode < 500) || p === '/api/status') return;
+  console.log(JSON.stringify({ t: new Date().toISOString(), m: req.method, p: p.replace(/\/\d+(?=\/|$)/g, '/:id'), s: res.statusCode, ms: Date.now() - started, u: res.uid ?? null }));
+}
+
+let shuttingDown = false;
+
+export function createServer() {
+  return http.createServer(async (req, res) => {
+    const started = Date.now();
+    let p = '';
+    res.on('finish', () => logRequest(req, res, started, p));
+    try {
+      const url = new URL(req.url, 'http://localhost');
+      p = url.pathname;
+      const method = req.method;
+
+      if (p === '/robots.txt') {
+        res.writeHead(200, headers({ 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' }));
+        return res.end('User-agent: *\nDisallow: /app/\nDisallow: /admin\nDisallow: /it\nDisallow: /api/\nDisallow: /account\n');
+      }
+      if (/^\/(app|admin|it|account|api)(\/|$)/.test(p)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+
+      // health check for the proxy / uptime monitor: database answers and the server is not shutting down
+      if (p === '/healthz') {
+        let db = false;
+        try { db = one('SELECT 1 AS ok')?.ok === 1; } catch { /* reported below */ }
+        const ok = db && !shuttingDown;
+        return sendJson(res, ok ? 200 : 503, { ok, db, shuttingDown, version: VERSION, uptimeS: Math.round(process.uptime()) });
+      }
+
+      // Stripe webhook: raw body, its own signature — before the CSRF check
+      if (p === '/api/stripe/webhook' && method === 'POST') {
+        const raw = await readRaw(req, 1024 * 1024);
+        if (!verifyStripeSignature(raw, req.headers['stripe-signature'])) return sendJson(res, 400, { error: 'bad signature' });
+        let event;
+        try { event = JSON.parse(raw); } catch { return sendJson(res, 400, { error: 'bad json' }); }
+        return sendJson(res, 200, { result: await handleStripeEvent(event) });
+      }
+
+      if (p.startsWith('/api/')) {
+        if (!['GET', 'HEAD'].includes(method)) {
+          const origin = req.headers.origin;
+          if (req.headers[CSRF_HEADER] !== '1' || (origin && new URL(origin).host !== req.headers.host)) {
+            return sendJson(res, 403, { error: 'Nieprawidłowe żądanie.' });
+          }
+        }
+        const ctx = currentUser(req);
+        res.uid = ctx?.user.id;
+        if (p === '/api/status') {
+          const a = ctx ? access(ctx.user) : { ok: false, code: 'login' };
+          return sendJson(res, 200, { ai: (ctx?.user.sub_status === 'friend' ? Boolean(ctx.user.api_key_enc) : aiAvailable()) && a.ok, friend: ctx?.user.sub_status === 'friend', credit: ctx?.user.sub_status === 'friend' && ctx.user.credit_out ? { out: true, billingUrl: BILLING_URL } : null, model: aiAvailable() ? MODEL : null, version: VERSION, hosted: true, user: ctx ? publicUser(ctx.user) : null, access: a, brand: BRAND, announcement: settings().announcement || '' });
+        }
+        if (p === '/api/plans' && method === 'GET') {
+          return sendJson(res, 200, { plans: plans().filter((x) => x.public).map(({ stripePrice, stripePriceYear, ...x }) => x), trialDays: settings().trialDays, annualMonths: settings().annualMonths, registrationOpen: settings().registrationOpen, requireNpwz: settings().requireNpwz, brand: BRAND });
+        }
+        if (p.startsWith('/api/auth/') && method === 'POST') return await handleAuth(req, res, p.slice('/api/auth/'.length));
+        if (p === '/api/me' || p.startsWith('/api/me/')) return await handleMe(req, res, ctx, p.slice('/api/me'.length).replace(/^\//, ''));
+        if (p === '/api/sync' || p.startsWith('/api/sync/')) return await handleSync(req, res, ctx, decodeURIComponent(p.slice('/api/sync'.length).replace(/^\//, '')));
+        if (p === '/api/format' && method === 'POST') return await runAs(ctx, () => handleFormat(req, res, ctx));
+        if (p === '/api/learn' && method === 'POST') return await runAs(ctx, () => handleLearn(req, res, ctx));
+        if (p.startsWith('/api/admin/')) return await handleAdmin(req, res, ctx, p.slice('/api/admin/'.length).split('/').filter(Boolean));
+        if (p.startsWith('/api/it/')) return await handleIt(req, res, ctx, p.slice('/api/it/'.length).split('/').filter(Boolean));
+        return sendJson(res, 404, { error: 'Nie znaleziono.' });
+      }
+
+      if (!['GET', 'HEAD'].includes(method)) { res.writeHead(405, headers()); return res.end(); }
+
+      // public pages
+      if (p === '/' ) return sitePage(res, 'index', req);
+      if (['/login', '/register', '/reset', '/forgot', '/privacy', '/terms'].includes(p)) {
+        if (p === '/login' || p === '/register') {
+          const c = currentUser(req);
+          if (c) return redirect(res, homeFor(c.user));
+        }
+        return sitePage(res, p.slice(1), req);
+      }
+      if (p === '/site/admin.js' || p === '/site/it.js') {
+        // the panels' code only for those who may use them
+        const c = currentUser(req);
+        const allowed = c && (c.user.role === 'admin' || (p === '/site/it.js' && c.user.role === 'orgadmin'));
+        if (!allowed) { res.writeHead(404, headers()); return res.end(); }
+        return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'private, no-cache', req });
+      }
+      if (p === '/klucz-api') return sitePage(res, 'key-guide', req); // friends: how to get an Anthropic API key (public, can be shared)
+      if (p === '/check') return sitePage(res, 'check', req); // workstation check: public, so IT can test before accounts exist
+      // the check page imports the (generic) microphone-button module; in production it is bundled into check.js
+      if (p === '/js/mic-button.js' && !PROD) return serveFile(res, PUBLIC, 'js/mic-button.js', { req });
+      if (p.startsWith('/site/')) return serveFile(res, SITE_ROOT(), p.slice('/site/'.length), { cache: 'public, max-age=3600', req });
+      if (p.startsWith('/fonts/') || p.startsWith('/icons/')) return serveFile(res, PUBLIC, p.slice(1), { cache: 'public, max-age=604800', req });
+      // installable desktop app (manifest + service worker must be public: the browser fetches them without the login cookie)
+      if (p === '/app.webmanifest' || p === '/app-friend.webmanifest' || p === '/admin.webmanifest' || p === '/sw.js') return serveFile(res, PUBLIC, p.slice(1), { cache: 'no-cache', req });
+      if (p === '/favicon.ico') return serveFile(res, PUBLIC, 'icons/radvox.ico', { cache: 'public, max-age=604800', req });
+
+      // logged-in pages
+      const ctx = currentUser(req);
+      if (p === '/change-password') {
+        if (!ctx) return redirect(res, '/login');
+        if (!ctx.user.must_change_pwd) return redirect(res, homeFor(ctx.user));
+        return sitePage(res, 'change-password', req);
+      }
+      if (p === '/witaj') {
+        // friends' setup: rules, what an API key is, getting one at Anthropic, pasting it — one step at a time
+        if (!ctx) return redirect(res, '/login?next=/witaj');
+        if (ctx.user.sub_status !== 'friend') return redirect(res, homeFor(ctx.user));
+        if (ctx.user.must_change_pwd) return redirect(res, '/change-password');
+        return sitePage(res, 'witaj', req);
+      }
+      if (p === '/accept') {
+        if (!ctx) return redirect(res, '/login');
+        return sitePage(res, 'accept', req);
+      }
+      if (ctx?.user.must_change_pwd && ['/account', '/admin', '/it'].includes(p)) return redirect(res, '/change-password');
+      if (ctx && ctx.user.role !== 'admin' && p === '/it' && access(ctx.user).code === 'terms') return redirect(res, '/accept');
+      if (p === '/account') return ctx ? sitePage(res, 'account', req) : redirect(res, '/login?next=/account');
+      if (p === '/admin') {
+        if (!ctx) return redirect(res, '/login?next=/admin');
+        if (ctx.user.role !== 'admin') return redirect(res, '/app/');
+        return sitePage(res, 'admin', req);
+      }
+      if (p === '/it') {
+        if (!ctx) return redirect(res, '/login?next=/it');
+        if (ctx.user.role !== 'orgadmin' && ctx.user.role !== 'admin') return redirect(res, '/app/');
+        return sitePage(res, 'it', req);
+      }
+      if (p === '/logout') {
+        if (ctx) deleteSession(ctx.token);
+        return redirect(res, '/login', { 'Set-Cookie': sessionCookie('', { secure: isSecure(req), clear: true }) });
+      }
+
+      // the application itself: only for logged-in users with access (the code is never public)
+      if (p === '/verify') {
+        const u = useOneTimeToken(url.searchParams.get('token'), 'verify');
+        if (!u) return redirect(res, ctx ? '/account?verify=bad' : '/login?verify=bad');
+        if (u.sub_status === 'verify') { audit(u.id, 'email.verified', u.id); await startOrQueueTrial(u, req); }
+        const fresh = getUser(u.id);
+        return redirect(res, ctx && ctx.user.id === u.id ? (access(fresh).ok ? '/app/' : '/account') : `/login?verified=1`);
+      }
+      if (p === '/app') return redirect(res, '/app/');
+      if (p.startsWith('/app/')) {
+        if (!ctx) return redirect(res, `/login?next=${encodeURIComponent(p)}`);
+        const a = access(ctx.user);
+        if (!a.ok) return redirect(res, a.code === 'pwd' ? '/change-password' : a.code === 'terms' ? (ctx.user.sub_status === 'friend' ? '/witaj' : '/accept') : '/account?need=1');
+        let rel = p.slice('/app/'.length) || 'index.html';
+        if (rel === 'index.html' || rel === '') rel = 'index.html';
+        if (rel.startsWith('site/') || rel.startsWith('js/templates-pro/BRIEF') || rel.includes('check.mjs')) { res.writeHead(404, headers()); return res.end(); }
+        if (rel === 'index.html' && ctx.user.sub_status === 'friend') {
+          // the friends' version: same app, gold icon and its own installable app
+          const html = readFileSync(path.join(APP_ROOT(), 'index.html'), 'utf8')
+            .replace('href="/app.webmanifest"', 'href="/app-friend.webmanifest"').replaceAll('icons/radvox-192.png', 'icons/radvox-friend-192.png').replace('<body>', '<body class="friend">');
+          res.writeHead(200, headers({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-cache' }));
+          return res.end(req.method === 'HEAD' ? undefined : html);
+        }
+        return serveFile(res, APP_ROOT(), rel, { cache: 'private, no-cache', req });
+      }
+      res.writeHead(404, headers({ 'Content-Type': 'text/plain; charset=utf-8' }));
+      res.end('Nie znaleziono');
+    } catch (err) {
+      if (err instanceof ClaudeError) { if (!res.headersSent) sendJson(res, err.status, { error: err.message }); return; }
+      console.error(err);
+      if (!res.headersSent) sendJson(res, 500, { error: 'Błąd serwera.' });
+    }
+  });
+}
+
+// The local test install (Windows starter) used to create this administrator; it is moved to the new login once.
+const LEGACY_LOCAL_ADMIN = 'admin@radiopis.local';
+
+/** First start: create the administrator from ADMIN_EMAIL + ADMIN_PASSWORD when no administrator exists. */
+export async function ensureAdmin() {
+  const email = process.env.ADMIN_EMAIL;
+  const password = process.env.ADMIN_PASSWORD;
+  const legacy = email && email.toLowerCase() !== LEGACY_LOCAL_ADMIN ? getUserByEmail(LEGACY_LOCAL_ADMIN) : null;
+  if (legacy && legacy.role === 'admin' && !getUserByEmail(email) && password && !passwordProblem(password)) {
+    run('UPDATE users SET email = ? WHERE id = ?', email.toLowerCase(), legacy.id);
+    await setPassword(legacy.id, password);
+    return getUser(legacy.id);
+  }
+  if (one("SELECT id FROM users WHERE role = 'admin' LIMIT 1")) return null;
+  if (!email || !password) return null;
+  if (passwordProblem(password)) throw new Error(`ADMIN_PASSWORD: ${passwordProblem(password)}`);
+  if (/^change-me/i.test(password)) throw new Error('ADMIN_PASSWORD: zmień przykładowe hasło z .env.example na własne.');
+  const existing = getUserByEmail(email);
+  if (existing) { run("UPDATE users SET role = 'admin' WHERE id = ?", existing.id); return getUser(existing.id); }
+  return createUser({ email, password, name: 'Administrator', role: 'admin' });
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  openDb();
+  openLearningDb();
+  const admin = await ensureAdmin();
+  if (admin) console.log(`Utworzono administratora: ${admin.email}`);
+  const PORT = Number(process.env.PORT) || 3000;
+  const HOST = process.env.HOST || (PROD ? '0.0.0.0' : '127.0.0.1');
+  startJobs();
+  const server = createServer();
+  // behind a reverse proxy: keep idle connections a little longer than the proxy does
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+  server.listen(PORT, HOST, () => {
+    console.log(`${BRAND.name} ${VERSION} działa: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+    console.log(aiAvailable() ? `AI: ${MODEL} (${PROVIDER}), maks. ${aiLimiter.max} zapytań naraz` : 'UWAGA: brak ANTHROPIC_API_KEY — AI niedostępne.');
+    if (!one("SELECT id FROM users WHERE role = 'admin' LIMIT 1")) console.log('UWAGA: brak administratora — ustaw ADMIN_EMAIL i ADMIN_PASSWORD i uruchom ponownie.');
+  });
+  // Graceful stop (update / restart): no new connections, AI answers already in progress are finished (up to 30 s).
+  const stop = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal}: zatrzymywanie — kończę rozpoczęte zapytania AI…`);
+    server.close();
+    server.closeIdleConnections?.();
+    const clean = await aiLimiter.idle(30_000);
+    closeDb();
+    closeLearningDb();
+    console.log(clean ? 'Zatrzymano.' : 'Zatrzymano (niektóre zapytania AI przerwane po 30 s).');
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => stop('SIGTERM'));
+  process.on('SIGINT', () => stop('SIGINT'));
+  process.on('unhandledRejection', (err) => console.error('unhandledRejection', err));
+}

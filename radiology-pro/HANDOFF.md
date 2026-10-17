@@ -1,0 +1,135 @@
+# RadVox Pro (formerly Radiopis) — handoff for another Claude conversation
+
+Repository: https://github.com/DocMikeNoosa/Math-app-for-child — branch `claude/polish-radiology-dictation-e0ov8p`.
+Two apps live side by side:
+- `radiology-dictation/` — **RadVox**, the original single-user desktop app (see its own HANDOFF.md).
+- `radiology-pro/` — **RadVox Pro** (renamed from the working name Radiopis on 16 Oct 2026; violet icon — RadVox is cyan, IR red), the commercial hosted version with accounts, subscriptions and
+  an admin panel. Version 1.3.1 (1.3.1: printable quality statistics for buyers, admin → Błędy mowy → „Raport dla klientów (PDF)”; 1.3.0: speech-recognition error log — „Błąd mowy” in the app → table speech_log → admin tab „Błędy mowy”, see radiology-dictation/HANDOFF.md 0.16.0; rollout-ready for a teleradiology company of ~200 radiologists). Read `README.md`
+  here first, then `DEPLOY.md` (server) and `docs/LOAD-TEST.md` (200-user test).
+
+## The person
+A Polish emergency radiologist, not technical: explain in short, simple steps. Never invent facts — say
+"I don't know". Test everything before delivering. Only made-up / anonymised cases until the legal side is done.
+UI rule for the dictation app: do not change the look of buttons (thin blue rim on active toggles) or the
+overall layout — add functionality in the existing style.
+
+## Business context (October 2026)
+- Market research (web, sources in the business plan): direct Polish competitors exist — **opisy.ai**, **Nodum**,
+  **askRadek** (free beta) — none publishes prices. Speech-only: MagicSpeech (~453 zł/month incl. hardware),
+  Newton Dictate. ~3,900–4,300 radiology specialists in Poland; 1.9 M CT scans in 2024.
+- Name "Opisio" was dropped (too close to opisy.ai). "Radiopis" had no web hits; trademark registers NOT checked.
+- Default plans (editable in the admin panel): trial 14 days / 60 reports; Start 249 zł / 300; Pro 399 zł / 800;
+  Dyżur+ 649 zł / 1600 (net, + 23% VAT). Annual = 10 × monthly.
+- AI cost per report was only **estimated** (no API key in the build environment): roughly 0.10–0.70 zł; the admin
+  panel measures the real value — set prices finally after a beta.
+- Open legal items: MDR status (conclusion writing may be Class IIa — get a regulatory opinion), GDPR (DPA with
+  customers, DPIA, Anthropic ZDR/DPA or Bedrock EU), KSeF e-invoicing (connect an invoicing tool), lawyer review of
+  `/privacy` and `/terms` drafts.
+
+## Rollout (1.1, October 2026)
+- Target customer: a teleradiology company with ~200 radiologists; 2-week trial for a limited number of seats,
+  then a subscription per seat (pricing advice given: ~249 PLN/seat at volume, 349 list, 100-seat minimum,
+  setup fee 10–20k PLN — not final).
+- Roles: `admin` (the owner — everything), `orgadmin` (the company's IT: only its own organisation, `/it`),
+  `user` (radiologist). Organisation members have `org_id`, `plan = 'org'`, `sub_status = 'org'`; access follows
+  the organisation's licence (`orgs.status`, `orgs.sub_until`), not a personal subscription.
+- Seats = non-blocked accounts of the organisation (IT accounts count too). Blocking frees a seat; deleting
+  anonymises the account (`u<id>@usuniety.invalid`) so usage statistics stay.
+- Temporary passwords (`abcd-ef23-gh45`) → `must_change_pwd = 1` → everything except `/change-password` is
+  blocked (API answers 402 code `pwd`).
+- AI traffic control: `lib/limiter.js` (`AI_MAX_CONCURRENT`, `AI_QUEUE_WAIT_MS`, `AI_PER_USER`); background calls
+  are refused first (429 `bg_busy`); busy → 503 `busy` + Retry-After; the app retries "Przygotuj opis" twice.
+- Cross-check speed-up (Oct 2026): substring pre-check before each term regex — 6× faster, verified identical on
+  4,764 template × dictation cases.
+- Deployment kit: `deploy/` (compose + Caddy + setup/offsite/restore scripts). Not run on a real cloud server from
+  the development environment (no Docker daemon there) — first deployment must follow DEPLOY.md and be checked.
+
+## Central learning, RODO, IP (1.2, October 2026)
+- Owner's request: individual learning per radiologist **plus** the app learning from all users; all learning saved
+  permanently and reusable; never accessible to IT admins or the subscribing company; code never available to them.
+- `lib/learning.js`: separate `learning.db`, `items` (de-identified, no user id, unique by hash, `seen` count) +
+  `contributors` (HMAC pseudonym of user and org; deleted on erasure) + `versions` (global knowledge history).
+  Captured on every `PUT /api/sync` of `radvox.style.v1` / `radvox.learned.v1` / `radvox.profile.v1`.
+- `lib/global-learning.js`: lessons with ≥ K contributors (default 3) → draft (counts or AI) → owner publishes →
+  `guidanceFor(templateId)` → `global_guidance` in the cached user block; `usage.global_version` records it.
+- RODO: `termsVersion` setting (env `TERMS_VERSION`, default '1.0'; tests set it to '' except orgs/rodo tests),
+  access code `terms` → `/accept`; `/api/me/export`, `/api/me/delete`, `eraseUser()`; retention in jobs; 2FA
+  (`lib/totp.js`, `/api/auth/login-2fa`); encrypted backups (`BACKUP_KEY`, `scripts/decrypt-backup.mjs`).
+- IT console: `/api/it/problems`, tickets → owner (`Admin → Zgłoszenia`); report counts hidden unless `itShowUsage`.
+- Known residual risks (told to the owner): Chrome / Edge speech recognition sends audio to Google / Microsoft;
+  Anthropic API = transfer to the USA unless Bedrock EU is used; browser code can be obfuscated but never fully
+  hidden; an IT admin can still reset a password and sign in as a radiologist (the radiologist is e-mailed and it
+  is logged).
+
+## PowerMic fix and IT support (1.2)
+- PowerMic "toggle never worked" (owner's station): learning bound the first changed bit, and the first report has no
+  baseline, so a constant status bit could be learned. Now `chooseButton()` learns from two presses (bit that goes on
+  and off, ignores constant and noisy bits); hold-to-talk mode; diagnose() + raw data view; same `mic-button.js` in
+  all three apps (RadVox PL, RadVox IR, Radiopis). Not tested with a physical PowerMic here (no hardware) —
+  simulated device reports in `test/mic-button.test.js`.
+- `client_events` (codes only, 30 days), `/api/me/event`, `EVENT_HELP` texts, `/api/it/users/:id/{details,unlock,reset-2fa,devices}`,
+  `/check` page (public), owner `reset-2fa`.
+
+## Friends' version (1.3)
+- `sub_status = 'friend'` (plan `friend`): no quota, 3 devices, needs own key (`access().needKey`). Key: POST/DELETE
+  `/api/me/api-key`, sealed with `lib/secret-box.js` in `users.api_key_enc`; wiped on erase or when the owner turns
+  "friend" off (account becomes expired).
+- `lib/ai-client.js` `withOwnKey()` (AsyncLocalStorage) routes `/api/format` and `/api/learn` to the friend's key with
+  the direct Anthropic API; a 401 becomes 402 `own_key`. Cost goes to `usage.own_cost_usd` (not `cost_usd`).
+- Gold: `body.friend` class, `radvox-friend-*.png/.ico`, `app-friend.webmanifest` (index rewritten server-side).
+- Test account `przyjaciel@test.radvoxpro.local`. Tests: `test/friends.test.js`.
+- The account page no longer asks for the PWZ number (kept if already stored).
+- Owner tab **★ Przyjaciele** (`/api/admin/friends` GET/POST, `/users/:id/invite-link`, `/users/:id/change-access`
+  modes trial | pay | gift | friend): add a friend → ready message (link + `/klucz-api`) to copy / WhatsApp / e-mail;
+  states invited / nokey / ready / suspended; suspend = `blocked` (key kept); change access wipes the key.
+- `/klucz-api` (public `key-guide.html`): step-by-step Anthropic key guide (platform.claude.com; Expiration **Never**,
+  Workspace **Default** — a key without a workspace gets 400 from Anthropic). Also loaded into the account page.
+- The key is tested with a 1-token request before it is saved (`checkOwnKey`); `ownKeyProblem()` turns 401 / no credit /
+  workspace / 403 into plain Polish, also during dictation.
+- Friends' setup wizard `/witaj` (`witaj.html/js`): rules (one tick) → what an API key is → Anthropic account →
+  credits → create key (Never / Default) → paste + check → done. Friends land there (homeFor) until the key works;
+  the step is remembered in localStorage. Owner may give a starting password instead of a link (must_change_pwd;
+  never put into e-mails).
+- One person only: friends 2 devices at once; `logins` table (device cookie `rv_dev`, network, "kicked" = pushed out
+  a device used <15 min before) → `lib/sharing.js` flags (≥3 kicks, ≥5 browsers or ≥6 networks in 30 days) shown
+  to the owner, nothing blocked automatically; one API key = one account (`users.key_hash`, HMAC fingerprint).
+- Disclaimer (terms 1.1): one tick on `/accept` after the first login — doctor reads the whole report, own clinical
+  judgment, own risk; full text `terms.html#odpowiedzialnosc`. Friends now go through it too (access() order fixed).
+
+## Friends: credit ran out (1.3)
+- Anthropic 400 "credit balance" under a friend's key → 402 `own_credit` + `billingUrl`; `users.credit_out` set, one
+  e-mail a day at most (`credit_mailed`). App (`hosted.js` `showCreditDialog`), account page box and owner's friends
+  tab ("brak środków") show it; `/api/me/api-key-check` re-tests after a top-up; a successful own-key call clears it.
+- Friend-facing text explains an API key generically (prepaid card, small charge per AI use, suggest 20 USD) and does
+  not name the AI provider; only platform.claude.com is named, where the key is made. The Pro app shows "AI" instead
+  of the model name. The legal terms (2a) still name the processor, as data-protection law requires.
+
+## Learning safety (1.3)
+- `lib/plausibility.js` `lessonProblem(kind, content)`: links / code, repeated characters, offensive words, too few
+  letters, random-letter words, one word repeated, and too little medical vocabulary (PL + EN stems; everyday words
+  like "prawy/lewy" count half). Checked against the whole template library: 1 of 3187 lines rejected (a placeholder).
+- `captureLearning`: rejected lessons go to `quarantine` (30 days, shown to the owner), never to `items`.
+  ≥10 rejected in 30 days and more rejected than accepted → contributor auto-`excluded`; owner can exclude / restore
+  per user (drawer). Excluded contributors do not count in `sharedItems`, which also re-checks every lesson.
+- AI distillation prompt drops nonsense / medically impossible lessons and lists them (`stats.dropped`, shown in the
+  version drawer, never sent to reports). Personal learning is not filtered (it affects only that user).
+
+## Technical notes
+- Templates: 397 + 112 snippets (MR and X-ray libraries completed Oct 2026: mr-body-msk-2.js, mr-neuro-spine-2.js, xray-2.js).
+- Node 22.5+, built-in `node:sqlite`, no framework. `npm test` (195 tests), `npm run loadtest` (200 users, fake AI), `npm run build` (obfuscated bundle),
+  `NODE_ENV=production` serves `dist/`.
+- Report counting: the browser sends `reportId` (one per report); usage rows with the same id count once.
+- `background: true` marks pre-processing calls; capped per report by `maxBackgroundCalls` (settings).
+- Sync keys: `radvox.templates.v1`, `radvox.profile.v1`, `radvox.style.v1`, `radvox.learned.v1` (PESEL scrubbed server-side). Never synced: current report, today's list. Local keys are cleared when a different user logs in.
+- Clinical details: correlate, never dismiss — unexpected findings keep their tier (prompt rule + test "trauma referral + acute stroke").
+- CSRF: every non-GET `/api/*` call needs the header `X-Radiopis: 1` (added by `public/js/hosted.js` and
+  `public/site/common.js`).
+- Engine change vs RadVox: advice / caveat lines ("do rozważenia MR…", "nie wyklucza…") always end the conclusion.
+- AI provider: `AI_PROVIDER=bedrock` uses `@anthropic-ai/bedrock-sdk` (AnthropicBedrockMantle); server-side
+  fallbacks and fast mode are disabled there (not supported on Bedrock).
+
+## Not done yet / ideas
+- Real deployment (needs the owner's hosting, domain, AI account, e-mail) — follow DEPLOY.md.
+- SSO (Microsoft Entra ID / Google) and two-factor login for organisations; KSeF invoicing integration;
+  per-report B2B billing for teleradiology; better speech recognition (Azure / ElevenLabs) — the browser's engine is the weakest part.
+- Italian version (asked about; not started).

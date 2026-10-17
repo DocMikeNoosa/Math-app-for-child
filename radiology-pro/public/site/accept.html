@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Zasady korzystania — RadVox Pro</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="accept">
+  <main class="auth">
+    <div class="auth-card">
+      <a class="brand" href="/"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span data-brand>RadVox Pro</span></a>
+      <div class="card">
+        <h1>Zanim zaczniesz</h1>
+        <p class="sub">Konto: <b id="who">…</b>. Jedno potwierdzenie — prosimy o nie tylko raz (i ponownie, jeśli zasady się zmienią).</p>
+        <div class="disclaimer">
+          <span class="dt">Odpowiedzialność lekarza</span>
+          <ul>
+            <li>RadVox Pro to narzędzie pomocnicze: AI przygotowuje <b>projekt</b> opisu i może się mylić.</li>
+            <li>Przed użyciem <b>przeczytam cały opis</b> i sprawdzę jego poprawność, kierując się <b>własną oceną kliniczną</b>.</li>
+            <li>Korzystam z aplikacji <b>na własną odpowiedzialność</b>; za podpisany opis odpowiada lekarz.</li>
+            <li>Konto jest <b>tylko dla mnie</b> — nie udostępniam go innym osobom.</li>
+            <li>Nie wpisuję danych identyfikujących pacjenta (numery PESEL są usuwane automatycznie).</li>
+          </ul>
+        </div>
+        <div id="msg" class="msg" hidden></div>
+        <form id="form" novalidate>
+          <div class="field"><label class="check check-lg"><input type="checkbox" name="accept" required /> <span>Rozumiem i akceptuję powyższe zasady oraz <a href="/terms#odpowiedzialnosc" target="_blank">regulamin</a> i <a href="/privacy" target="_blank">informację o danych osobowych</a>.</span></label></div>
+          <button class="btn btn-primary btn-lg" type="submit">Akceptuję — przejdź dalej</button>
+          <p class="dim small" style="margin:10px 0 0">Pełny tekst prawny: <a href="/terms" target="_blank">regulamin</a> · <a href="/privacy" target="_blank">prywatność</a> (otwiera się w nowej karcie).</p>
+        </form>
+      </div>
+      <p class="auth-foot"><a href="/logout">Wyloguj</a></p>
+    </div>
+  </main>
+  <script type="module" src="/site/auth.js"></script>
+</body>
+</html>
