@@ -23,7 +23,7 @@ You receive JSON with:
 - "dictation": new raw dictation (may contain speech-recognition errors, missing punctuation, spelled-out numbers).
 - "instruction": an optional editing command from the radiologist (e.g. "skróć wnioski").
 - "style_preferences": optional personal style rules. Follow them.
-- "clinical_details": optional clinical information / the referral question (symptoms, mechanism of injury, suspected diagnosis, history such as known cancer). Use it as context — see EMERGENCY PRIORITIES. Never copy it into the report and never treat it as a finding.
+- "clinical_details": optional clinical information / the referral question (symptoms, mechanism of injury, suspected diagnosis, history such as known cancer). Use it actively for CLINICAL RELEVANCE (see MEDICAL LOGIC and EMERGENCY PRIORITIES). Never treat it as a finding and never copy it into the body or the conclusion. Return it separately as "clinical_details" (see OUTPUT FORMAT).
 - "style_profile": the radiologist's writing style, distilled from their own reports and corrections: "rules" (follow them strictly — they override your default habits) and "phrases" (their exact preferred wording for a situation — use it verbatim whenever the situation occurs). "own_samples": excerpts of reports they wrote themselves — imitate their syntax, word order, sentence length, punctuation and structure. Never copy findings from samples.
 - "keep_statements": template sentences the radiologist restored after they had been removed. Never remove or change them.
 - "learned": what the radiologist taught the app by editing earlier reports: "conclusion_removed" (lines they deleted from your conclusions — never write such lines again), "conclusion_added" (lines they added — the kind of statement they want), "restored" (template statements they put back after removal — be more careful before removing such statements), "example_reports" (their own finished reports for this template — follow their arrangement, wording and conclusion style; never copy findings from them).
@@ -75,6 +75,9 @@ EMERGENCY PRIORITIES — the radiologist is an emergency radiologist; rank every
    (5) the bones last (skull vault and base, then sinuses / mastoids as in the template) — a skull fracture stays there unless it belongs to an epidural haematoma, then it follows the haematoma at the top.
    Details:
    - LEADING findings — clinically critical or the primary finding of the study — go at the TOP of the body, right below the template's technique / comparison lines (e.g. "Badanie wykonano w trybie ostrodyżurowym."), most urgent first. Examples: intracranial haemorrhage, mass effect / herniation, acute ischaemia, cerebral oedema, pneumothorax, active bleeding, aortic dissection, vessel occlusion, free air, solid-organ laceration, the obstructing stone (and its hydronephrosis) in a KUB, disc herniation in a spine MR, a suspicious mass.
+   - MEDICAL LOGIC AND CLINICAL RELEVANCE — FOR EVERY STUDY. Think like the reporting radiologist: what the examination and the clinical question are for decides what is primary, and every other finding is placed by its relation to it and its relevance for the patient now. The examination defines the primary question: CT KUB / urography → the stone and its obstruction (only immediately life-threatening findings — active bleeding, aortic dissection or rupture, free air — go above it); CT angiography → the vessel finding; CT head for trauma or stroke → the intracranial injury / ischaemia; CT pulmonary angiography → the emboli and right-heart strain; trauma CT → the injuries by severity; oncological staging → the primary tumour, then nodes, then metastases. CLINICAL DETAILS decide relevance whenever they are given: the dictated finding that answers the clinical question or explains the symptoms leads (matching organ, side and symptom — e.g. "kolka nerkowa lewostronna" → the left urinary tract first; "ból w prawym dole biodrowym, gorączka" → the appendix / right lower quadrant first; "uraz głowy, antykoagulacja" → intracranial bleeding first); findings on the symptomatic side come before the other side; the first conclusion line answers the clinical question with what was dictated. When no dictated finding answers it, the template's normal statements that answer it come first among the normal statements (e.g. "kolka nerkowa" without a stone → "Nie stwierdza się złogów w układzie moczowym. Bez cech zastoju." first) — never a new statement of your own. Clinical details never create a finding or a diagnosis. Within every group the most relevant comes first and the least relevant last.
+   - CAUSAL CHAIN inside a group: the CAUSE first, then its DIRECT CONSEQUENCES, then ASSOCIATED / SECONDARY findings, then the radiologist's dictated interpretation of them, and LAST the related findings of lower relevance. Example (CT KUB): (1) the obstructing stone — location, side, size; (2) what it causes — hydroureter above it, hydronephrosis (grade if dictated); (3) what accompanies it — perinephric / periureteric fat stranding or fluid; (4) only if dictated: its interpretation, kept exactly in meaning (e.g. "…prawdopodobnie w związku z zastojem; nie można wykluczyć odmiedniczkowego zapalenia nerki"); (5) last in the group: other stones WITHOUT obstruction (e.g. small stones in the other kidney "bez cech zastoju"). The same pattern everywhere: appendicitis → periappendiceal stranding / fluid → abscess or perforation signs; bowel obstruction → transition point and its cause → dilated loops → free fluid; subdural haematoma → mass effect / midline shift → herniation signs. Never put an associated finding (fat stranding, fluid, oedema) before the finding that causes it, whatever the dictation order, and never add an interpretation (e.g. pyelonephritis) that was not dictated.
+   - SYNTAX: write such a chain as connected, fluent Polish radiological prose that shows the relation — e.g. "W dystalnym odcinku moczowodu lewego złóg wielkości 6 mm, powodujący poszerzenie moczowodu lewego powyżej oraz wodonercze lewostronne. Towarzyszy temu pasmowate zatarcie tkanki tłuszczowej okołonerkowej po stronie lewej…" — not a list of disconnected sentences. The conclusion follows the same chain and order (stone with its obstruction in one line; the associated finding and its dictated interpretation after it).
    - SECONDARY findings stay in their ANATOMICAL place in the template, next to the statements about the same structure (in the template's head-to-toe order): a skull fracture stays with the bones, old lacunes / small-vessel change with the brain parenchyma, a simple cyst with its organ, degenerative change with the spine, sinus mucosal thickening with the sinuses.
    - LINKED findings: when a secondary finding belongs to a leading one, put it directly after that leading finding at the top — e.g. an epidural haematoma and the skull fracture beneath it; a pneumothorax / haemothorax and the rib fractures on the same side; a pelvic fracture with active bleeding. Use your clinical judgement for other such links.
    - PERTINENT NEGATIVES: directly after a finding, put the template's normal statements that answer the obvious next question, e.g. rib fractures → "Bez cech odmy opłucnowej i bez cech krwiaka opłucnowego. Bez cech urazu płuc."; vertebral fracture → alignment / no dislocation, spinal canal; solid-organ injury → no active extravasation, the other organs uninjured; intracranial bleed → oedema, mass effect, midline, ventricles; ureteric stone → hydronephrosis statement. Move those statements (unchanged or minimally adjusted); do not invent new ones.
@@ -124,8 +127,9 @@ OUTPUT FORMAT — the JSON field "output_mode" in the input says which one to us
   • {"op": "replace", "target": <one complete sentence copied EXACTLY, character for character, from current_report.body>, "text": <its new version, or "" to delete it>, "reason": <short reason in Polish>} — for contradicted or partly contradicted template statements and any rewording.
   • {"op": "insert", "target": "TOP" for a leading finding in a template without sub-headings (top of the body), or the exact sub-heading line (e.g. "Jama brzuszna i miednica:") for the top of that section, or <a sentence copied exactly from current_report.body> after which a finding is inserted (next to the same structure), "text": <the new finding sentence(s)>, "reason": ""}.
   • To move a pertinent negative next to its finding: replace it with "" where it is and insert it (same text) after the finding.
-  Also return "conclusion": the complete final conclusion text (without the "Wnioski:" label), and "warnings".
-- "full" (translation, or a language change): return the complete final header, body (without the "Opis:"/"Findings:" label) and conclusion (without the "Wnioski:"/"Conclusion:" label) in output_language, plus "corrections" and "warnings".`;
+  Also return "conclusion": the complete final conclusion text (without the "Wnioski:" label), "clinical_details" (below) and "warnings".
+- "full" (translation, or a language change): return the complete final header, body (without the "Opis:"/"Findings:" label) and conclusion (without the "Wnioski:"/"Conclusion:" label) in output_language, plus "clinical_details", "corrections" and "warnings".
+- "clinical_details" (both modes): the given clinical details rewritten for the report line "Dane kliniczne:" (English report: "Clinical details:") — one concise, correct sentence or phrase list in output_language: fix speech-recognition errors, grammar and abbreviations, keep every fact, number and side exactly, add nothing and interpret nothing, without the label itself. Empty string when no clinical details were given.`;
 
 export const OUTPUT_SCHEMA = {
   type: 'object',
@@ -133,6 +137,7 @@ export const OUTPUT_SCHEMA = {
     header: { type: 'string' },
     body: { type: 'string' },
     conclusion: { type: 'string' },
+    clinical_details: { type: 'string' },
     corrections: {
       type: 'array',
       items: {
@@ -148,7 +153,7 @@ export const OUTPUT_SCHEMA = {
     },
     warnings: { type: 'array', items: { type: 'string' } },
   },
-  required: ['header', 'body', 'conclusion', 'corrections', 'warnings'],
+  required: ['header', 'body', 'conclusion', 'clinical_details', 'corrections', 'warnings'],
   additionalProperties: false,
 };
 
@@ -170,9 +175,10 @@ export const EDITS_SCHEMA = {
       },
     },
     conclusion: { type: 'string' },
+    clinical_details: { type: 'string' },
     warnings: { type: 'array', items: { type: 'string' } },
   },
-  required: ['edits', 'conclusion', 'warnings'],
+  required: ['edits', 'conclusion', 'clinical_details', 'warnings'],
   additionalProperties: false,
 };
 
@@ -219,9 +225,10 @@ export function buildUserContent({ template, report, dictation, instruction, sty
 const str = (v, fallback) => (typeof v === 'string' && v.trim() ? v.replace(/\s+$/, '') : fallback);
 
 /** Shared tail: rule-based cross-check (Polish), fidelity check, warnings. */
-function finish(template, next, aiCorrections, aiWarnings, { outputLang, source, keep = [], dictatedConclusion = false, clinical = '' }) {
+function finish(template, next, aiCorrections, aiWarnings, { outputLang, source, keep = [], dictatedConclusion = false, clinical = '', clinicalText = '' }) {
   const checked = outputLang === 'pl' ? enforceConsistency(template, next, { ignore: keep, dictatedConclusion, clinical }) : { report: placeRecommendations(next, template.bullet), corrections: [], warnings: [] };
-  const final = { ...checked.report, lang: outputLang };
+  // the clinical details for the report line „Dane kliniczne:” — as rewritten by the AI (the app writes them itself without AI)
+  const final = { ...checked.report, lang: outputLang, clinical: clinical ? String(clinicalText || '').trim() : '' };
   const fidelity = source ? fidelityWarnings(source, `${final.header}\n${final.body}\n${final.conclusion}`) : [];
   return {
     report: final,
@@ -244,7 +251,7 @@ export function mergeResult(template, report, result, { outputLang = 'pl', sourc
   const aiCorrections = (Array.isArray(result.corrections) ? result.corrections : [])
     .filter((c) => c && c.removed)
     .map((c) => ({ removed: String(c.removed), replacement: String(c.replacement || ''), reason: String(c.reason || '') }));
-  return finish(template, next, aiCorrections, result.warnings, { outputLang, source, keep, dictatedConclusion, clinical });
+  return finish(template, next, aiCorrections, result.warnings, { outputLang, source, keep, dictatedConclusion, clinical, clinicalText: result.clinical_details });
 }
 
 /** Edits answer: apply the edits to the current report, then the same checks. */
@@ -259,7 +266,7 @@ export function mergeEditsResult(template, report, result, { outputLang = 'pl', 
   if (applied.failed.length) {
     warnings.push(`AI odwołało się do zdań, których nie ma w opisie (${applied.failed.length}) — sprawdź opis; nowe zmiany dodano na górze.`);
   }
-  return finish(template, next, applied.corrections, warnings, { outputLang, source, keep, dictatedConclusion, clinical });
+  return finish(template, next, applied.corrections, warnings, { outputLang, source, keep, dictatedConclusion, clinical, clinicalText: result.clinical_details });
 }
 
 export class ClaudeError extends Error {

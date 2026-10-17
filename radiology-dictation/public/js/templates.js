@@ -147,14 +147,16 @@ export function reportFromTemplate(t) {
 }
 
 export const SECTION_LABELS = {
-  pl: { body: 'Opis', conclusion: 'Wnioski' },
-  en: { body: 'Findings', conclusion: 'Conclusion' },
+  pl: { body: 'Opis', conclusion: 'Wnioski', clinical: 'Dane kliniczne' },
+  en: { body: 'Findings', conclusion: 'Conclusion', clinical: 'Clinical details' },
 };
 
 /** Plain text in the same layout as the template (for the clipboard / RIS). */
 export function reportToText(report, template) {
   const L = SECTION_LABELS[report.lang === 'en' ? 'en' : 'pl'];
   const parts = [report.header.trim()];
+  // clinical details entered for this study go into the report, under their own heading
+  if (String(report.clinical || '').trim()) parts.push(`${L.clinical}: ${report.clinical.trim()}`);
   const body = report.body.trim();
   if (body) parts.push(template?.hasOpis === false ? body : `${L.body}:\n${body}`);
   if (report.conclusion.trim()) parts.push(`${L.conclusion}:\n${report.conclusion.trim()}`);

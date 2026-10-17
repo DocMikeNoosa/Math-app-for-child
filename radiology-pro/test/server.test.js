@@ -128,7 +128,7 @@ test('format: sends a well-formed Claude request and applies the cross-check saf
   assert.equal(b.model, 'claude-opus-5-5');
   assert.equal(b.fallbacks, 'default');
   assert.equal(b.output_config.format.type, 'json_schema');
-  assert.deepEqual(b.output_config.format.schema.required, ['edits', 'conclusion', 'warnings'], 'dictation uses the short edits format');
+  assert.deepEqual(b.output_config.format.schema.required, ['edits', 'conclusion', 'clinical_details', 'warnings'], 'dictation uses the short edits format');
   assert.equal(b.output_config.effort, 'low', 'default mode is fast');
   assert.ok(!('speed' in b));
   assert.match(b.system[0].text, /CROSS-CHECK/);

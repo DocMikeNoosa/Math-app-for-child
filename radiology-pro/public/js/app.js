@@ -66,7 +66,9 @@ const state = {
 };
 function newId() { return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; }
 const clone = (o) => JSON.parse(JSON.stringify(o));
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// the clinical-details line is not part of the description itself: it never makes a report look edited
+const noClinical = (r) => (r && typeof r === 'object' && 'clinical' in r ? (({ clinical, ...rest }) => rest)(r) : r);
+const same = (a, b) => JSON.stringify(noClinical(a)) === JSON.stringify(noClinical(b));
 const template = () => (state.report.templateId ? getTemplate(state.report.templateId) : null);
 const isBlank = () => !template();
 
@@ -252,6 +254,7 @@ function renderReport() {
   renderTemplateButton();
   renderEmpty();
   els.examHeader.textContent = r.header;
+  syncClinical(); // a new template / restored report keeps the clinical details line
   const L = SECTION_LABELS[r.lang === 'en' ? 'en' : 'pl'];
   els.bodyLabel.textContent = L.body;
   els.conclusionLabel.textContent = L.conclusion;
@@ -405,7 +408,31 @@ function onEditBlur() {
 }
 
 /** The clinical-details box grows with its text and is marked when filled. */
+// "Dane kliniczne:" in the report: the clinical details as the AI rewrote them, or tidied by the app itself
+// (without AI, or until the next "Przygotuj opis" after they were changed)
+let clinicalAi = { from: '', text: '' };
+function polishClinical(raw) {
+  const t = tidy(convertSpokenFor(state.inputLang)(raw)).trim();
+  if (!t) return '';
+  const c = t.charAt(0).toUpperCase() + t.slice(1);
+  return /[.!?]$/.test(c) ? c : `${c}.`;
+}
+function syncClinical() {
+  const raw = els.clinical.value.trim();
+  const text = !raw ? '' : clinicalAi.text && clinicalAi.from === raw ? clinicalAi.text : polishClinical(raw);
+  if ((state.report.clinical || '') !== text) state.report.clinical = text;
+  renderClinicalLine();
+}
+function renderClinicalLine() {
+  const line = $('clinicalLine');
+  if (!line) return;
+  const text = isBlank() ? '' : state.report.clinical || '';
+  line.hidden = !text;
+  $('clinicalLineLbl').textContent = `${SECTION_LABELS[state.report.lang === 'en' ? 'en' : 'pl'].clinical}:`;
+  $('clinicalLineText').textContent = text;
+}
 function renderClinical() {
+  syncClinical();
   const el = els.clinical;
   el.style.height = 'auto';
   el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
@@ -863,6 +890,7 @@ async function process() {
   const started = performance.now();
   clearTimeout(prefetch.timer);
   const key = payloadKey(payload);
+  const clinicalRaw = els.clinical.value.trim(); // what the AI's "Dane kliniczne" rewrite belongs to
   if (state.ai && prefetch.key === key && prefetch.result) instant = true;
   setBusy(true);
   try {
@@ -894,7 +922,9 @@ async function process() {
     setBusy(false);
   }
 
+  clinicalAi = { from: clinicalRaw, text: source.startsWith('AI') ? String(result.report.clinical || '').trim() : '' };
   commit(result.report, { baseline: before, warnings: result.warnings || [], corrections: result.corrections || [], source });
+  syncClinical();
   state.lastAI = source.startsWith('AI') ? clone(result.report) : state.lastAI;
   if (payload.inputLang === 'en' && dictation && result.report.lang === 'pl') state.enDictations.push(dictation);
   els.dictation.value = '';
@@ -2300,6 +2330,7 @@ function bind() {
   els.acceptBtn.addEventListener('click', acceptChanges);
   els.resetBtn.addEventListener('click', resetReport);
   bindSpeechLog();
+  $('clinicalLine').addEventListener('click', () => els.clinical.focus()); // the clinical details are edited in their field
   els.clearDictation.addEventListener('click', () => { els.dictation.value = ''; save(); els.dictation.focus(); });
   els.dictation.addEventListener('input', () => { chunkStack.length = 0; onDictationChanged(); });
   els.instruction.addEventListener('input', onDictationChanged);
@@ -2652,7 +2683,7 @@ function bind() {
   els.tplText.addEventListener('input', checkEditorText);
   els.tplFromReport.addEventListener('click', () => {
     if (isBlank()) { toast('Brak bieżącego opisu — najpierw wybierz szablon.', 'warn'); return; }
-    els.tplText.value = reportToText({ ...state.report, lang: 'pl' }, template());
+    els.tplText.value = reportToText({ ...state.report, lang: 'pl', clinical: '' }, template());
     if (!els.tplName.value.trim()) els.tplName.value = `${template().title} (mój)`;
     checkEditorText();
   });

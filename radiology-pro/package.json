@@ -1,6 +1,6 @@
 {
   "name": "radvox-pro",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "private": true,
   "description": "RadVox Pro — dyktowanie opisów radiologicznych z AI (wersja z kontami i subskrypcją).",
   "type": "module",

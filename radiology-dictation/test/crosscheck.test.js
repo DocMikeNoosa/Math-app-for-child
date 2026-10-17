@@ -125,8 +125,8 @@ test('conclusion: short forms, most urgent first, regenerated on later dictation
   const t = getTemplate('ct_kub_noncontrast');
   let r = localMerge(t, reportFromTemplate(t), 'w nerce prawej złóg cztery milimetry').report;
   r = localMerge(t, r, 'w moczowodzie lewym złóg pięć milimetrów').report;
-  // equal urgency → dictation order
-  assert.deepEqual(lines(r.conclusion), ['- W nerce prawej złóg 4 mm.', '- W moczowodzie lewym złóg 5 mm.']);
+  // CT KUB: the ureteric (obstructing) stone is primary; the renal stone without obstruction comes after it
+  assert.deepEqual(lines(r.conclusion), ['- W moczowodzie lewym złóg 5 mm.', '- W nerce prawej złóg 4 mm.']);
   const h = merge('ct_head_face_trauma', 'złamanie łuku jarzmowego lewego kropka krwiak podtwardówkowy nad lewą półkulą grubości ośmiu milimetrów');
   assert.ok(lines(h.report.conclusion)[0].startsWith('- Krwiak podtwardówkowy'), 'bleed before fracture');
 });

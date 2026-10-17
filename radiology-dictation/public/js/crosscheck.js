@@ -31,7 +31,7 @@ const CONCEPTS = {
   aneurysm: ['tętniak'],
   stranding: ['zatarci', 'pasm'],
   freeAir: ['wolne powietrz', 'wolnego powietrz', 'wolnym powietrz', 'pneumoperiton'],
-  pneumothorax: ['odma', 'odmy', 'odmą', 'odmie'],
+  pneumothorax: ['odma', 'odmy', 'odmą', 'odmie', 'odmę'], // whole words only (WHOLE_WORD): „odmie” ≠ „odmiedniczkowe”
   fluid: ['płyn', 'wysięk', 'wodobrzusz'],
   occlusion: ['zwęż', 'stenoz', 'niedrożn', 'okluzj', 'zakrzep', 'skrzepl', 'zator', 'ubytek wypełnienia', 'ubytki wypełnienia', 'ubytków w wypełnieniu', 'ubytek w wypełnieniu'],
   dissection: ['rozwarstwi'],
@@ -143,12 +143,15 @@ const CLAUSE_BREAK_RE = /[,;:()–]|\s(ale|lecz|natomiast|jednak|a|z|ze|oraz|i)\
 
 // ---------------------------------------------------------------- matching primitives
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// stems that would also match unrelated longer words: matched as whole words only
+// (the old bug: „odmie” — pneumothorax — matched „odmiedniczkowe zapalenie nerki” and sent pyelonephritis to the top)
+const WHOLE_WORD = new Set(['odma', 'odmy', 'odmą', 'odmie', 'odmę']);
 const reCache = new Map();
 function termRe(term, allowNie = false) {
   const key = `${term}|${allowNie}`;
   if (!reCache.has(key)) {
     const core = escapeRe(term);
-    const src = term.includes(' ') ? core : `(?<![\\p{L}\\d])${allowNie ? '(?:nie)?' : ''}${core}`;
+    const src = (term.includes(' ') ? core : `(?<![\\p{L}\\d])${allowNie ? '(?:nie)?' : ''}${core}`) + (WHOLE_WORD.has(term) ? '(?![\\p{L}\\d])' : '');
     reCache.set(key, new RegExp(src, 'gu'));
   }
   const re = reCache.get(key);
@@ -510,6 +513,21 @@ const URGENCY = ['bleed', 'extravasation', 'mass', 'pneumothorax', 'dissection',
 // clinical question come first, then the URGENCY order.
 const CRITICAL_CONCEPTS = new Set(['bleed', 'extravasation', 'dissection', 'freeAir', 'pneumothorax', 'mass', 'occlusion', 'ischemia', 'edema']);
 let clinicalCtx = null; // { organs, concepts } of the clinical details, set during enforceConsistency
+let studyFocus = null; // the organ system the examination is about (CT KUB → 'urinary'), set during enforceConsistency
+
+/** What the examination is for, from the template: a CT KUB / urography is about the urinary tract. */
+export function studyFocusOf(template) {
+  const t = `${template?.id || ''} ${template?.title || ''} ${template?.header || ''}`.toLowerCase();
+  return /kub|urograf|urography|ivu|układ\p{L}* moczow|nerek i dróg moczow|kamic/u.test(t) ? 'urinary' : null;
+}
+// in a urinary study, the stone and the obstruction it causes are the primary finding: above everything except
+// what is immediately life-threatening (active bleeding, aortic dissection, free air)
+const STILL_FIRST = new Set(['bleed', 'extravasation', 'dissection', 'freeAir']);
+// a stone without obstruction (e.g. small stones in the other kidney „bez cech zastoju”) is not the primary finding:
+// it comes LAST in the urinary group
+const NON_OBSTRUCTIVE_RE = /bez (cech )?(zastoju|poszerzeni\p{L}*|wodonercz\p{L}*|utrudnieni\p{L}* odpływu)|nie(obturując|powodując\p{L}* (zastoju|poszerzeni|wodonercz))\p{L}*|nieobstrukcyjn\p{L}*|non-?obstruct/u;
+export const nonObstructiveStone = (f) => f.concepts.has('stone') && (NON_OBSTRUCTIVE_RE.test(f.text.toLowerCase()) || (!f.concepts.has('dilatation') && !inFamily(f.organs, 'ureter') && inFamily(f.organs, 'kidney')));
+const isUrinaryPrimary = (f) => studyFocus === 'urinary' && (f.concepts.has('stone') || f.concepts.has('dilatation')) && !nonObstructiveStone(f) && inFamily(f.organs, 'urinary') && !f.chronic;
 
 /** Clinical details → what they are about (organs, finding types). */
 export function clinicalContext(text) {
@@ -527,6 +545,7 @@ function answersClinicalQuestion(f) {
   return organMatch || conceptMatch;
 }
 function urgency(f) {
+  if (isUrinaryPrimary(f) && ![...f.concepts].some((c) => STILL_FIRST.has(c))) return f.concepts.has('stone') ? -2 : -1;
   const ranks = [...f.concepts].map((c) => URGENCY.indexOf(c)).filter((i) => i >= 0);
   const lead = findingRank(f) === 'lead';
   const critical = lead && !f.chronic && [...f.concepts].some((c) => CRITICAL_CONCEPTS.has(c));
@@ -665,9 +684,21 @@ function follows(a, t) {
   const peritoneal = (a.concepts.has('bleed') || a.concepts.has('fluid')) && !SOLID_ORGANS.some((o) => inFamily(a.organs, o)) && (inFamily(a.organs, 'abdomen') || inFamily(a.organs, 'pelvis'));
   if (peritoneal && t.concepts.has('injury') && SOLID_ORGANS.some((o) => inFamily(t.organs, o))) return true;
   // hydronephrosis after the obstructing stone on the same side
-  if (a.concepts.has('dilatation') && !a.concepts.has('stone') && t.concepts.has('stone') && inFamily(a.organs, 'urinary') && sidesCompatible(a, t)) return true;
+  // (a dilatation sentence that only refers to the stone — „powyżej złogu”, „do poziomu złogu” — is still the consequence)
+  const stoneRef = a.concepts.has('stone') && STONE_REF_RE.test(a.text.toLowerCase()) && !t.text.toLowerCase().includes(a.text.toLowerCase());
+  const obstructing = t.concepts.has('stone') && !nonObstructiveStone(t) && !STONE_REF_RE.test(t.text.toLowerCase());
+  if (a.concepts.has('dilatation') && (!a.concepts.has('stone') || stoneRef) && obstructing && inFamily(a.organs, 'urinary') && sidesCompatible(a, t)) return true;
+  // other stones without obstruction (either side) close the urinary group
+  if (nonObstructiveStone(a) && obstructing && inFamily(a.organs, 'urinary') && inFamily(t.organs, 'urinary')) return true;
+  // perinephric / periureteric stranding or fluid, inflammation of the same kidney → after the obstructing stone
+  // (or after the hydronephrosis when no stone was dictated)
+  const around = ['stranding', 'fluid', 'inflammation', 'thickening'].some((c) => a.concepts.has(c)) && !a.concepts.has('stone') && inFamily(a.organs, 'urinary');
+  if (around && sidesCompatible(a, t) && inFamily(t.organs, 'urinary') && (obstructing || (t.concepts.has('dilatation') && !t.concepts.has('stone') && !a.concepts.has('dilatation')))) return true;
   return false;
 }
+const STONE_REF_RE = /(powyżej|poniżej|nad|przed|do poziomu|na wysokości|proksymalnie do|z powodu|wskutek|spowodowan\p{L}* (przez )?)\s*(\p{L}+\s+)?(złog|złóg|kamieni|konkrement)/u;
+/** Order of what follows a finding: its direct consequences first (hydroureter / hydronephrosis), then what is around it. */
+const followRank = (f) => (nonObstructiveStone(f) ? 2 : f.concepts.has('dilatation') && !['stranding', 'fluid', 'inflammation'].some((c) => f.concepts.has(c)) ? 0 : 1);
 
 /**
  * Normal statements that belong right after a finding ("pertinent negatives"): rib fractures →
@@ -711,7 +742,7 @@ function orderGroup(items) {
     if (seen.has(x)) return;
     seen.add(x);
     out.push(x);
-    items.filter((y) => !seen.has(y) && follows(y.f, x.f)).sort((a, b) => a.order - b.order).forEach(visit);
+    items.filter((y) => !seen.has(y) && follows(y.f, x.f)).sort((a, b) => followRank(a.f) - followRank(b.f) || a.order - b.order).forEach(visit);
   };
   anchors.forEach(visit);
   items.forEach(visit); // anything left (cycles) keeps its order
@@ -927,10 +958,12 @@ export const moveFindingsToTop = arrangeFindings;
  */
 export function enforceConsistency(template, report, { ignore = [], dictatedConclusion = false, clinical = '' } = {}) {
   clinicalCtx = clinicalContext(clinical);
+  studyFocus = studyFocusOf(template);
   try {
     return enforce(template, report, { ignore, dictatedConclusion });
   } finally {
     clinicalCtx = null;
+    studyFocus = null;
   }
 }
 
