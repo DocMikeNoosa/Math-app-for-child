@@ -1,5 +1,5 @@
 import './hosted.js'; // hosted version: session, subscription, sync — must run first
-import { TEMPLATES, GROUPS, REGIONS, SNIPPETS, SNIPPET_GROUPS, SECTION_LABELS, getTemplate, regionLabel, templatesByRegion, reportFromTemplate, reportToText, setUserTemplates, isBuiltin, builtinRaw, rawOf, cleanRaw, parseTemplate } from './templates.js';
+import { TEMPLATES, GROUPS, REGIONS, SNIPPETS, SNIPPET_GROUPS, SECTION_LABELS, getTemplate, regionLabel, templatesByRegion, reportFromTemplate, reportToText, setUserTemplates, isBuiltin, builtinRaw, rawOf, cleanRaw, parseTemplate, comboId, isCombo } from './templates.js';
 import { convertSpokenFor, tidy, scrubIdentifiers, wordDiff } from './polish-text.js';
 import { localMerge, findConflicts, applyConflicts, splitSentences, analyseFinding, isIncidental, shortenFinding, defaultConclusion } from './crosscheck.js';
 import { Dictation, LevelMeter, speechSupported } from './speech.js';
@@ -322,6 +322,7 @@ function selectTemplate(id) {
   const t = getTemplate(id);
   if (!t) return;
   state.recent = [id, ...state.recent.filter((x) => x !== id)].slice(0, 6);
+  countUse(id);
   if (id === state.report.templateId) { save(); return; }
   const wasEdited = !isBlank() && !same({ ...state.report, lang: 'pl' }, reportFromTemplate(template()));
   state.ignore = [];
@@ -1139,7 +1140,23 @@ const REGION_ICONS = {
   Paediatric: '<circle cx="12" cy="7" r="3"/><path d="M8 21v-5l-2-3 6-2 6 2-2 3v5"/>',
   Combined: '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
 };
-const picker = { group: 'Non-trauma', mod: 'all', active: 0, items: [] };
+const PICKER_TAB_KEY = 'radvox.pickerTab.v1';
+const TPL_USE_KEY = 'radvox.tplUse.v1';
+const loadPickerTab = () => { try { return localStorage.getItem(PICKER_TAB_KEY) || 'Emergency'; } catch { return 'Emergency'; } };
+const picker = { group: loadPickerTab(), mod: 'all', active: 0, items: [], combo: [] };
+// "Ostry dyżur": the templates an emergency radiologist uses most, trauma and non-trauma, on one screen
+// (plus the radiologist's own most-used ones). Ids that do not exist are simply skipped.
+const EMERGENCY = {
+  Trauma: ['ct_head_trauma', 'ct_head_trauma_anticoag', 'ct_head_cspine_trauma', 'ct_head_face_trauma', 'ct_head_face_cspine_trauma', 'ct_c_spine', 'ct_t_spine_trauma', 'ct_l_spine', 'ct_whole_spine_trauma', 'ct_chest_trauma_contrast', 'ct_abdo_pelvis_trauma_normal_v2', 'ct_chest_abdo_pelvis_trauma_normal', 'ct_total_body_trauma_normal', 'ct_pelvis_bony_trauma_normal', 'ct_midface_trauma', 'cta_aorta_thoracic_trauma', 'cta_neck_trauma_bcvi'],
+  'Non-trauma': ['ct_head_normal', 'ct_head_cta_stroke', 'angio_ct_stroke', 'ct_head_ctv', 'ctpa_normal', 'ct_kub_noncontrast', 'ct_abdo_pelvis_nontrauma_normal_v2', 'ct_chest_abdo_pelvis_nontrauma_normal', 'ct_cap_sepsis_source_normal', 'cta_aorta_dissection_triple', 'aorta_whole_normal', 'cta_mesenteric_ischaemia_normal', 'cta_gi_bleed_normal', 'ct_chest_normal_nontrauma', 'ct_l_spine_nontrauma', 'ct_neck_abscess'],
+};
+const loadUse = () => { try { return JSON.parse(localStorage.getItem(TPL_USE_KEY) || '{}') || {}; } catch { return {}; } };
+function countUse(id) {
+  const use = loadUse();
+  use[id] = (use[id] || 0) + 1;
+  try { localStorage.setItem(TPL_USE_KEY, JSON.stringify(use)); } catch { /* private mode */ }
+}
+const mostUsed = (n = 8) => Object.entries(loadUse()).sort((a, b) => b[1] - a[1]).map(([id]) => getTemplate(id)).filter(Boolean).slice(0, n);
 // Modality filter for the (large) template library: TK / MR / RTG / USG.
 const MODALITIES = [['all', 'Wszystkie'], ['ct', 'TK'], ['mr', 'MR'], ['xr', 'RTG'], ['us', 'USG']];
 function modalityOf(t) {
@@ -1154,7 +1171,8 @@ function modalityOf(t) {
 const modMatch = (t) => picker.mod === 'all' || modalityOf(t) === picker.mod;
 
 function openPicker() {
-  picker.group = template()?.group || getTemplate(state.recent[0])?.group || picker.group;
+  picker.group = loadPickerTab(); // the tab the radiologist used last (first time: „Ostry dyżur”)
+  picker.combo = [];
   els.pickerSearch.value = '';
   els.picker.hidden = false;
   renderPicker();
@@ -1169,12 +1187,14 @@ const PENCIL = '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><pat
 function itemButton(t, { tag = '' } = {}) {
   const cur = t.id === state.report.templateId;
   const badge = t.custom ? '<span class="t-badge">mój</span>' : t.edited ? '<span class="t-badge edited">zmieniony</span>' : '';
-  return `<div class="t-row"><button class="t-item${cur ? ' current' : ''}" data-id="${esc(t.id)}" title="${esc(t.exam)}">${esc(t.title)}${badge}${tag ? `<span class="tag">${esc(tag)}</span>` : ''}</button><button class="t-edit" data-edit="${esc(t.id)}" title="Edytuj szablon" aria-label="Edytuj szablon ${esc(t.title)}">${PENCIL}</button></div>`;
+  const inCombo = picker.combo.includes(t.id);
+  return `<div class="t-row"><button class="t-item${cur ? ' current' : ''}" data-id="${esc(t.id)}" title="${esc(t.exam)}">${esc(t.title)}${badge}${tag ? `<span class="tag">${esc(tag)}</span>` : ''}</button><button class="t-add${inCombo ? ' on' : ''}" data-add="${esc(t.id)}" title="${inCombo ? 'Usuń z badania łączonego' : 'Dodaj do badania łączonego (np. kręgosłup piersiowy + lędźwiowy)'}" aria-label="Badanie łączone: ${esc(t.title)}">${inCombo ? '✓' : '+'}</button><button class="t-edit" data-edit="${esc(t.id)}" title="Edytuj szablon" aria-label="Edytuj szablon ${esc(t.title)}">${PENCIL}</button></div>`;
 }
 
 function renderPicker() {
   const q = fold(els.pickerSearch.value.trim());
-  els.pickerTabs.innerHTML = GROUPS.map((g) => {
+  const emergencyCount = [...EMERGENCY.Trauma, ...EMERGENCY['Non-trauma']].map(getTemplate).filter((t) => t && modMatch(t)).length;
+  els.pickerTabs.innerHTML = `<button class="tab emergency" role="tab" aria-selected="${!q && picker.group === 'Emergency'}" data-group="Emergency" title="Najczęstsze szablony ostrego dyżuru — uraz i bez urazu"><span class="dotc"></span>★ Ostry dyżur<span class="count">${emergencyCount}</span></button>` + GROUPS.map((g) => {
     const n = TEMPLATES.filter((t) => t.group === g.id && modMatch(t)).length;
     const trauma = g.id === 'Trauma';
     return `<button class="tab${trauma ? ' trauma' : ''}" role="tab" aria-selected="${!q && picker.group === g.id}" data-group="${g.id}"><span class="dotc"></span>${g.label}<span class="count">${n}</span></button>`;
@@ -1202,6 +1222,11 @@ function renderPicker() {
     els.pickerBody.innerHTML = scored.length
       ? `<div class="results">${scored.map(({ t }) => itemButton(t, { tag: `${t.group === 'Trauma' ? 'Uraz' : 'Bez urazu'} · ${regionLabel(t.section)}` })).join('')}</div>`
       : '<div class="no-results">Brak szablonów — spróbuj innego słowa.</div>';
+  } else if (picker.group === 'Emergency') {
+    const pick = (ids) => ids.map(getTemplate).filter((t) => t && modMatch(t));
+    const sec = (label, list, cls = '') => (list.length ? `<section class="region${cls}"><div class="region-head">${label}<span class="region-count">${list.length}</span></div>${list.map((t) => itemButton(t)).join('')}</section>` : '');
+    const mine = mostUsed().filter(modMatch);
+    els.pickerBody.innerHTML = `<div class="regions emergency-mode">${sec('Twoje najczęstsze', mine)}${sec('Uraz', pick(EMERGENCY.Trauma), ' trauma-col')}${sec('Bez urazu', pick(EMERGENCY['Non-trauma']))}</div>`;
   } else {
     const regions = templatesByRegion(picker.group).map((r) => ({ ...r, templates: r.templates.filter(modMatch) })).filter((r) => r.templates.length);
     els.pickerBody.innerHTML = `<div class="regions${picker.group === 'Trauma' ? ' trauma-mode' : ''}">${regions
@@ -1211,9 +1236,17 @@ function renderPicker() {
       </section>`)
       .join('')}</div>`;
   }
+  renderCombo();
   picker.items = [...els.pickerBody.querySelectorAll('.t-item')];
   picker.active = q ? 0 : Math.max(0, picker.items.findIndex((b) => b.dataset.id === state.report.templateId));
   markActive();
+}
+// combined study: the radiologist adds templates with "+", then opens them as one examination
+function renderCombo() {
+  const box = $('pickerCombo');
+  const parts = picker.combo.map(getTemplate).filter(Boolean);
+  box.hidden = !parts.length;
+  box.innerHTML = !parts.length ? '' : `<span class="lbl">Badanie łączone</span>${parts.map((t) => `<span class="combo-chip">${esc(t.title)}<button type="button" data-combo-del="${esc(t.id)}" aria-label="Usuń ${esc(t.title)}">×</button></span>`).join('<span class="combo-plus">+</span>')}<span class="grow"></span>${parts.length < 2 ? '<span class="hint">dodaj kolejny szablon przyciskiem +</span>' : `<button type="button" class="btn btn-small btn-primary" data-combo-open>Otwórz jako jedno badanie (${parts.length})</button>`}<button type="button" class="link-btn" data-combo-clear>Wyczyść</button>`;
 }
 function markActive() {
   picker.items.forEach((b, i) => b.classList.toggle('active', i === picker.active));
@@ -1233,7 +1266,9 @@ function pickerKey(e) {
     if (b) { selectTemplate(b.dataset.id); closePicker(); }
   } else if (e.key === 'Tab' && document.activeElement === els.pickerSearch && !els.pickerSearch.value) {
     e.preventDefault();
-    picker.group = picker.group === 'Trauma' ? 'Non-trauma' : 'Trauma';
+    const order = ['Emergency', 'Trauma', 'Non-trauma'];
+    picker.group = order[(order.indexOf(picker.group) + 1) % order.length];
+    try { localStorage.setItem(PICKER_TAB_KEY, picker.group); } catch { /* ignore */ }
     renderPicker();
   }
 }
@@ -2664,7 +2699,21 @@ function bind() {
     const mod = e.target.closest('[data-mod]');
     if (mod) { picker.mod = mod.dataset.mod; renderPicker(); els.pickerSearch.focus(); return; }
     const tab = e.target.closest('[data-group]');
-    if (tab) { picker.group = tab.dataset.group; els.pickerSearch.value = ''; renderPicker(); els.pickerSearch.focus(); return; }
+    if (tab) { picker.group = tab.dataset.group; try { localStorage.setItem(PICKER_TAB_KEY, picker.group); } catch { /* ignore */ } els.pickerSearch.value = ''; renderPicker(); els.pickerSearch.focus(); return; }
+    const add = e.target.closest('[data-add]');
+    if (add) {
+      const id = add.dataset.add;
+      picker.combo = picker.combo.includes(id) ? picker.combo.filter((x) => x !== id) : [...picker.combo, id].slice(0, 5);
+      renderPicker();
+      return;
+    }
+    const del = e.target.closest('[data-combo-del]');
+    if (del) { picker.combo = picker.combo.filter((x) => x !== del.dataset.comboDel); renderPicker(); return; }
+    if (e.target.closest('[data-combo-clear]')) { picker.combo = []; renderPicker(); return; }
+    if (e.target.closest('[data-combo-open]')) {
+      if (picker.combo.length >= 2) { selectTemplate(comboId(picker.combo)); picker.combo = []; closePicker(); }
+      return;
+    }
     const edit = e.target.closest('[data-edit]');
     if (edit) { openEditor(edit.dataset.edit); return; }
     const item = e.target.closest('[data-id]');

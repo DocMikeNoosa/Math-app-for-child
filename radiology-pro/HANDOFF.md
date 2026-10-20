@@ -4,7 +4,7 @@ Repository: https://github.com/DocMikeNoosa/Math-app-for-child — branch `claud
 Two apps live side by side:
 - `radiology-dictation/` — **RadVox**, the original single-user desktop app (see its own HANDOFF.md).
 - `radiology-pro/` — **RadVox Pro** (renamed from the working name Radiopis on 16 Oct 2026; violet icon — RadVox is cyan, IR red), the commercial hosted version with accounts, subscriptions and
-  an admin panel. Version 1.3.1 (1.3.1: printable quality statistics for buyers, admin → Błędy mowy → „Raport dla klientów (PDF)”; 1.3.0: speech-recognition error log — „Błąd mowy” in the app → table speech_log → admin tab „Błędy mowy”, see radiology-dictation/HANDOFF.md 0.16.0; rollout-ready for a teleradiology company of ~200 radiologists). Read `README.md`
+  an admin panel. Version 1.5.0 (1.5.0: „★ Ostry dyżur” tab and combined studies in the template picker, see radiology-dictation/HANDOFF.md 0.18.0; 1.4.0: medical logic, Dane kliniczne; 1.3.1: printable quality statistics for buyers, admin → Błędy mowy → „Raport dla klientów (PDF)”; 1.3.0: speech-recognition error log — „Błąd mowy” in the app → table speech_log → admin tab „Błędy mowy”, see radiology-dictation/HANDOFF.md 0.16.0; rollout-ready for a teleradiology company of ~200 radiologists). Read `README.md`
   here first, then `DEPLOY.md` (server) and `docs/LOAD-TEST.md` (200-user test).
 
 ## The person

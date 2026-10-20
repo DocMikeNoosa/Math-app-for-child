@@ -59,7 +59,72 @@ export const TEMPLATES = BUILTIN.map(parseTemplate);
 export const SNIPPETS = TEMPLATE_DATA.filter((t) => t.group === 'Snippets').sort(byPriority);
 
 export function getTemplate(id) {
+  if (isCombo(id)) return combinedTemplate(comboParts(id));
   return TEMPLATES.find((t) => t.id === id) || null;
+}
+
+// ---------------------------------------------------------------- combined studies
+// Two or more templates chosen together (e.g. thoracic + lumbar spine in one examination) become ONE template:
+// one header naming every part, one description with a sub-heading per part, one conclusion. Its id lists the parts
+// ("combo:ct_t_spine_trauma+ct_l_spine"), so it is rebuilt from the current templates wherever it is used.
+const COMBO = 'combo:';
+export const isCombo = (id) => typeof id === 'string' && id.startsWith(COMBO);
+export const comboId = (ids) => `${COMBO}${ids.join('+')}`;
+export const comboParts = (id) => (isCombo(id) ? id.slice(COMBO.length).split('+').filter(Boolean) : []);
+const examName = (t) => String(t.exam || t.header || '').replace(/^\s*(Badanie|Examination)\s*:\s*/i, '').replace(/:\s*$/, '').trim();
+
+/** "TK kręgosłupa piersiowego bez kontrastu" + "TK kręgosłupa lędźwiowego bez kontrastu" → "TK kręgosłupa piersiowego oraz kręgosłupa lędźwiowego bez kontrastu". Pure, for tests. */
+export function joinExams(names) {
+  const words = names.map((n) => n.split(/\s+/).filter(Boolean));
+  if (words.length < 2 || words.some((w) => !w.length)) return names.join(' oraz ');
+  const head = words.every((w) => w[0] === words[0][0]) ? words[0][0] : '';
+  let tail = 0;
+  while (words.every((w) => w.length - (head ? 1 : 0) - tail > 1 && w[w.length - 1 - tail] === words[0][words[0].length - 1 - tail])) tail++;
+  const middles = words.map((w) => w.slice(head ? 1 : 0, w.length - tail).join(' '));
+  const list = middles.length > 2 ? `${middles.slice(0, -1).join(', ')} oraz ${middles[middles.length - 1]}` : middles.join(' oraz ');
+  return [head, list, ...words[0].slice(words[0].length - tail)].filter(Boolean).join(' ');
+}
+/** A sub-heading the description can carry (letters, spaces, commas, slashes and hyphens only, ends with ":"). */
+const sectionHeading = (t) => {
+  const h = examName(t).replace(/[–—]/g, '-').replace(/[^\p{L} ,/-]+/gu, ' ').replace(/\s+/g, ' ').trim();
+  return `${h.charAt(0).toUpperCase()}${h.slice(1)}:`;
+};
+let comboCache = new Map();
+/** The combined template of the given template ids (null if fewer than two exist). */
+export function combinedTemplate(ids) {
+  const parts = [...new Set(ids)].map((x) => (isCombo(x) ? null : getTemplate(x))).filter(Boolean);
+  if (parts.length < 2) return parts[0] || null;
+  const id = comboId(parts.map((t) => t.id));
+  if (comboCache.has(id)) return comboCache.get(id);
+  const header = `Badanie: ${joinExams(parts.map(examName))}`;
+  // technique lines („Badanie wykonano w trybie ostrodyżurowym.”) once, above the parts
+  const INTRO = /^(Badanie wykonano|Wykonano|Badanie przeprowadzono|Porównano)/i;
+  const intro = [];
+  const bodies = parts.map((t) => {
+    const lines = t.body.trim().split('\n');
+    while (lines.length && (INTRO.test(lines[0].trim()) || (!lines[0].trim() && intro.length))) {
+      const l = lines.shift().trim();
+      if (l && !intro.includes(l)) intro.push(l);
+    }
+    return lines.join('\n').trim();
+  });
+  const body = [...(intro.length ? [intro.join('\n')] : []), ...parts.map((t, i) => `${sectionHeading(t)}\n${bodies[i]}`)].join('\n\n');
+  const seen = new Set();
+  const lines = [];
+  for (const t of parts) {
+    for (const l of t.conclusion.split('\n')) {
+      const text = l.replace(/^\s*(?:[-–•]|\d+[.)])\s*/, '').trim();
+      if (text && !seen.has(text.toLowerCase())) { seen.add(text.toLowerCase()); lines.push(text); }
+    }
+  }
+  const conclusion = formatConclusion(lines, parts[0].bullet);
+  const t = parseTemplate({
+    id, title: parts.map((x) => x.title).join(' + '), group: parts.some((x) => x.group === 'Trauma') ? 'Trauma' : 'Non-trauma',
+    section: 'Combined', priority: 50, text: `${header}\nOpis:\n${body}\n\nWnioski:\n${conclusion}`,
+  });
+  t.combo = parts.map((x) => x.id);
+  comboCache.set(id, t);
+  return t;
 }
 
 export const isBuiltin = (id) => BUILTIN.some((t) => t.id === id);
@@ -105,6 +170,7 @@ export function setUserTemplates(user = {}) {
     if (raw && !list.some((t) => t.id === raw.id)) list.push(parseTemplate({ ...raw, custom: true }));
   }
   TEMPLATES.splice(0, TEMPLATES.length, ...list);
+  comboCache = new Map(); // combined templates are rebuilt from the changed parts
 }
 
 export function regionLabel(sectionId) {
