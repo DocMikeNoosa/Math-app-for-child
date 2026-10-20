@@ -30,3 +30,13 @@ test('the AI returns the rewritten clinical details separately; the server puts 
   const none = mergeResult(t, r, { header: r.header, body: r.body, conclusion: r.conclusion, clinical_details: 'zmyślone', corrections: [], warnings: [] }, {});
   assert.equal(none.report.clinical, '', 'no clinical details given → no line, whatever the AI returned');
 });
+
+test('clinical reasoning first: triage (relevant now / background) before the report, layout rules', () => {
+  assert.equal(OUTPUT_SCHEMA.required[0], 'triage');
+  assert.equal(EDITS_SCHEMA.required[0], 'triage');
+  assert.equal(Object.keys(EDITS_SCHEMA.properties)[0], 'triage', 'generated first, so the model thinks before it edits');
+  assert.match(SYSTEM_PROMPT, /CLINICAL REASONING — DO THIS FIRST, EVERY TIME/);
+  assert.match(SYSTEM_PROMPT, /FIRST PARAGRAPH of the body/);
+  assert.match(SYSTEM_PROMPT, /TEMPLATE'S ANATOMICAL ORDER, grouped by region/);
+  assert.match(SYSTEM_PROMPT, /never write that a finding explains the symptoms/);
+});

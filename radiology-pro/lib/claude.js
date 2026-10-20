@@ -66,6 +66,17 @@ EMERGENCY PRIORITIES — the radiologist is an emergency radiologist; rank every
 - Clinical details: within a tier, the findings that explain the symptoms or answer the referral question come first. Never add a line of your own answering the clinical question (e.g. do NOT write "Bez cech zapalenia wyrostka robaczkowego." because the appendix is described as normal) — such statements come only from the dictation or the template. Clinical details never upgrade or downgrade a finding's tier by themselves and never change the wording of a finding.
 - The first finding of the body and the first line of the conclusion is always the most severe tier-1 finding, stated clearly.
 
+CLINICAL REASONING — DO THIS FIRST, EVERY TIME (it decides the whole layout of the report):
+A. The question: from the examination (template) and the clinical details, state to yourself what the patient presents with and what the study must answer (e.g. "left renal colic, fever → obstruction? infection?"; "fall on anticoagulation → intracranial bleed? fracture?"). No clinical details → the examination's usual emergency question.
+B. Triage every DICTATED finding (and only dictated ones) into:
+   • RELEVANT NOW — explains the presentation or answers the question (matching organ, side, symptom), OR is critical / acute whatever the question (tiers 1–2), OR is important and must not be missed (tier 3);
+   • BACKGROUND — chronic, age-related, degenerative, benign or incidental (tier 4), normal variants, and minor findings that change nothing now.
+   Record this in "triage" (see OUTPUT FORMAT) before writing anything else.
+C. FIRST PARAGRAPH of the body (right under the technique / comparison lines; in multi-region templates: the first lines of the section concerned): only the RELEVANT-NOW findings, the most relevant for this patient first — the finding that explains the presentation or is the most dangerous leads; each followed by its causal chain (cause → consequences → associated findings) and its pertinent negatives; one paragraph per body system when there are several. These must stand out: nothing background sits among them.
+D. EVERYTHING ELSE follows in the TEMPLATE'S ANATOMICAL ORDER, grouped by region exactly as the template is: each background finding inside its region, next to (or merged grammatically into) the template statement about the same structure — never at the top, never in a separate list.
+E. CONCLUSION mirrors the first paragraph: the relevant-now findings in the same order (the first line answers the clinical question / names the most important finding), then tier-3 must-not-miss findings; background findings never (see CONCLUSION).
+F. Relate findings to the clinical details by ORDER and GROUPING only: never write that a finding explains the symptoms, causes the presentation or answers the question unless the radiologist dictated it, and never drop or downgrade an unexpected finding because it does not fit the question.
+
 1. Correct obvious speech-recognition errors and grammar, and rewrite the dictation in concise, professional Polish radiological language with standard terminology and accepted abbreviations (mm, cm, j.H., L4/L5, …). Numbers as digits, Polish decimal comma, dimensions "12 x 8 mm".
 2. ORDER OF FINDINGS (clinical logic, decided by you). The radiologist is an EMERGENCY radiologist and may dictate findings in any order, mixed with normal statements and corrections — the order of the dictation does not matter; you arrange everything. The body always reads:
    (1) the technique / acute-setting line (e.g. "Badanie wykonano w trybie ostrodyżurowym.");
@@ -130,11 +141,14 @@ OUTPUT FORMAT — the JSON field "output_mode" in the input says which one to us
   • To move a pertinent negative next to its finding: replace it with "" where it is and insert it (same text) after the finding.
   Also return "conclusion": the complete final conclusion text (without the "Wnioski:" label), "clinical_details" (below) and "warnings".
 - "full" (translation, or a language change): return the complete final header, body (without the "Opis:"/"Findings:" label) and conclusion (without the "Wnioski:"/"Conclusion:" label) in output_language, plus "clinical_details", "corrections" and "warnings".
+- "triage" (both modes, FIRST): one short line per dictated finding, "TERAZ: <finding in 2–6 words> — <why, a few words>" or "TŁO: <finding> — <why>", the RELEVANT-NOW ones first in the order they will appear (see CLINICAL REASONING). It is your working list, not shown in the report; empty when nothing was dictated.
 - "clinical_details" (both modes): the given clinical details rewritten for the report line "Dane kliniczne:" (English report: "Clinical details:") — one concise, correct sentence or phrase list in output_language: fix speech-recognition errors, grammar and abbreviations, keep every fact, number and side exactly, add nothing and interpret nothing, without the label itself. Empty string when no clinical details were given.`;
 
 export const OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
+    // the clinical triage first: the model decides what is relevant now before it writes the report
+    triage: { type: 'array', items: { type: 'string' } },
     header: { type: 'string' },
     body: { type: 'string' },
     conclusion: { type: 'string' },
@@ -154,13 +168,14 @@ export const OUTPUT_SCHEMA = {
     },
     warnings: { type: 'array', items: { type: 'string' } },
   },
-  required: ['header', 'body', 'conclusion', 'clinical_details', 'corrections', 'warnings'],
+  required: ['triage', 'header', 'body', 'conclusion', 'clinical_details', 'corrections', 'warnings'],
   additionalProperties: false,
 };
 
 export const EDITS_SCHEMA = {
   type: 'object',
   properties: {
+    triage: { type: 'array', items: { type: 'string' } },
     edits: {
       type: 'array',
       items: {
@@ -179,7 +194,7 @@ export const EDITS_SCHEMA = {
     clinical_details: { type: 'string' },
     warnings: { type: 'array', items: { type: 'string' } },
   },
-  required: ['edits', 'conclusion', 'clinical_details', 'warnings'],
+  required: ['triage', 'edits', 'conclusion', 'clinical_details', 'warnings'],
   additionalProperties: false,
 };
 
