@@ -107,7 +107,7 @@
 
   <div class="note stop">
     <b>Rules for the helper</b>
-    The owner (Dr Mól) creates every account with his own email and card, and he alone holds the passwords, the Anthropic API key and the backup key. He types or pastes secrets himself, or uses a password manager he controls. Secrets are never sent by email, chat or text message. No real patient data goes into the system until stage 11 is complete.
+    The owner (Dr Mól) creates every account with their own email and card, and only the owner holds the passwords, the Anthropic API key and the backup key. The owner types or pastes secrets personally, or uses a password manager the owner controls. Secrets are never sent by email, chat or text message. No real patient data goes into the system until stage 11 is complete.
   </div>
 
   <section class="stage" id="s1">
@@ -197,7 +197,7 @@
       <li>starts the app.</li>
     </ul>
     <p>It takes 5–10 minutes. At the end it prints the login address and a <b>BACKUP_KEY</b>.</p>
-    <div class="note stop"><b>Save the BACKUP_KEY now</b>The owner stores the BACKUP_KEY in his password manager. Without it, the encrypted backups can't be opened.</div>
+    <div class="note stop"><b>Save the BACKUP_KEY now</b>The owner stores the BACKUP_KEY in the owner's password manager. Without it, the encrypted backups can't be opened.</div>
     <div class="note"><b>If a domain wasn't pointing at the server yet</b>That's fine. The installer warns and carries on, and HTTPS switches on by itself once DNS reaches the server.</div>
   </section>
 
@@ -316,7 +316,7 @@ sudo radvox-update</pre><button type="button" data-copy="cmd-token">Copy</button
     <span class="who">Helper → Owner</span>
     <ul class="checks">
       <li><label><input type="checkbox" id="c13a"><span>Static IP and the Lightsail instance name written down.</span></label></li>
-      <li><label><input type="checkbox" id="c13b"><span>Owner confirms he holds: AWS login + MFA, admin password + 2FA, Anthropic key, BACKUP_KEY, GitHub token, Resend and storage logins, all in his password manager.</span></label></li>
+      <li><label><input type="checkbox" id="c13b"><span>Owner confirms they hold: AWS login + MFA, admin password + 2FA, Anthropic key, BACKUP_KEY, GitHub token, Resend and storage logins, all in the owner's password manager.</span></label></li>
       <li><label><input type="checkbox" id="c13c"><span>Automatic snapshots, the nightly off-site backup and the uptime monitor all confirmed working.</span></label></li>
       <li><label><input type="checkbox" id="c13d"><span>Owner logged in successfully, with 2FA on, and prepared a made-up test report.</span></label></li>
     </ul>
