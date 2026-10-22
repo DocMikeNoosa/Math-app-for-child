@@ -1,0 +1,363 @@
+<title>RadVox Pro Go-Live</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a single reading column of numbered runbook stages, each a checklist the helper ticks off; commands in copyable blocks. */
+  :root {
+    --bg: #f6f8f9;
+    --paper: #ffffff;
+    --fg: #17212b;
+    --muted: #5b6b78;
+    --line: #dde4e9;
+    --accent: #0b7285;
+    --accent-soft: #e3f3f6;
+    --warn: #9a5b00;
+    --warn-soft: #fdf3e2;
+    --stop: #b42318;
+    --stop-soft: #fdecea;
+    --ok: #18794e;
+    --code-bg: #0f1a22;
+    --code-fg: #d7e7ee;
+    --font-body: "Instrument Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e151b; --paper: #141e26; --fg: #e3ebf0; --muted: #98a9b5; --line: #24323d;
+      --accent: #4fc3d6; --accent-soft: #10303a; --warn: #f0b860; --warn-soft: #2e2412;
+      --stop: #ff8a80; --stop-soft: #3a1614; --ok: #5fd39a; --code-bg: #091016; --code-fg: #d7e7ee;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e151b; --paper: #141e26; --fg: #e3ebf0; --muted: #98a9b5; --line: #24323d;
+    --accent: #4fc3d6; --accent-soft: #10303a; --warn: #f0b860; --warn-soft: #2e2412;
+    --stop: #ff8a80; --stop-soft: #3a1614; --ok: #5fd39a; --code-bg: #091016; --code-fg: #d7e7ee;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg); font: 16px/1.6 var(--font-body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 32px 64px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  header { display: flex; flex-direction: column; gap: 10px; }
+  .eyebrow { font: 600 12px/1 var(--font-mono); letter-spacing: 1.4px; text-transform: uppercase; color: var(--accent); }
+  h1 { font-size: clamp(28px, 4.4vw, 40px); line-height: 1.15; margin: 0; letter-spacing: -0.5px; text-wrap: balance; }
+  h2 { font-size: 22px; margin: 0; text-wrap: balance; display: flex; align-items: baseline; gap: 12px; }
+  h2 .num { font: 600 14px/1 var(--font-mono); color: var(--accent); flex: none; }
+  h3 { font-size: 16px; margin: 6px 0 0; }
+  p { margin: 0; max-width: 68ch; }
+  .lead { font-size: 18px; color: var(--muted); max-width: 64ch; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .fact { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .fact b { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 600; }
+  .fact span { font-weight: 600; overflow-wrap: anywhere; }
+  section.stage { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 22px 22px 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .who { font: 500 12px/1 var(--font-mono); display: inline-flex; gap: 6px; align-items: center; padding: 5px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); width: fit-content; }
+  .who.owner { background: var(--warn-soft); color: var(--warn); }
+  ol.steps, ul.plain { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
+  ol.steps > li::marker { font-family: var(--font-mono); color: var(--muted); }
+  ul.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  ul.checks label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+  ul.checks input { margin-top: 5px; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+  ul.checks input:checked + span { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }
+  code { font: 14px/1.4 var(--font-mono); background: var(--accent-soft); color: var(--fg); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+  .cmd { position: relative; background: var(--code-bg); color: var(--code-fg); border-radius: 10px; padding: 14px 14px 14px 16px; display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+  .cmd pre { margin: 0; font: 13.5px/1.55 var(--font-mono); white-space: pre-wrap; word-break: break-all; flex: 1; min-width: 0; }
+  .cmd button { flex: none; font: 600 12px/1 var(--font-body); color: var(--code-fg); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; padding: 7px 10px; cursor: pointer; }
+  .cmd button:hover { background: rgba(255,255,255,0.16); }
+  .cmd button:focus-visible, ul.checks input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .note.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .note.stop { border-color: var(--stop); background: var(--stop-soft); }
+  .note b:first-child { display: block; margin-bottom: 2px; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 520px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 600; background: var(--bg); }
+  tr:last-child td { border-bottom: none; }
+  td code { white-space: nowrap; }
+  .progress { font: 500 13px/1 var(--font-mono); color: var(--muted); }
+  footer { color: var(--muted); font-size: 14px; }
+  @media (max-width: 520px) { section.stage { padding: 18px 16px; } .cmd { flex-direction: column; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Runbook · RadVox Pro · production launch</div>
+    <h1>Putting RadVox Pro online at radvox.pl</h1>
+    <p class="lead">Step-by-step instructions for the person setting up the server. One server on AWS in Frankfurt runs both the website and the RadVox Pro application. radvox.eu and radvox.ai redirect to radvox.pl. Expect about 1.5–2 hours, plus waiting for DNS.</p>
+    <p class="progress" id="progress"></p>
+  </header>
+
+  <div class="facts" aria-label="Key facts">
+    <div class="fact"><b>Server</b><span>AWS Lightsail · Frankfurt (eu-central-1)</span></div>
+    <div class="fact"><b>System</b><span>Ubuntu 24.04 LTS · 4 GB RAM plan</span></div>
+    <div class="fact"><b>Main address</b><span>https://radvox.pl</span></div>
+    <div class="fact"><b>Redirects</b><span>www.radvox.pl, radvox.eu, radvox.ai (+ www)</span></div>
+    <div class="fact"><b>Software</b><span>Docker + Caddy (automatic HTTPS), one-line installer</span></div>
+    <div class="fact"><b>Code</b><span>github.com/DocMikeNoosa/Math-app-for-child · branch claude/polish-radiology-dictation-e0ov8p</span></div>
+  </div>
+
+  <div class="note stop">
+    <b>Rules for the helper</b>
+    The owner (Dr Mól) creates every account with his own email and card, and he alone holds the passwords, the Anthropic API key and the backup key. He types or pastes secrets himself, or uses a password manager he controls. Secrets are never sent by email, chat or text message. No real patient data goes into the system until stage 11 is complete.
+  </div>
+
+  <section class="stage" id="s1">
+    <h2><span class="num">01</span>Prepare the accounts</h2>
+    <span class="who owner">Owner</span>
+    <ul class="checks">
+      <li><label><input type="checkbox" id="c1a"><span><b>AWS account:</b> <a href="https://aws.amazon.com" target="_blank" rel="noopener">aws.amazon.com</a> → Create an AWS account, with the owner's email and card. Choose the <b>Basic (free)</b> support plan.</span></label></li>
+      <li><label><input type="checkbox" id="c1b"><span><b>Secure the root login:</b> turn on <b>MFA</b> (authenticator app). Account → Security credentials → Assign MFA device.</span></label></li>
+      <li><label><input type="checkbox" id="c1c"><span><b>Billing alert:</b> AWS Budgets → Create budget → Monthly cost budget, with an email alert at an amount the owner chooses. Then a surprise bill can't go unnoticed.</span></label></li>
+      <li><label><input type="checkbox" id="c1d"><span><b>Anthropic API key:</b> at <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a>, add credit, set a <b>monthly spend limit</b>, then API keys → Create key (name <code>radvox-pro-server</code>, no expiry). Keep it in the password manager. It is pasted once, into the installer.</span></label></li>
+      <li><label><input type="checkbox" id="c1e"><span><b>Domain logins ready:</b> OVH (radvox.pl), and the registrars where <b>radvox.eu</b> and <b>radvox.ai</b> were bought.</span></label></li>
+    </ul>
+  </section>
+
+  <section class="stage" id="s2">
+    <h2><span class="num">02</span>Create the server in Frankfurt</h2>
+    <span class="who">Helper (owner logged in)</span>
+    <ol class="steps">
+      <li>Open <a href="https://lightsail.aws.amazon.com" target="_blank" rel="noopener">lightsail.aws.amazon.com</a> → <b>Create instance</b>.</li>
+      <li>Location: <b>Frankfurt, Zone A (eu-central-1a)</b>. This keeps stored data in the EU.</li>
+      <li>Platform <b>Linux/Unix</b> → Blueprint <b>OS Only</b> → <b>Ubuntu 24.04 LTS</b>.</li>
+      <li>Plan: the <b>4 GB RAM</b> plan (2 vCPU). Name it <code>radvox-pro</code> → <b>Create instance</b>. Wait until it says <i>Running</i>.</li>
+    </ol>
+    <ul class="checks">
+      <li><label><input type="checkbox" id="c2a"><span><b>Static IP:</b> Networking tab → <b>Attach static IP</b> → name it <code>radvox-pro-ip</code>. Write the IP down (four numbers, e.g. <code>3.120.45.67</code>). Every DNS record uses it.</span></label></li>
+      <li><label><input type="checkbox" id="c2b"><span><b>Firewall:</b> Networking tab → IPv4 Firewall → <b>+ Add rule → HTTPS (443)</b>. SSH (22) and HTTP (80) are already there and must stay; HTTP is needed to get the certificate.</span></label></li>
+      <li><label><input type="checkbox" id="c2c"><span><b>Automatic snapshots:</b> Snapshots tab → <b>Enable automatic snapshots</b>. This is a daily image of the whole server.</span></label></li>
+    </ul>
+  </section>
+
+  <section class="stage" id="s3">
+    <h2><span class="num">03</span>Point the domains at the server</h2>
+    <span class="who">Helper (owner logged in to the registrars)</span>
+    <p>Each domain needs two <b>A records</b> pointing to the static IP. Set <b>TTL 300</b> (5 minutes) while setting up.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Domain</th><th>Record</th><th>Name</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>radvox.pl (OVH)</td><td>A</td><td><code>@</code> (empty)</td><td>static IP</td></tr>
+          <tr><td>radvox.pl (OVH)</td><td>A</td><td><code>www</code></td><td>static IP</td></tr>
+          <tr><td>radvox.eu</td><td>A</td><td><code>@</code> and <code>www</code></td><td>static IP</td></tr>
+          <tr><td>radvox.ai</td><td>A</td><td><code>@</code> and <code>www</code></td><td>static IP</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>OVH (radvox.pl)</h3>
+    <ol class="steps">
+      <li>OVH Manager → Web Cloud → <b>Domain names → radvox.pl → DNS zone</b>.</li>
+      <li><b>Edit</b> the existing A records for the root (empty name) and <code>www</code>, and set them to the static IP. Don't add second copies next to them.</li>
+      <li><b>Delete any AAAA records</b> (IPv6) for the root and <code>www</code>. OVH's default zone often has them pointing to OVH's parking page, which blocks the HTTPS certificate.</li>
+      <li>If <code>www</code> is a CNAME pointing to the root, that's fine too.</li>
+    </ol>
+    <div class="note warn"><b>Watch out</b>OVH's account is on the Canadian manager site (manager.ca.ovhcloud.com). The steps are the same. radvox.eu and radvox.ai weren't in that OVH account, so find where they were bought first.</div>
+    <ul class="checks">
+      <li><label><input type="checkbox" id="c3a"><span>All six names (radvox.pl, www.radvox.pl, radvox.eu, www.radvox.eu, radvox.ai, www.radvox.ai) show the static IP at <a href="https://dnschecker.org" target="_blank" rel="noopener">dnschecker.org</a> (type A). This usually takes minutes, sometimes a few hours.</span></label></li>
+    </ul>
+  </section>
+
+  <section class="stage" id="s4">
+    <h2><span class="num">04</span>Install RadVox Pro (one command)</h2>
+    <span class="who">Helper, with the owner typing the secrets</span>
+    <ol class="steps">
+      <li>In Lightsail, open the instance → <b>Connect using SSH</b>. A terminal opens in the browser.</li>
+      <li>Paste this one line and press Enter:</li>
+    </ol>
+    <div class="cmd"><pre id="cmd-install">curl -fsSL https://raw.githubusercontent.com/DocMikeNoosa/Math-app-for-child/claude/polish-radiology-dictation-e0ov8p/radiology-pro/deploy/install.sh | sudo bash</pre><button type="button" data-copy="cmd-install">Copy</button></div>
+    <p>The installer asks five questions (in Polish). Answer them like this:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Question</th><th>Answer</th></tr></thead>
+        <tbody>
+          <tr><td>Główna domena</td><td>type <code>radvox.pl</code> (the suggested default is radvox.ai, so don't just press Enter)</td></tr>
+          <tr><td>Pozostałe domeny</td><td>type <code>radvox.eu radvox.ai</code> (www versions are added automatically)</td></tr>
+          <tr><td>Twój e-mail</td><td>the owner's email. It's the admin login and receives certificate notices.</td></tr>
+          <tr><td>Hasło administratora (×2)</td><td><b>owner types it</b>: at least 10 characters, a letter and a digit, no spaces, quotes, # or $</td></tr>
+          <tr><td>Klucz API Anthropic</td><td><b>owner pastes</b> the key from stage 1 (starts with <code>sk-ant-</code>)</td></tr>
+          <tr><td>Klucz z resend.com</td><td>press <b>Enter</b> for now (stage 7)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The installer then:</p>
+    <ul class="plain">
+      <li>secures the server (firewall, automatic security updates, fail2ban);</li>
+      <li>installs Docker;</li>
+      <li>downloads RadVox Pro to <code>/opt/radvox-pro</code>;</li>
+      <li>writes the settings file;</li>
+      <li>starts the app.</li>
+    </ul>
+    <p>It takes 5–10 minutes. At the end it prints the login address and a <b>BACKUP_KEY</b>.</p>
+    <div class="note stop"><b>Save the BACKUP_KEY now</b>The owner stores the BACKUP_KEY in his password manager. Without it, the encrypted backups can't be opened.</div>
+    <div class="note"><b>If a domain wasn't pointing at the server yet</b>That's fine. The installer warns and carries on, and HTTPS switches on by itself once DNS reaches the server.</div>
+  </section>
+
+  <section class="stage" id="s5">
+    <h2><span class="num">05</span>Check that it's live</h2>
+    <span class="who">Helper</span>
+    <ul class="checks">
+      <li><label><input type="checkbox" id="c5a"><span><code>https://radvox.pl/healthz</code> answers, and the browser shows the padlock.</span></label></li>
+      <li><label><input type="checkbox" id="c5b"><span><code>https://radvox.pl</code> shows the RadVox Pro website; <code>/login</code> shows the login page.</span></label></li>
+      <li><label><input type="checkbox" id="c5c"><span><code>www.radvox.pl</code>, <code>radvox.eu</code>, <code>radvox.ai</code> and their www versions all redirect to <code>https://radvox.pl</code>.</span></label></li>
+      <li><label><input type="checkbox" id="c5d"><span>On the server, both containers are running: <code>cd /opt/radvox-pro/radiology-pro/deploy &amp;&amp; sudo docker compose ps</code> shows <i>app</i> (healthy) and <i>caddy</i>.</span></label></li>
+    </ul>
+  </section>
+
+  <section class="stage" id="s6">
+    <h2><span class="num">06</span>First login and lock-down of the admin account</h2>
+    <span class="who owner">Owner</span>
+    <ul class="checks">
+      <li><label><input type="checkbox" id="c6a"><span>Log in at <code>https://radvox.pl/login</code> with the email and password from stage 4. The admin panel opens.</span></label></li>
+      <li><label><input type="checkbox" id="c6b"><span>Turn on <b>two-step login (2FA)</b> for the admin account in the admin panel.</span></label></li>
+      <li><label><input type="checkbox" id="c6c"><span>Check the dashboard (<b>Pulpit → Serwer teraz</b>): the AI is configured and a backup time is shown. Use <b>Zrób kopię bazy</b> once to test.</span></label></li>
+      <li><label><input type="checkbox" id="c6d"><span>Open <b>Aplikacja</b> and prepare one <b>made-up</b> report (e.g. CT KUB) to confirm the AI answers.</span></label></li>
+    </ul>
+  </section>
+
+  <section class="stage" id="s7">
+    <h2><span class="num">07</span>Email (password resets, invitations)</h2>
+    <span class="who">Helper (owner creates the account)</span>
+    <p>Without email the app works, but password-reset links and invitations only appear in the admin panel. The app uses <a href="https://resend.com" target="_blank" rel="noopener">Resend</a>.</p>
+    <ol class="steps">
+      <li>Create a Resend account (owner's email) → Domains → <b>Add domain</b> <code>radvox.pl</code>. Choose an EU region if one is offered.</li>
+      <li>Add the DNS records Resend shows (TXT for SPF/DKIM, possibly MX for a subdomain) in the OVH DNS zone, then click <b>Verify</b>.</li>
+      <li>API Keys → create a key (sending access). On the server, the owner puts it in the settings file:</li>
+    </ol>
+    <div class="cmd"><pre id="cmd-env">sudo nano /opt/radvox-pro/radiology-pro/deploy/.env
+# set:  RESEND_API_KEY=re_...      (save: Ctrl+O, Enter; exit: Ctrl+X)
+cd /opt/radvox-pro/radiology-pro/deploy &amp;&amp; sudo docker compose up -d</pre><button type="button" data-copy="cmd-env">Copy</button></div>
+    <ul class="checks">
+      <li><label><input type="checkbox" id="c7a"><span>Test: on <code>/login</code>, use "Nie pamiętam hasła" for a test account. The email arrives from <code>no-reply@radvox.pl</code>.</span></label></li>
+    </ul>
+  </section>
+
+  <section class="stage" id="s8">
+    <h2><span class="num">08</span>Backups: a copy outside the server</h2>
+    <span class="who">Helper</span>
+    <p>The app already backs up both databases every day, encrypted with the BACKUP_KEY, and keeps 14 days on the server. Lightsail snapshots add a daily image of the whole machine. One more copy must live <b>outside</b> this server, in the EU:</p>
+    <ol class="steps">
+      <li>Create EU object storage with S3 access (e.g. OVHcloud Object Storage, Scaleway or Backblaze B2 in an EU region), in the owner's name.</li>
+      <li>On the server: <code>sudo apt-get install -y rclone</code>, then <code>sudo rclone config</code> → new remote named exactly <code>offsite</code> (type S3, keys from the storage provider).</li>
+      <li>Test once, then schedule it nightly:</li>
+    </ol>
+    <div class="cmd"><pre id="cmd-backup">cd /opt/radvox-pro/radiology-pro/deploy &amp;&amp; sudo bash offsite-backup.sh
+sudo crontab -e
+# add this line:
+30 3 * * * /opt/radvox-pro/radiology-pro/deploy/offsite-backup.sh &gt;&gt; /var/log/radvoxpro-offsite.log 2&gt;&amp;1</pre><button type="button" data-copy="cmd-backup">Copy</button></div>
+  </section>
+
+  <section class="stage" id="s9">
+    <h2><span class="num">09</span>Monitoring</h2>
+    <span class="who">Helper</span>
+    <ul class="checks">
+      <li><label><input type="checkbox" id="c9a"><span>Create an uptime monitor (e.g. UptimeRobot or Better Stack) for <code>https://radvox.pl/healthz</code>, with alerts to the owner's email or phone, at the shortest interval the chosen plan allows.</span></label></li>
+      <li><label><input type="checkbox" id="c9b"><span>The AWS billing alert from stage 1 is active.</span></label></li>
+    </ul>
+  </section>
+
+  <section class="stage" id="s10">
+    <h2><span class="num">10</span>Make the code private, keep updates working</h2>
+    <span class="who">Helper (owner logged in to GitHub)</span>
+    <p>The repository is public so the installer could download it. After installing:</p>
+    <ol class="steps">
+      <li>GitHub → repository → Settings → <b>Change visibility → Private</b>.</li>
+      <li>Create a <b>fine-grained personal access token</b> with access to this one repository only: <i>Contents: Read-only</i>, with an expiry date the owner chooses.</li>
+      <li>On the server, let updates use the token (the owner pastes it):</li>
+    </ol>
+    <div class="cmd"><pre id="cmd-token">sudo git -C /opt/radvox-pro remote set-url origin https://x-access-token:PASTE_TOKEN_HERE@github.com/DocMikeNoosa/Math-app-for-child.git
+sudo radvox-update</pre><button type="button" data-copy="cmd-token">Copy</button></div>
+    <p>From then on, installing a new version is one command: <code>sudo radvox-update</code>. Do it at a quiet hour; it causes a short pause, and reports in progress are retried automatically.</p>
+  </section>
+
+  <section class="stage" id="s11">
+    <h2><span class="num">11</span>Before real patients or paying customers</h2>
+    <span class="who owner">Owner</span>
+    <div class="note warn"><b>EU data residency</b>Accounts, reports, settings and backups are stored on the server in Frankfurt. When a report is prepared, its text is sent to the AI provider (Anthropic) for processing, with patient identifiers such as PESEL removed by the app first. Check with Anthropic where API requests are processed and whether an EU option or contractual safeguards apply, and describe this in the privacy notice.</div>
+    <ul class="checks">
+      <li><label><input type="checkbox" id="c11a"><span><b>AWS:</b> confirm the GDPR Data Processing Addendum applies to the account (AWS Artifact / service terms).</span></label></li>
+      <li><label><input type="checkbox" id="c11b"><span><b>Anthropic:</b> review and accept their data-processing terms for API use.</span></label></li>
+      <li><label><input type="checkbox" id="c11c"><span><b>Resend</b> and the <b>backup storage</b> provider: the same check.</span></label></li>
+      <li><label><input type="checkbox" id="c11d"><span>Privacy notice and terms on the website reviewed by a lawyer (they're already in the app, at /privacy and /terms).</span></label></li>
+      <li><label><input type="checkbox" id="c11e"><span>Written opinion from a medical-device (EU MDR) lawyer on whether RadVox Pro counts as a medical device.</span></label></li>
+      <li><label><input type="checkbox" id="c11f"><span>Company and invoicing in place before charging (accountant).</span></label></li>
+    </ul>
+  </section>
+
+  <section class="stage" id="s12">
+    <h2><span class="num">12</span>If something goes wrong</h2>
+    <span class="who">Helper</span>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Symptom</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>The site doesn't open</td><td><code>cd /opt/radvox-pro/radiology-pro/deploy &amp;&amp; sudo docker compose ps</code>, then <code>sudo docker compose up -d</code>. Check the DNS (stage 3).</td></tr>
+          <tr><td>"Connection not private" / no padlock</td><td>DNS doesn't point at the server yet, an AAAA record points elsewhere, or port 80/443 is closed. Wait 10 minutes, then <code>sudo docker compose logs caddy</code>.</td></tr>
+          <tr><td>AI: "chwilowo niedostępne"</td><td>Wrong or empty <code>ANTHROPIC_API_KEY</code> in <code>.env</code>, or the Anthropic spend limit was reached. Fix it, then <code>sudo docker compose up -d</code>.</td></tr>
+          <tr><td>Disk full</td><td><code>df -h</code>; <code>sudo docker system prune -f</code>.</td></tr>
+          <tr><td>Need to restore</td><td><code>sudo bash restore.sh data/backups/radiopis-YYYYMMDD-HHMM.db.enc</code> (accounts) or <code>learning-…</code> (AI learning). The previous file is kept. A whole-server restore uses a Lightsail snapshot.</td></tr>
+          <tr><td>Logs</td><td><code>sudo docker compose logs --since 1h app</code>. They contain no report text and no patient data.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The full technical guide is in the repository: <code>radiology-pro/DEPLOY.md</code>.</p>
+  </section>
+
+  <section class="stage" id="s13">
+    <h2><span class="num">13</span>Hand-over to the owner</h2>
+    <span class="who">Helper → Owner</span>
+    <ul class="checks">
+      <li><label><input type="checkbox" id="c13a"><span>Static IP and the Lightsail instance name written down.</span></label></li>
+      <li><label><input type="checkbox" id="c13b"><span>Owner confirms he holds: AWS login + MFA, admin password + 2FA, Anthropic key, BACKUP_KEY, GitHub token, Resend and storage logins, all in his password manager.</span></label></li>
+      <li><label><input type="checkbox" id="c13c"><span>Automatic snapshots, the nightly off-site backup and the uptime monitor all confirmed working.</span></label></li>
+      <li><label><input type="checkbox" id="c13d"><span>Owner logged in successfully, with 2FA on, and prepared a made-up test report.</span></label></li>
+    </ul>
+  </section>
+
+  <footer>Prepared for the RadVox Pro launch. Prices aren't quoted here: check the current Lightsail plan price and Anthropic usage costs on their own pages. The ticks on this page are saved only in your own browser.</footer>
+</div>
+
+<script>
+  (function () {
+    var KEY = 'radvox-go-live-checks';
+    var boxes = Array.prototype.slice.call(document.querySelectorAll('ul.checks input[type="checkbox"]'));
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { saved = {}; }
+    function progress() {
+      var done = boxes.filter(function (b) { return b.checked; }).length;
+      document.getElementById('progress').textContent = done + ' of ' + boxes.length + ' checks done';
+    }
+    boxes.forEach(function (b) {
+      if (saved[b.id]) b.checked = true;
+      b.addEventListener('change', function () {
+        saved[b.id] = b.checked;
+        try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) { /* storage unavailable */ }
+        progress();
+      });
+    });
+    progress();
+    document.querySelectorAll('[data-copy]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var pre = document.getElementById(btn.getAttribute('data-copy'));
+        var text = pre.textContent;
+        var done = function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy'; }, 1600); };
+        var fallback = function () {
+          var r = document.createRange(); r.selectNodeContents(pre);
+          var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+          btn.textContent = 'Selected — Ctrl+C';
+          setTimeout(function () { btn.textContent = 'Copy'; }, 2400);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+        else fallback();
+      });
+    });
+  })();
+</script>
