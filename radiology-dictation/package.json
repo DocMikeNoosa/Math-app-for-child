@@ -1,0 +1,19 @@
+{
+  "name": "radvox",
+  "version": "0.18.1",
+  "private": true,
+  "description": "RadVox — dyktowanie opisów radiologicznych po polsku z szablonami i AI (Claude).",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js",
+    "check-templates": "node tools/check-templates.mjs public/js/templates-pro/*.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.0"
+  }
+}
