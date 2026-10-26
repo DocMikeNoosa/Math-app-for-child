@@ -8,12 +8,14 @@ import { formatWithClaude, ClaudeError, MODEL } from './lib/claude.js';
 import { analyzeStyle, cleanLearnInput, cleanProfile, cleanTranslations } from './lib/learn.js';
 import { writeLetter, cleanLetterInput } from './lib/letter.js';
 import { parseCard } from './lib/cardparse.js';
+import { cleanImages, pickTemplate, reportFromImages } from './lib/image-report.js';
 import { getTemplate, cleanRaw, parseTemplate } from './public/js/templates.js';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(APP_DIR, 'public');
 const VERSION = JSON.parse(readFileSync(path.join(APP_DIR, 'package.json'), 'utf8')).version;
 const MAX_BODY = 200 * 1024;
+const MAX_IMAGE_BODY = 40 * 1024 * 1024; // up to 8 images (or a PDF) as base64
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -35,13 +37,13 @@ function sendJson(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
-function readBody(req) {
+function readBody(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on('data', (c) => {
       size += c.length;
-      if (size > MAX_BODY) {
+      if (size > limit) {
         reject(new ClaudeError('Zbyt duże zapytanie.', 413));
         req.destroy();
         return;
@@ -193,6 +195,57 @@ async function handleLetter(req, res) {
   }
 }
 
+/**
+ * Report from images. With a template: write it from the images. Without one: the AI first picks
+ * a template from the catalogue the browser sent (built-in, edited and the user's own).
+ */
+async function handleImageReport(req, res) {
+  if (!aiAvailable()) return sendJson(res, 503, { error: 'Brak klucza API — opis z obrazu wymaga AI.', code: 'no_api_key' });
+  let body;
+  try {
+    body = JSON.parse(await readBody(req, MAX_IMAGE_BODY));
+  } catch (err) {
+    if (err instanceof ClaudeError) return sendJson(res, err.status, { error: err.status === 413 ? 'Obrazy są za duże — dodaj mniej obrazów naraz.' : err.message });
+    return sendJson(res, 400, { error: 'Nieprawidłowy JSON.' });
+  }
+  const mode = ['fast', 'accurate', 'turbo'].includes(body.mode) ? body.mode : 'fast';
+  const outputLang = body.outputLang === 'en' ? 'en' : 'pl';
+  const note = String(body.note || '').slice(0, 6000);
+  try {
+    const images = cleanImages(body.images);
+    let template = null;
+    let picked = null;
+    if (body.template) {
+      const raw = cleanRaw(body.template);
+      template = raw ? parseTemplate(raw) : null;
+    } else if (body.templateId) template = getTemplate(body.templateId);
+    if (!template) {
+      const raws = (Array.isArray(body.catalog) ? body.catalog : []).slice(0, 400).map(cleanRaw).filter(Boolean);
+      if (!raws.length) return sendJson(res, 400, { error: 'Brak szablonów do wyboru.' });
+      picked = await pickTemplate({ images, catalog: raws.map((r) => ({ id: r.id, title: r.title })), note, mode });
+      if (!picked.id) return sendJson(res, 422, { error: `AI nie dobrało szablonu${picked.reason ? `: ${picked.reason}` : ''} — wybierz szablon i spróbuj ponownie.`, code: 'no_template' });
+      template = parseTemplate(raws.find((r) => r.id === picked.id));
+    }
+    const report = validReport(body.report) ? body.report : null;
+    const result = await reportFromImages({
+      images,
+      template,
+      report,
+      note,
+      clinical: String(body.clinical || '').slice(0, 2000),
+      profile: cleanProfile(body.profile),
+      samples: strList(body.samples, 6, 3000),
+      outputLang,
+      mode,
+    });
+    sendJson(res, 200, { ...result, picked });
+  } catch (err) {
+    if (err instanceof ClaudeError) return sendJson(res, err.status, { error: err.message });
+    console.error(err);
+    sendJson(res, 500, { error: 'Błąd serwera.' });
+  }
+}
+
 async function serveStatic(req, res) {
   const url = new URL(req.url, 'http://localhost');
   let rel = decodeURIComponent(url.pathname);
@@ -229,6 +282,7 @@ export function createServer() {
       if (req.url === '/api/learn' && req.method === 'POST') return await handleLearn(req, res);
       if (req.url === '/api/letter' && req.method === 'POST') return await handleLetter(req, res);
       if (req.url === '/api/card-parse' && req.method === 'POST') return await handleCardParse(req, res);
+      if (req.url === '/api/image-report' && req.method === 'POST') return await handleImageReport(req, res);
       if (req.method === 'GET' || req.method === 'HEAD') return await serveStatic(req, res);
       res.writeHead(405);
       res.end();

@@ -25,6 +25,24 @@ RadVox IR only changes the colours (crimson accent, amber recording) and adds th
   `template-data.js` and the diagnostic tests were removed.
 - Tests: 58 (`npm test`): `ir.test.js`, `server.test.js` (mock API), plus the shared voice / style / text tests.
 
+## Version 1.8 (report from images)
+- "Opis z obrazu" button under "Przygotuj opis"; Ctrl+V of an image or a drag-and-drop anywhere opens it.
+  - Up to 8 images (JPG, PNG, WebP, GIF, BMP) or a PDF. DICOM is not read: export a JPG/PNG or take a screenshot.
+  - Masking: click a thumbnail, drag rectangles over patient data. Masks are burnt in on the computer
+    before upload (`public/js/image-input.js`: `encodeImage`, scaled to 1568 px / 1.15 MP, JPEG 0.92).
+    PDFs cannot be masked. Images are kept in memory only, never saved.
+- Server: `POST /api/image-report` (`lib/image-report.js`), body limit 40 MB.
+  - With a template: one call writes the report (`IMAGE_PROMPT`, `IMAGE_SCHEMA`).
+  - Without one: a first call picks a template from the catalogue (ids + titles only), then the report call.
+  - Effort is one level higher than for dictation (fast → medium, accurate → high).
+- This mode deliberately INTERPRETS the images (the radiologist asked for it), unlike dictation (NO DIAGNOSIS).
+  Safety: values shown on the image are copied; others are estimated from catheter / device size and
+  written with "ok."; every value and grade is listed in `image_readings` and shown as a warning
+  ("Oszacowano z obrazu — sprawdź: …"); a side is never guessed; dose / contrast / fluoro time stay "…"
+  unless visible; personal identifiers are never copied.
+- Tests: `test/image-report.test.js` (mock API) + a browser check (paste, mask, PDF, DICOM refused).
+- Not tested against the live API yet (no key in the build environment).
+
 ## Version 1.5 (letter layout)
 - `cardui.js` letter:
   - `letterHeadHtml(ctx)`: logo, sender, date, and the recipient with address / town / contact / PWZ;

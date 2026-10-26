@@ -1231,3 +1231,47 @@ body[data-view="card"] .panel.dictation { display: none; }
   /* very narrow: idle text hidden (the button says it all); while recording, status + timer at the right */
   body.recording .rec-meta { position: static; flex-direction: column; align-items: flex-end; gap: 0; }
 }
+
+/* ---------------------------------------------------------------- report from images */
+.actions .btn-image { height: 38px; font-size: 13.5px; color: var(--text-dim); }
+.actions .btn-image:hover { color: var(--text); border-color: var(--accent); }
+.btn-image svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.img-card { width: min(980px, calc(100vw - 32px)); max-height: min(92vh, 980px); display: flex; flex-direction: column; }
+.img-card .drawer-head { gap: 10px; }
+.img-card .grow, .img-body .grow { flex: 1; }
+.img-body { padding: 12px 22px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.img-privacy { margin: 0; display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
+.img-privacy svg { flex: none; width: 16px; height: 16px; margin-top: 2px; fill: none; stroke: var(--accent); stroke-width: 1.8; }
+.img-drop { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; padding: 18px 14px; border: 1.5px dashed var(--line-2); border-radius: 12px; color: var(--text-dim); font-size: 13px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+.img-drop:focus-visible, .img-drop.over { border-color: var(--accent); background: rgba(255, 79, 109, 0.06); outline: none; }
+.img-drop > svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.img-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.img-grid:empty { display: none; }
+.img-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px; border: 1px solid var(--line-2); border-radius: 10px; background: rgba(255, 255, 255, 0.02); }
+.img-tile canvas { display: block; max-width: 220px; max-height: 160px; border-radius: 6px; cursor: crosshair; }
+.img-pdf { width: 160px; height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 8px; font-size: 12px; color: var(--text-dim); text-align: center; word-break: break-all; }
+.img-pdf b { font: 700 18px/1 var(--mono); color: var(--accent); }
+.img-mask-btn { font-size: 12px; color: var(--text-dim); padding: 2px 8px; border: 1px solid var(--line-2); border-radius: 999px; background: none; cursor: pointer; }
+.img-mask-btn:hover { color: var(--text); border-color: var(--accent); }
+.img-del { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; border: none; background: rgba(0, 0, 0, 0.6); color: #fff; cursor: pointer; }
+.img-del svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; }
+.img-num { position: absolute; top: 6px; left: 8px; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: rgba(0, 0, 0, 0.6); color: #fff; font: 600 11px/1.5 var(--mono); text-align: center; }
+.img-editor { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--accent); border-radius: 12px; }
+.img-ed-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.img-ed-hint { font-size: 13px; color: var(--text-dim); }
+.img-ed-stage { display: flex; justify-content: center; overflow: auto; }
+.img-ed-stage canvas { display: block; max-width: 100%; height: auto; cursor: crosshair; touch-action: none; }
+.img-tpl { margin: 0; font-size: 13px; color: var(--text-dim); }
+.img-body textarea { width: 100%; }
+@media (max-width: 560px) {
+  .img-body { padding: 10px 14px 16px; }
+  .img-tile canvas { max-width: 130px; max-height: 110px; }
+}
+/* narrow windows: the image button shrinks to its icon so the instruction field keeps its room */
+@media (max-width: 860px) {
+  .actions .btn-image { width: 40px; height: 40px; padding: 0; flex: none; }
+  .actions .btn-image span { display: none; }
+}
+@media (max-width: 760px) and (max-height: 760px) {
+  .actions .btn-image { width: 36px; height: 36px; }
+}

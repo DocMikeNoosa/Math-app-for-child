@@ -131,6 +131,10 @@
             <kbd class="kbd-in">Ctrl ↵</kbd>
           </button>
           <span class="prep-state" id="prepState" hidden></span>
+          <button class="btn btn-image" id="imageBtn" title="Wklej lub wybierz obrazy z zabiegu (DSA, fluoroskopia, TK, zdjęcie monitora, PDF) — AI napisze opis. Możesz też wkleić obraz Ctrl+V w dowolnym miejscu.">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 9"/></svg>
+            <span>Opis z obrazu</span>
+          </button>
         </div>
 
         <p class="privacy">
@@ -844,6 +848,40 @@
     </div>
   </div>
 
+  <!-- Report from images -->
+  <div class="modal" id="imgModal" hidden role="dialog" aria-label="Opis z obrazu">
+    <div class="modal-card img-card">
+      <div class="drawer-head"><h3>Opis z obrazu</h3>
+        <span class="grow"></span>
+        <button class="icon-btn" id="closeImg" aria-label="Zamknij"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="img-body">
+        <p class="hint">Wklej (<kbd>Ctrl</kbd>+<kbd>V</kbd>), przeciągnij albo wybierz obrazy z zabiegu: DSA, fluoroskopia, rekonstrukcje 3D, TK/MR, zdjęcie monitora, ekran dawki albo PDF. AI rozpozna zabieg, przepisze wartości z linii pomiarowych, a pozostałe wymiary oszacuje względem cewnika lub sprzętu i oznaczy jako „ok.”.</p>
+        <p class="img-privacy"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/></svg><span><b>Zamaluj dane pacjenta</b> (nazwisko, PESEL, data urodzenia): kliknij miniaturę i zaznacz prostokąt myszą. Zamalowanie dzieje się na tym komputerze, przed wysłaniem. W PDF nie da się zamalować — używaj tylko zanonimizowanych.</span></p>
+        <div class="img-drop" id="imgDrop" tabindex="0">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 9"/></svg>
+          <span>Upuść obrazy tutaj, wklej <kbd>Ctrl</kbd>+<kbd>V</kbd> albo</span>
+          <button type="button" class="btn" id="imgPick">Wybierz pliki</button>
+          <input type="file" id="imgFile" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,application/pdf,.pdf" multiple hidden />
+        </div>
+        <div class="img-grid" id="imgGrid"></div>
+        <div class="img-editor" id="imgEditor" hidden>
+          <div class="img-ed-bar">
+            <span class="img-ed-hint">Przeciągnij myszą po danych pacjenta, aby je zamalować</span>
+            <span class="grow"></span>
+            <button type="button" class="btn" id="imgUndoMask">Cofnij zamalowanie</button>
+            <button type="button" class="btn btn-primary" id="imgEdDone">Gotowe</button>
+          </div>
+          <div class="img-ed-stage"><canvas id="imgCanvas"></canvas></div>
+        </div>
+        <div class="field"><label class="slog-lbl" for="imgNote">Uwagi (opcjonalnie) — co zrobiono, sprzęt, strona, wartości</label>
+          <textarea id="imgNote" rows="2" placeholder="np. coiling tętniaka AComA, 4 spirale, cewnik 5 F, KAP 85 Gy·cm²"></textarea></div>
+        <p class="img-tpl" id="imgTpl"></p>
+        <div class="btn-row"><span class="grow"></span><button class="btn btn-primary" id="imgGo" disabled>Napisz opis</button></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Shortcuts dialog -->
   <div class="modal" id="helpModal" hidden role="dialog" aria-label="Skróty klawiszowe">
     <div class="modal-card">
@@ -862,6 +900,7 @@
         <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>C</kbd></dt><dd>Kopiuj opis do schowka</dd>
         <dt><kbd>Alt</kbd> <kbd>N</kbd></dt><dd>Nowy opis (następny pacjent)</dd>
         <dt><kbd>Ctrl</kbd> <kbd>Z</kbd> / <kbd>Y</kbd></dt><dd>Cofnij / ponów (poza polem tekstu)</dd>
+        <dt><kbd>Ctrl</kbd> <kbd>V</kbd> (obraz)</dt><dd>Opis z obrazu — wklejony zrzut ekranu z zabiegu</dd>
         <dt><kbd>?</kbd></dt><dd>Ta pomoc</dd>
       </dl>
     </div>

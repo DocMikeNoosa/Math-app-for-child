@@ -10,6 +10,7 @@ import { MicButton, ledPattern, isDictationMic, parseLedCode, colorCandidates, w
 import { chime, chimeStyle, setChimeStyle, styleOptions } from './chime.js';
 import { listInputs, InputTester, inputError } from './audio-input.js';
 import { ERROR_TYPES, makeEntry, summarize, stats, statsPage, toCSV, typeLabel, loadLocal, saveLocal, removeLocal, clearLocal } from './speech-log.js';
+import { MAX_IMAGES, MAX_PDF_BYTES, fileKind, dragRect, drawMasked, encodeImage, loadImage, fileToBase64 } from './image-input.js';
 import { initCard, setView, resetCard, onLanguageChanged, currentView, toggleCardMic, cardMicActive } from './cardui.js';
 
 const $ = (id) => document.getElementById(id);
@@ -34,6 +35,7 @@ const els = Object.fromEntries(
     'clock', 'todayBtn', 'todayCount', 'todayModal', 'todayTitle', 'todayList', 'todayClear', 'closeToday',
     'bgProcess', 'learnStyle', 'styleCount', 'styleList', 'clearStyle',
     'chimeStyle', 'chimeTest', 'ledColorBox', 'ledColorStart', 'ledColorAsk', 'ledColorNum', 'ledColorStop', 'btnTest', 'btnTestHint', 'ledCodeOn', 'ledCodeOff', 'ledCodeTest', 'ledCodeSave', 'ledSweep', 'ledRangeBox', 'ledRangeFrom', 'ledRangeTo', 'ledRangeStart', 'ledStepBox', 'ledStepNum', 'ledStepQ', 'ledStepYes', 'ledStepNext', 'ledStepRepeat', 'ledStepBack', 'ledStepStop', 'ledSweepBox', 'ledSweepQ', 'ledSweepBar', 'ledSweepHit', 'ledSweepNo', 'ledSweepStop', 'micNow', 'micFind', 'micFindStatus', 'setupModal', 'setupChime', 'setupChimeTest', 'setupDone', 'micStatus', 'micSetup', 'micSetupRow', 'micSkip', 'micConnect', 'micConnectAny', 'micLearn', 'micForget', 'micModeToggle', 'micModeHold', 'micLedRow', 'micLedStatus', 'micLedFind', 'micLedTest', 'micLedAsk', 'micLedQ', 'micLedYes', 'micLedNo', 'micLedStop', 'audioInput', 'audioTest', 'audioLevelWrap', 'audioLevel', 'audioStatus', 'micDiag', 'micDiagBox', 'micDiagCopy', 'keyLearn', 'keyClear', 'keyStatus',
+    'imageBtn', 'imgModal', 'closeImg', 'imgDrop', 'imgPick', 'imgFile', 'imgGrid', 'imgEditor', 'imgUndoMask', 'imgEdDone', 'imgCanvas', 'imgNote', 'imgTpl', 'imgGo',
     'menuLang', 'procBtn', 'anatomy', 'anatSide', 'closeAnatomy', 'anatParts', 'anatTargets', 'anatProcs', 'anatTpls', 'anatSummary', 'anatCancel', 'anatApply',
   ].map((id) => [id, $(id)]),
 );
@@ -904,6 +906,198 @@ async function processDictation() {
   toast(`${n ? `Opis gotowy · zmieniono ${n} ${n === 1 ? 'zdanie' : 'zdania'} szablonu` : 'Opis gotowy'} · ${instant ? 'przygotowany w tle' : `${secs} s`}`, 'ok', 3600);
   const firstMark = els.paper.querySelector('mark.add');
   firstMark?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// ---------------------------------------------------------------- report from images
+// Images stay in memory only (never saved); masks are burnt in before anything is sent.
+const imgs = { list: [], editing: -1, drag: null, scale: 1 };
+
+function openImages(open = true) {
+  els.imgModal.hidden = !open;
+  if (open) {
+    if (!els.imgNote.value.trim() && els.dictation.value.trim()) els.imgNote.value = els.dictation.value.trim();
+    renderImages();
+    els.imgDrop.focus();
+  } else closeImageEditor();
+}
+
+async function addImageFiles(files) {
+  let skipped = 0;
+  for (const file of files) {
+    if (imgs.list.length >= MAX_IMAGES) { toast(`Najwięcej ${MAX_IMAGES} obrazów naraz.`, 'warn'); break; }
+    const kind = fileKind(file);
+    try {
+      if (kind === 'image') imgs.list.push({ kind, name: file.name || 'obraz', source: await loadImage(file), masks: [] });
+      else if (kind === 'pdf') {
+        if (file.size > MAX_PDF_BYTES) { toast(`${file.name}: PDF większy niż 15 MB.`, 'warn'); continue; }
+        imgs.list.push({ kind, name: file.name || 'dokument.pdf', data: await fileToBase64(file), masks: [] });
+      } else skipped++;
+    } catch { skipped++; }
+  }
+  if (skipped) toast(`Pominięto ${skipped} ${skipped === 1 ? 'plik' : 'pliki'} — obsługiwane: JPG, PNG, WebP, GIF, BMP, PDF. Plik DICOM wyeksportuj jako JPG/PNG albo zrób zrzut ekranu.`, 'warn', 6000);
+  renderImages();
+}
+
+function renderImages() {
+  els.imgGrid.innerHTML = '';
+  imgs.list.forEach((it, i) => {
+    const tile = document.createElement('div');
+    tile.className = 'img-tile';
+    if (it.kind === 'pdf') {
+      tile.innerHTML = `<div class="img-pdf"><b>PDF</b><span>${esc(it.name)}</span></div>`;
+    } else {
+      const c = document.createElement('canvas');
+      const s = Math.min(1, 220 / it.source.width, 160 / it.source.height);
+      c.width = Math.max(1, Math.round(it.source.width * s));
+      c.height = Math.max(1, Math.round(it.source.height * s));
+      drawMasked(c.getContext('2d'), it.source, it.masks, s);
+      c.title = 'Kliknij, aby zamalować dane pacjenta';
+      c.addEventListener('click', () => openImageEditor(i));
+      tile.append(c);
+      const cap = document.createElement('button');
+      cap.type = 'button';
+      cap.className = 'img-mask-btn';
+      cap.textContent = it.masks.length ? `Zamalowano: ${it.masks.length}` : 'Zamaluj dane';
+      cap.addEventListener('click', () => openImageEditor(i));
+      tile.append(cap);
+    }
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'img-del';
+    del.setAttribute('aria-label', `Usuń obraz ${i + 1}`);
+    del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    del.addEventListener('click', () => { imgs.list.splice(i, 1); if (imgs.editing === i) closeImageEditor(); renderImages(); });
+    tile.append(del);
+    const num = document.createElement('span');
+    num.className = 'img-num';
+    num.textContent = String(i + 1);
+    tile.append(num);
+    els.imgGrid.append(tile);
+  });
+  els.imgGo.disabled = !imgs.list.length || state.busy;
+  const t = template();
+  els.imgTpl.textContent = t
+    ? `Szablon: ${titleOf(t)}${isPristine(state.report, t) ? '' : ' — obecny opis zostanie uzupełniony o to, co widać na obrazach'}`
+    : 'Szablon nie jest wybrany — AI dobierze szablon do zabiegu na obrazach.';
+}
+
+function openImageEditor(i) {
+  const it = imgs.list[i];
+  if (!it || it.kind !== 'image') return;
+  imgs.editing = i;
+  els.imgEditor.hidden = false;
+  drawEditor();
+  els.imgEditor.scrollIntoView({ block: 'nearest' });
+}
+function closeImageEditor() {
+  imgs.editing = -1;
+  imgs.drag = null;
+  els.imgEditor.hidden = true;
+}
+function drawEditor(preview = null) {
+  const it = imgs.list[imgs.editing];
+  if (!it) return;
+  const maxW = Math.max(200, els.imgEditor.clientWidth - 4 || 860);
+  const maxH = Math.max(200, Math.round(window.innerHeight * 0.55));
+  imgs.scale = Math.min(1, maxW / it.source.width, maxH / it.source.height);
+  const c = els.imgCanvas;
+  c.width = Math.round(it.source.width * imgs.scale);
+  c.height = Math.round(it.source.height * imgs.scale);
+  const ctx = c.getContext('2d');
+  drawMasked(ctx, it.source, it.masks, imgs.scale);
+  if (preview) {
+    ctx.strokeStyle = '#ff4f6d';
+    ctx.lineWidth = 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(preview.x * imgs.scale, preview.y * imgs.scale, preview.w * imgs.scale, preview.h * imgs.scale);
+    ctx.strokeRect(preview.x * imgs.scale, preview.y * imgs.scale, preview.w * imgs.scale, preview.h * imgs.scale);
+  }
+  els.imgUndoMask.disabled = !it.masks.length;
+}
+/** Pointer position in image pixels. */
+function imagePoint(e) {
+  const r = els.imgCanvas.getBoundingClientRect();
+  const k = els.imgCanvas.width / r.width / imgs.scale;
+  return { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k };
+}
+function maskDrag(e, phase) {
+  const it = imgs.list[imgs.editing];
+  if (!it) return;
+  if (phase === 'down') {
+    e.preventDefault();
+    els.imgCanvas.setPointerCapture?.(e.pointerId);
+    imgs.drag = imagePoint(e);
+    return;
+  }
+  if (!imgs.drag) return;
+  const p = imagePoint(e);
+  const rect = dragRect(imgs.drag.x, imgs.drag.y, p.x, p.y, it.source.width, it.source.height, 4 / imgs.scale);
+  if (phase === 'move') { drawEditor(rect); return; }
+  imgs.drag = null;
+  if (rect) it.masks.push(rect);
+  drawEditor();
+  renderImages();
+}
+
+async function imageReport() {
+  if (state.busy || !imgs.list.length) return;
+  if (!state.ai) { toast('Opis z obrazu wymaga AI (Claude) — dodaj klucz API.', 'warn', 4500); return; }
+  if (state.recording) await stopRecording();
+  const t = template();
+  const pristine = !t || isPristine(state.report, t);
+  const note = scrubIdentifiers(els.imgNote.value.trim());
+  const payload = {
+    images: imgs.list.map((it) => (it.kind === 'pdf' ? { type: 'application/pdf', data: it.data } : encodeImage(it.source, it.masks))),
+    note,
+    clinical: scrubIdentifiers(els.clinical.value.trim()),
+    outputLang: state.outputLang,
+    mode: state.aiMode,
+    profile: els.learnStyle.checked && (profile.rules.length || profile.phrases.length) ? { rules: profile.rules, phrases: profile.phrases } : null,
+    samples: els.learnStyle.checked ? samplesFor(state.outputLang) : [],
+  };
+  if (t) {
+    payload.templateId = t.id;
+    payload.template = rawOf(t);
+    if (!pristine) payload.report = clone(state.report);
+  } else payload.catalog = TEMPLATES.map(rawOf);
+  const started = performance.now();
+  els.imgGo.disabled = true;
+  setBusy(true, t ? 'Claude czyta obrazy i pisze opis…' : 'Claude rozpoznaje zabieg na obrazach i pisze opis…');
+  let data;
+  try {
+    const res = await fetch('/api/image-report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Błąd ${res.status}`);
+  } catch (err) {
+    toast(`${err.message} Obrazy zostały w oknie — możesz spróbować ponownie.`, 'err', 6000);
+    return;
+  } finally {
+    setBusy(false);
+    renderImages();
+  }
+  const tpl = getTemplate(data.report.templateId);
+  if (!tpl) { toast('Nieznany szablon w odpowiedzi AI.', 'err'); return; }
+  const before = t && !pristine ? clone(state.report) : reportFromTemplate(tpl, state.outputLang);
+  if (!t) {
+    state.recent = [tpl.id, ...state.recent.filter((x) => x !== tpl.id)].slice(0, 6);
+    state.reportId = newId();
+    state.ignore = [];
+    state.enDictations = [];
+  }
+  commit(data.report, { baseline: before, warnings: data.warnings || [], corrections: [], source: `Claude · z obrazu · ${data.model || state.model}` });
+  state.lastAI = clone(data.report);
+  if (note && note === scrubIdentifiers(els.dictation.value.trim())) els.dictation.value = '';
+  imgs.list = [];
+  els.imgNote.value = '';
+  openImages(false);
+  save();
+  const secs = ((performance.now() - started) / 1000).toFixed(1).replace('.', ',');
+  toast(`Opis z obrazu gotowy${data.picked ? ` · szablon: ${titleOf(tpl)}` : ''} · ${secs} s — sprawdź wartości oznaczone „ok.”`, 'ok', 5000);
+}
+
+/** Files from a paste or drop event that are images / PDFs. */
+function imageFilesFrom(dt) {
+  return [...(dt?.files || [])].filter((f) => fileKind(f));
 }
 
 // ---------------------------------------------------------------- new report (next patient)
@@ -2855,7 +3049,7 @@ function bind() {
   document.addEventListener('keydown', (e) => {
     if (!els.picker.hidden || !els.tplEditor.hidden || !els.anatomy.hidden) return; // picker / editor / anatomy handle their own keys
     const typing = isTyping(document.activeElement);
-    if (e.key === 'Escape') { openSettings(false); openHelp(false); openToday(false); openOriginal(false); openLearn(false); openSpeechLog(false); toggleSnippets(false); return; }
+    if (e.key === 'Escape') { openSettings(false); openHelp(false); openToday(false); openOriginal(false); openLearn(false); openSpeechLog(false); openImages(false); toggleSnippets(false); return; }
     if (!slog.modal.hidden) return; // the error-log window: no app shortcuts behind it
     if (e.key === 'F2') { e.preventDefault(); toggleRecording(); return; }
     if (e.altKey && (e.key === 'n' || e.key === 'N' || e.code === 'KeyN')) { e.preventDefault(); newReport(); return; }
@@ -2937,6 +3131,39 @@ function renderSpeechLogSummary() {
 }
 function bindSpeechLog() {
   $('speechLogBtn').addEventListener('click', () => openSpeechLog(true));
+  els.imageBtn.addEventListener('click', () => openImages(true));
+  els.closeImg.addEventListener('click', () => openImages(false));
+  els.imgModal.addEventListener('click', (e) => { if (e.target === els.imgModal) openImages(false); });
+  els.imgPick.addEventListener('click', () => els.imgFile.click());
+  els.imgDrop.addEventListener('click', (e) => { if (e.target === els.imgDrop) els.imgFile.click(); });
+  els.imgFile.addEventListener('change', () => { addImageFiles([...els.imgFile.files]); els.imgFile.value = ''; });
+  els.imgGo.addEventListener('click', imageReport);
+  els.imgEdDone.addEventListener('click', closeImageEditor);
+  els.imgUndoMask.addEventListener('click', () => { imgs.list[imgs.editing]?.masks.pop(); drawEditor(); renderImages(); });
+  els.imgCanvas.addEventListener('pointerdown', (e) => maskDrag(e, 'down'));
+  els.imgCanvas.addEventListener('pointermove', (e) => maskDrag(e, 'move'));
+  els.imgCanvas.addEventListener('pointerup', (e) => maskDrag(e, 'up'));
+  els.imgCanvas.addEventListener('pointercancel', () => { imgs.drag = null; drawEditor(); });
+  // a pasted or dropped image anywhere opens "Opis z obrazu" (text pastes are not affected)
+  document.addEventListener('paste', (e) => {
+    const files = imageFilesFrom(e.clipboardData);
+    if (!files.length) return;
+    e.preventDefault();
+    if (els.imgModal.hidden) openImages(true);
+    addImageFiles(files);
+  });
+  document.addEventListener('dragover', (e) => {
+    if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); els.imgDrop.classList.add('over'); }
+  });
+  document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) els.imgDrop.classList.remove('over'); });
+  document.addEventListener('drop', (e) => {
+    els.imgDrop.classList.remove('over');
+    const files = imageFilesFrom(e.dataTransfer);
+    if (!files.length) return;
+    e.preventDefault();
+    if (els.imgModal.hidden) openImages(true);
+    addImageFiles(files);
+  });
   $('closeSpeechLog').addEventListener('click', () => openSpeechLog(false));
   slog.modal.addEventListener('click', (e) => { if (e.target === slog.modal) openSpeechLog(false); });
   slog.types.addEventListener('change', (e) => {
