@@ -1,0 +1,302 @@
+<title>RadVox Pro Business Plan</title>
+<style>
+/* Layout: one reading column (~760px) with wide tables allowed to scroll; summary first, detail after. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --ink: #18202b; --ink-2: #4a5566; --ink-3: #7a8494;
+  --line: #e2e6ec; --accent: #0b6e99; --accent-soft: #e3f2f8; --good: #1f7a4d; --good-soft: #e5f4ec;
+  --warn: #9a6200; --warn-soft: #fbf1dc; --bad: #b3261e; --bad-soft: #fbe7e5;
+  --display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141b; --surface: #161d26; --ink: #e8edf3; --ink-2: #b3bdc9; --ink-3: #8390a0;
+  --line: #2a3442; --accent: #5cc3ec; --accent-soft: #15303d; --good: #5fd39a; --good-soft: #16302a;
+  --warn: #f2b85b; --warn-soft: #33291a; --bad: #ff8a80; --bad-soft: #3a1f1d; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #161d26; --ink: #e8edf3; --ink-2: #b3bdc9; --ink-3: #8390a0;
+  --line: #2a3442; --accent: #5cc3ec; --accent-soft: #15303d; --good: #5fd39a; --good-soft: #16302a;
+  --warn: #f2b85b; --warn-soft: #33291a; --bad: #ff8a80; --bad-soft: #3a1f1d; color-scheme: dark; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.65 var(--body); }
+.page { max-width: 820px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 80px; }
+header.top { border-bottom: 1px solid var(--line); padding-bottom: 22px; margin-bottom: 28px; }
+.kicker { font: 600 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font: 600 clamp(32px, 6vw, 46px)/1.08 var(--display); margin: 12px 0 10px; text-wrap: balance; letter-spacing: -.01em; }
+h2 { font: 600 26px/1.2 var(--display); margin: 48px 0 12px; text-wrap: balance; }
+h3 { font-size: 17px; margin: 26px 0 8px; }
+p, li { color: var(--ink-2); }
+p { margin: 0 0 12px; }
+strong, b { color: var(--ink); }
+a { color: var(--accent); }
+.meta { color: var(--ink-3); font-size: 14px; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; margin-top: 14px; }
+.summary { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; }
+.summary ol { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 18px 0 6px; }
+.fig { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.fig .v { font: 600 26px/1.15 var(--display); color: var(--ink); font-variant-numeric: tabular-nums; }
+.fig .l { font-size: 13px; color: var(--ink-3); }
+.table { overflow-x: auto; margin: 12px 0 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 11.5px/1.3 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tag { display: inline-block; font: 600 11px/1 var(--mono); padding: 4px 7px; border-radius: 6px; white-space: nowrap; }
+.tag.est { background: var(--warn-soft); color: var(--warn); }
+.tag.good { background: var(--good-soft); color: var(--good); }
+.tag.bad { background: var(--bad-soft); color: var(--bad); }
+.tag.src { background: var(--accent-soft); color: var(--accent); }
+.note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 14px 0; color: var(--ink); font-size: 15px; }
+.note.blue { border-color: var(--accent); background: var(--accent-soft); }
+.small { font-size: 13.5px; color: var(--ink-3); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 640px) { .two { grid-template-columns: 1fr; } }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; min-width: 0; }
+.box h3 { margin-top: 0; }
+ul.tight { padding-left: 20px; margin: 6px 0 12px; }
+ul.tight li { margin: 3px 0; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .axis { fill: var(--ink-3); font: 11px var(--mono); }
+.chart .lbl { fill: var(--ink); font: 600 12px var(--body); }
+.chart .rev { fill: var(--accent); }
+.chart .cost { fill: var(--warn); }
+.chart .grid { stroke: var(--line); }
+.legend { display: flex; gap: 16px; font-size: 13px; color: var(--ink-3); margin-top: 6px; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.road { display: grid; gap: 10px; }
+.road .step { display: grid; grid-template-columns: 120px 1fr; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.road .when { font: 600 12px/1.4 var(--mono); color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
+@media (max-width: 560px) { .road .step { grid-template-columns: 1fr; gap: 4px; } }
+footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-3); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+
+<div class="page">
+<header class="top">
+  <div class="kicker">Business plan · October 2026 · draft 1</div>
+  <h1>RadVox Pro: AI dictation for Polish radiologists</h1>
+  <p class="meta">Market, pricing, AI costs and launch plan for the subscription version of RadVox. Figures marked <span class="tag est">estimate</span> are my calculations, not measurements; figures marked <span class="tag src">source</span> come from the web research (links at the end of each section).</p>
+  <nav class="toc"><a href="#summary">Summary</a><a href="#market">Market</a><a href="#costs">AI costs</a><a href="#pricing">Pricing</a><a href="#money">Revenue scenarios</a><a href="#strategy">Strategy</a><a href="#legal">Legal checklist</a><a href="#roadmap">Roadmap</a><a href="#unknowns">Unknowns</a></nav>
+</header>
+
+<section id="summary">
+  <div class="summary">
+    <ol>
+      <li><strong>The product is built.</strong> RadVox Pro (working name) is a hosted version with logins, a free trial, subscriptions (card or bank transfer), monthly report limits, an admin panel that tracks every user's usage and AI cost, protected code, and 397 Polish templates plus 112 phrases.</li>
+      <li><strong>The market is real but not empty.</strong> At least three Polish tools already turn dictation into an AI-written report (opisy.ai, Nodum, askRadek). None publishes a price. Your edge: built by a practising emergency radiologist, emergency logic in the conclusion, English → Polish dictation, and clear pricing.</li>
+      <li><strong>AI cost per report is small next to the price</strong>, about <strong>0.07–0.90 zł</strong>, most likely around <strong>0.25 zł</strong> <span class="tag est">estimate</span>. The admin panel shows the real number after the first week of use. Fix final prices only after that.</li>
+      <li><strong>Recommended launch prices</strong> (net, + 23% VAT): Start <strong>249 zł</strong> (300 reports), Pro <strong>399 zł</strong> (800), Dyżur+ <strong>649 zł</strong> (1,600). Give the first 50 users 30% off for 12 months. For teleradiology companies, offer about 1 zł per report.</li>
+      <li><strong>Break-even is about 4–6 paying users</strong> once hosting and accounting are covered <span class="tag est">estimate</span>. 60 users would bring about 23,000 zł a month in revenue.</li>
+      <li><strong>Before charging money, three things must be done:</strong> a regulatory opinion on medical-device status (MDR), the data-protection paperwork (RODO), and a company with KSeF invoicing. Details in the legal checklist.</li>
+    </ol>
+  </div>
+  <div class="figs">
+    <div class="fig"><div class="v">~3,000</div><div class="l">practising radiologists in Poland <span class="tag src">source</span></div></div>
+    <div class="fig"><div class="v">1.9 M</div><div class="l">CT scans in Poland in 2024 <span class="tag src">source</span></div></div>
+    <div class="fig"><div class="v">~0.25 zł</div><div class="l">likely AI cost per report <span class="tag est">estimate</span></div></div>
+    <div class="fig"><div class="v">4–6</div><div class="l">paying users to cover fixed costs <span class="tag est">estimate</span></div></div>
+  </div>
+</section>
+
+<section id="market">
+  <h2>The Polish market</h2>
+  <h3>Direct competitors: dictation → AI-written Polish report</h3>
+  <div class="table"><table>
+    <thead><tr><th>Product</th><th>What it does</th><th>Price</th></tr></thead>
+    <tbody>
+      <tr><td><b>opisy.ai</b></td><td>You dictate the pathology, it writes the full report in your style and learns from your old reports. Copy and paste into any RIS.</td><td>Not published</td></tr>
+      <tr><td><b>Nodum Radiologia</b></td><td>Dictation turned into a report split into technique, findings, conclusions and recommendations. Says it hosts in the EU. 100 free reports.</td><td>Not published</td></tr>
+      <tr><td><b>askRadek</b></td><td>Learns your template and turns notes into CT/MR reports. Beta, free after licence (PWZ) check, no uptime guarantee.</td><td>Free (beta)</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Neighbouring products that compete for the same budget</h3>
+  <div class="table"><table>
+    <thead><tr><th>Product</th><th>What it is</th><th class="n">Price</th></tr></thead>
+    <tbody>
+      <tr><td>MagicSpeech (Radcomp)</td><td>Polish speech recognition with a radiology dictionary, runs locally, bundled with a Philips SpeechMike. No AI report writing.</td><td class="n">16,297.50 zł / 3 years (≈ 453 zł / month)</td></tr>
+      <tr><td>Newton Dictate</td><td>General Polish dictation; used at LUX MED with a radiology dictionary.</td><td class="n">349–4,699 zł one-off (older prices)</td></tr>
+      <tr><td>Medly</td><td>AI scribe for doctor visits (not radiology).</td><td class="n">199 zł / month</td></tr>
+      <tr><td>Heidi Health</td><td>AI scribe, used in one Poznań emergency department.</td><td class="n">$90–150 / month</td></tr>
+      <tr><td>Dragon Medical One</td><td>Market leader abroad; Polish not among its documented languages.</td><td class="n">$79–99 / month (resellers)</td></tr>
+      <tr><td>RadRocket, PatientNotes</td><td>English AI report tools.</td><td class="n">from $30 / $50 per month</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Size of the market</h3>
+  <ul class="tight">
+    <li>About 3,900–4,300 radiology specialists; under 3,000 actively practising. About 19% are over 60.</li>
+    <li>1.9 million CT scans in 2024, and NFZ CT and MR volumes grew 74% and 87% between 2019 and 2024. Radiologists are short, so time saved has real value.</li>
+    <li>Teleradiology companies (Telediagnosis, Voxel, MKJ, Teleradius, Affidea and others) buy reports in bulk. Telediagnosis says it handles 65,000 studies a month. Facilities in Mazovia pay about 200–230 zł per CT report.</li>
+  </ul>
+  <h3>Where RadVox Pro can be the best</h3>
+  <div class="two">
+    <div class="box"><h3>Already built</h3><ul class="tight">
+      <li>Written by a practising emergency radiologist: urgency tiers, pertinent negatives, conclusions without incidental findings, consultation line.</li>
+      <li>English → Polish as a main path, with a personal glossary.</li>
+      <li>397 templates covering CT, MR, X-ray (including contrast studies, mammography and densitometry) and ultrasound: trauma, non-trauma, children and combined studies.</li>
+      <li>Safety net: removes contradicted template sentences, highlights every change, flags mismatched numbers and sides.</li>
+      <li>Works in a narrow window beside the PACS, with PowerMic and voice commands.</li>
+      <li>No report archive on the server; option to run the AI in the EU.</li>
+    </ul></div>
+    <div class="box"><h3>Gaps competitors leave open</h3><ul class="tight">
+      <li>Public prices in złoty (none of the three publishes one).</li>
+      <li>An uptime promise and support in Polish (askRadek offers none).</li>
+      <li>A clear, written medical-device position.</li>
+      <li>Ready data-protection paperwork for clinics (DPA template, DPIA).</li>
+      <li>Per-report pricing for teleradiology companies.</li>
+      <li>KSeF invoices and BLIK payments.</li>
+    </ul></div>
+  </div>
+  <p class="small">Sources: opisy.ai, nodum.tech, askradek.com, radcomp.eu and magicscribesklep.pl, medly.com.pl, heidihealth pricing, getvoibe.com (Dragon), radrocket.ai, patientnotes.ai, NIL and Ministry of Health figures via rynekzdrowia.pl and politykazdrowotna.com, ezdrowie.gov.pl (CT 2024), telediagnosis.pl, rynekzdrowia.pl (CT report prices). Research by web search only; pages were not opened directly.</p>
+</section>
+
+<section id="costs">
+  <h2>What the AI costs per report</h2>
+  <p>The app uses Claude Opus 5.5. Anthropic charges per token (roughly per 3–4 characters): <b>$4</b> per million input tokens, <b>$20</b> per million output tokens, <b>$0.20</b> per million tokens read from the cache, <b>$5</b> per million written to the cache. The app's long instruction block is cached, so most of each request is cheap. Note that the AI's internal reasoning is billed as output.</p>
+  <div class="table"><table>
+    <thead><tr><th>Part of one AI call</th><th class="n">Tokens</th><th class="n">Cost</th></tr></thead>
+    <tbody>
+      <tr><td>Instructions (21,600 characters, cached, shared by all users)</td><td class="n">5,000–7,000</td><td class="n">$0.001</td></tr>
+      <tr><td>Template and your style (cached per user; written again after 5 idle minutes)</td><td class="n">1,000–6,000</td><td class="n">$0.0005–0.03</td></tr>
+      <tr><td>Dictation and current report (not cached)</td><td class="n">800–2,500</td><td class="n">$0.003–0.01</td></tr>
+      <tr><td>Answer plus reasoning (output)</td><td class="n">500–2,500</td><td class="n">$0.01–0.05</td></tr>
+      <tr><td><b>One call</b></td><td class="n"></td><td class="n"><b>$0.015–0.08</b></td></tr>
+    </tbody>
+  </table></div>
+  <p>One report can need more than one call: the app pre-processes during pauses in dictation so the report is ready the moment you press "Przygotuj opis". Background calls are now capped at 4 per report (adjustable in the admin panel).</p>
+  <div class="table"><table>
+    <thead><tr><th>Scenario <span class="tag est">estimate</span></th><th class="n">Calls per report</th><th class="n">Per report (USD)</th><th class="n">Per report (zł, at 3.65)</th></tr></thead>
+    <tbody>
+      <tr><td>Low: short dictation, warm cache</td><td class="n">1.2</td><td class="n">$0.02</td><td class="n">0.07 zł</td></tr>
+      <tr><td><b>Likely</b></td><td class="n">2</td><td class="n">$0.07</td><td class="n"><b>0.25 zł</b></td></tr>
+      <tr><td>High: long polytrauma, cold cache, many edits</td><td class="n">3</td><td class="n">$0.24</td><td class="n">0.90 zł</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><b>I could not measure real costs</b> because there is no API key in my test environment; my tests used a simulated AI. The admin panel records the real token use of every call ("Zużycie i koszty AI"), so after one week of your own use you will know the true cost per report.</div>
+  <h3>Ways to lower the cost if needed</h3>
+  <ul class="tight">
+    <li>Lower the background-call limit, or switch background processing off for the cheapest plan.</li>
+    <li>Use Claude Sonnet 5.5 (half the price) for background processing or the cheapest plan. This needs a quality check first.</li>
+    <li>Keep "fast" mode (low reasoning effort) as the default; it is already the default.</li>
+    <li>Set cost alerts per user (built in: the admin gets an e-mail when a user's AI cost passes 50% of their plan price).</li>
+  </ul>
+</section>
+
+<section id="pricing">
+  <h2>Pricing</h2>
+  <p>Polish radiologists' medical services are usually VAT-exempt, so most cannot reclaim VAT: the <b>gross</b> price is what they really pay. Show both on the site (it shows net + VAT now).</p>
+  <div class="table"><table>
+    <thead><tr><th>Plan</th><th class="n">Net / month</th><th class="n">Gross (+23%)</th><th class="n">Reports</th><th class="n">AI cost, full use <span class="tag est">est.</span></th><th class="n">Margin, full use</th><th class="n">Margin, 60% use</th></tr></thead>
+    <tbody>
+      <tr><td>Okres próbny</td><td class="n">0 zł</td><td class="n">0 zł</td><td class="n">60 / 14 days</td><td class="n">15 zł</td><td class="n">–15 zł</td><td class="n">–9 zł</td></tr>
+      <tr><td><b>Start</b></td><td class="n">249 zł</td><td class="n">306 zł</td><td class="n">300</td><td class="n">75 zł</td><td class="n">174 zł <span class="tag good">70%</span></td><td class="n">204 zł <span class="tag good">82%</span></td></tr>
+      <tr><td><b>Pro</b> (featured)</td><td class="n">399 zł</td><td class="n">491 zł</td><td class="n">800</td><td class="n">200 zł</td><td class="n">199 zł <span class="tag good">50%</span></td><td class="n">279 zł <span class="tag good">70%</span></td></tr>
+      <tr><td><b>Dyżur+</b></td><td class="n">649 zł</td><td class="n">798 zł</td><td class="n">1,600</td><td class="n">400 zł</td><td class="n">249 zł <span class="tag est">38%</span></td><td class="n">409 zł <span class="tag good">63%</span></td></tr>
+      <tr><td>Teleradiology (B2B)</td><td class="n" colspan="2">0.99–1.49 zł per report</td><td class="n">volume</td><td class="n">0.25 zł / report</td><td class="n" colspan="2">0.74–1.24 zł per report <span class="tag good">75–83%</span></td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">AI cost uses the likely 0.25 zł per report. In the high case (0.90 zł), Dyżur+ at full use would lose money, so keep its limit at 1,600 until real costs are known. Card fees (Stripe, about 1.5% + €0.25) and VAT are not included. Prices and limits are editable in the admin panel; the built-in margin calculator uses the real cost per report as soon as there is data.</p>
+  <h3>Why these numbers</h3>
+  <ul class="tight">
+    <li>Start sits just above Medly (199 zł, a general scribe) and well below MagicSpeech (≈ 453 zł a month, speech only).</li>
+    <li>Pro at 399 zł is less than one or two CT reports' worth of a radiologist's time a month, and still below Heidi or Dragon in złoty terms.</li>
+    <li>Annual plans cost 10 months' price (2 months free). This improves cash flow and keeps customers.</li>
+    <li><b>Founding-member offer:</b> 30% off for 12 months for the first 50 paying users (Start 174 zł, Pro 279 zł). This answers the free askRadek beta without cutting list prices. (Discount codes work in Stripe Checkout.)</li>
+  </ul>
+</section>
+
+<section id="money">
+  <h2>Revenue scenarios after 12 months</h2>
+  <p>Assumptions <span class="tag est">estimate</span>: average plan revenue 380 zł net per user; average AI cost 120 zł per user (60% use at 0.25 zł); card fees about 6 zł per user; fixed costs about 900 zł a month (EU server and backups 50–150 zł, e-mail sending 0–80 zł, domain, accountant 300–600 zł). Your own time, marketing, legal set-up and tax are not included.</p>
+  <div class="chart box">
+    <svg viewBox="0 0 640 260" role="img" aria-label="Monthly revenue and AI plus fixed costs for 20, 60 and 150 users">
+      <line class="grid" x1="70" y1="220" x2="620" y2="220"/>
+      <line class="grid" x1="70" y1="160" x2="620" y2="160" stroke-dasharray="3 4"/>
+      <line class="grid" x1="70" y1="100" x2="620" y2="100" stroke-dasharray="3 4"/>
+      <line class="grid" x1="70" y1="40" x2="620" y2="40" stroke-dasharray="3 4"/>
+      <text class="axis" x="62" y="224" text-anchor="end">0</text>
+      <text class="axis" x="62" y="164" text-anchor="end">20k</text>
+      <text class="axis" x="62" y="104" text-anchor="end">40k</text>
+      <text class="axis" x="62" y="44" text-anchor="end">60k</text>
+      <!-- scale: 60,000 zł = 180 px → 0.003 px per zł -->
+      <rect class="rev" x="110" y="197.2" width="60" height="22.8"/><rect class="cost" x="176" y="209.7" width="60" height="10.3"/>
+      <text class="lbl" x="173" y="246" text-anchor="middle">20 users</text>
+      <rect class="rev" x="290" y="151.6" width="60" height="68.4"/><rect class="cost" x="356" y="194.7" width="60" height="25.3"/>
+      <text class="lbl" x="353" y="246" text-anchor="middle">60 users</text>
+      <rect class="rev" x="470" y="49.0" width="60" height="171.0"/><rect class="cost" x="536" y="160.6" width="60" height="59.4"/>
+      <text class="lbl" x="533" y="246" text-anchor="middle">150 users</text>
+    </svg>
+    <div class="legend"><span><i style="background:var(--accent)"></i>revenue per month (net)</span><span><i style="background:var(--warn)"></i>AI + card fees + fixed costs</span></div>
+  </div>
+  <div class="table"><table>
+    <thead><tr><th>Paying users</th><th>Share of practising radiologists</th><th class="n">Revenue / month</th><th class="n">Costs / month</th><th class="n">Before tax / month</th><th class="n">Per year</th></tr></thead>
+    <tbody>
+      <tr><td>20</td><td>≈ 0.7%</td><td class="n">7,600 zł</td><td class="n">3,420 zł</td><td class="n">4,180 zł</td><td class="n">≈ 50,000 zł</td></tr>
+      <tr><td>60</td><td>≈ 2%</td><td class="n">22,800 zł</td><td class="n">8,460 zł</td><td class="n">14,340 zł</td><td class="n">≈ 172,000 zł</td></tr>
+      <tr><td>150</td><td>≈ 5%</td><td class="n">57,000 zł</td><td class="n">19,800 zł</td><td class="n">37,200 zł</td><td class="n">≈ 446,000 zł</td></tr>
+    </tbody>
+  </table></div>
+  <p>One teleradiology contract can change these numbers. At 1 zł per report, a company sending 10,000 reports a month would add about 10,000 zł of revenue and about 2,500 zł of AI cost.</p>
+</section>
+
+<section id="strategy">
+  <h2>How to win the Polish market</h2>
+  <div class="two">
+    <div class="box"><h3>1. Prove it with colleagues</h3><p>Free beta for 5–10 radiologists you trust (emergency and teleradiology). Measure real AI cost, time saved per report and errors. Collect two or three named testimonials.</p></div>
+    <div class="box"><h3>2. Sell the emergency story</h3><p>"Built by an emergency radiologist for night shifts": urgency-ordered findings, clean conclusions, English → Polish. A 60-second demo video of a polytrauma report.</p></div>
+    <div class="box"><h3>3. Go where radiologists are</h3><p>Polish Radiological Society (PLTR) congress and regional meetings, Facebook and LinkedIn groups for radiologists, resident networks (consider a discounted resident plan).</p></div>
+    <div class="box"><h3>4. Teleradiology companies</h3><p>Their radiologists are paid per report, so time saved is money. Offer a pilot: 1 month free for 5 readers, then per-report pricing and one monthly invoice.</p></div>
+    <div class="box"><h3>5. Referrals</h3><p>One free month for both sides when a colleague subscribes. Radiology is a small, connected community.</p></div>
+    <div class="box"><h3>6. Trust as a feature</h3><p>Publish the price, the privacy model (no report archive, PESEL removed, EU processing option), the medical-device position and an uptime promise. Competitors publish none of these.</p></div>
+  </div>
+  <h3>What you, the administrator, can control (already built)</h3>
+  <ul class="tight">
+    <li>Each user: plan, monthly limit, access date, status, block, log out of all devices, reset link, notes, payments, devices, full history.</li>
+    <li>Money: monthly recurring revenue, payments this month, AI cost and margin per user and in total, cost per report, calls per report, CSV exports for the accountant.</li>
+    <li>Automatic: expiry, e-mail reminders 7 and 1 day before the end, grace days after a failed card payment, cost alerts, limits with 10% tolerance, device limits against account sharing, a cap on background AI calls per report.</li>
+    <li>Prices and plans: edit prices, limits and devices, link Stripe prices, see margins in the built-in calculator.</li>
+  </ul>
+</section>
+
+<section id="legal">
+  <h2>Legal and admin checklist before charging</h2>
+  <div class="table"><table>
+    <thead><tr><th>Item</th><th>Why</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td><b>Medical-device opinion (MDR)</b></td><td>Software that writes conclusions may count as a medical device. Sweden treated one AI scribe as at least Class IIa; the UK says summarising alone is not enough. Get a written opinion from a regulatory consultant and fix the "intended purpose" wording accordingly.</td><td><span class="tag bad">to do</span></td></tr>
+      <tr><td><b>Data protection (RODO)</b></td><td>Health data is special-category data. You need a processing agreement (umowa powierzenia) for clinics and doctors, a DPIA, and an agreement with the AI provider: Anthropic's commercial terms and DPA (zero data retention is arranged through their sales team), or Claude on Amazon Bedrock in Frankfurt for EU processing. The Anthropic API itself offers only "global" or "US" processing.</td><td><span class="tag est">partly built</span></td></tr>
+      <tr><td><b>Company and invoices</b></td><td>Sole trader or limited company (ask an accountant). KSeF e-invoicing has been mandatory since 1 April 2026, except sellers invoicing up to 10,000 zł a month, who must join by 1 January 2027. Connect an invoicing tool (Fakturownia, inFakt, wFirma or similar) to payments.</td><td><span class="tag bad">to do</span></td></tr>
+      <tr><td><b>VAT</b></td><td>SaaS is 23%. The 8% rate applies only to certified medical devices. Confirm with a tax adviser.</td><td><span class="tag bad">to do</span></td></tr>
+      <tr><td><b>Terms and privacy policy</b></td><td>Drafts are on the site at /terms and /privacy, marked as drafts. A lawyer must complete and check them.</td><td><span class="tag est">draft ready</span></td></tr>
+      <tr><td><b>Name and trademark</b></td><td>"Opisio" was dropped as too close to opisy.ai. "RadVox Pro" had no web hits, but the EUIPO and Polish Patent Office registers were not checked. Check them and the domain before printing anything.</td><td><span class="tag bad">to do</span></td></tr>
+      <tr><td><b>Insurance</b></td><td>Ask about professional liability (OC) cover for a software business serving doctors.</td><td><span class="tag bad">to do</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note blue"><b>Code protection, honestly:</b> nobody can see the app without a paid login, the AI instructions never leave the server, and the browser code is scrambled (obfuscated). A determined programmer with a paid account could still study the scrambled code; no web app can fully prevent that. The terms forbid copying, and a registered trademark plus the server-side AI instructions are your real protection.</div>
+</section>
+
+<section id="roadmap">
+  <h2>Launch roadmap</h2>
+  <div class="road">
+    <div class="step"><div class="when">Weeks 1–2</div><div>Choose and check the name and domain. Open a Stripe account and an EU server (or ask me to prepare step-by-step instructions for a hosting provider). Set up Resend for e-mail. Start the MDR and RODO conversations.</div></div>
+    <div class="step"><div class="when">Weeks 3–6</div><div>Private beta with 5–10 colleagues, free. Watch real cost per report, errors and feedback in the admin panel. Improve templates and wording with them.</div></div>
+    <div class="step"><div class="when">Month 2–3</div><div>Fix prices from real costs. Finish the legal documents and KSeF invoicing. Public launch with the founding-member offer, demo video and a talk or stand at a radiology meeting.</div></div>
+    <div class="step"><div class="when">Month 3–6</div><div>First teleradiology pilot. Team accounts (one invoice, many users). Better speech recognition (Azure Speech or ElevenLabs, tested on real dictations). Italian version if there is demand.</div></div>
+  </div>
+</section>
+
+<section id="unknowns">
+  <h2>What I don't know</h2>
+  <ul class="tight">
+    <li>The real AI cost per report (no API key in my environment). The admin panel will show it.</li>
+    <li>Competitors' prices (opisy.ai and Nodum don't publish them) and how many users they have.</li>
+    <li>What Polish radiologists personally earn per report (only facility prices were found).</li>
+    <li>Whether the authorities will treat the app as a medical device. This needs an expert.</li>
+    <li>Trademark availability of "RadVox Pro" (registers not searched).</li>
+    <li>Stripe's BLIK recurring payments are still in preview; card payments are stable.</li>
+  </ul>
+</section>
+
+<footer>Prepared from web research (13 October 2026) and the RadVox Pro code. Prices exclude VAT unless marked gross. Not legal, tax or regulatory advice.</footer>
+</div>

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Konsola IT — RadVox Pro</title>
+  <link rel="icon" type="image/png" href="/icons/radvox-192.png" />
+  <link rel="stylesheet" href="/site/site.css" />
+</head>
+<body data-page="it">
+  <nav class="nav">
+    <div class="wrap">
+      <a class="brand" href="/it"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span><span><span data-brand>RadVox Pro</span> <span class="dim" style="font-weight:500">· konsola IT</span></span></a>
+      <span class="grow"></span>
+      <a class="btn btn-sm" href="/admin" id="ownerLink" hidden>← Panel właściciela</a>
+      <a class="btn btn-sm" href="/app/">Aplikacja</a>
+      <a class="btn btn-sm" href="/account">Moje konto</a>
+      <a class="btn btn-sm btn-ghost" href="/logout">Wyloguj</a>
+    </div>
+  </nav>
+  <main class="shell">
+    <div class="wrap">
+      <div class="page-head it-head">
+        <div>
+          <h1 id="orgName">…</h1>
+          <div class="dim" id="orgLine"></div>
+        </div>
+        <div class="seat-box" id="seatBox" aria-live="polite"></div>
+      </div>
+      <div id="notice" class="msg" hidden></div>
+
+      <div class="admin-tabs" role="tablist">
+        <button role="tab" data-tab="people" aria-selected="true">Użytkownicy</button>
+        <button role="tab" data-tab="problems" aria-selected="false">Problemy i zgłoszenia <span class="pill err" id="probCount" hidden></span></button>
+        <button role="tab" data-tab="log" aria-selected="false">Dziennik zmian</button>
+        <button role="tab" data-tab="help" aria-selected="false">Pomoc</button>
+      </div>
+
+      <section data-panel="people" style="padding:0">
+        <div class="kpis" id="kpis"></div>
+        <div class="toolbar">
+          <input id="q" type="search" placeholder="Szukaj: nazwisko, e-mail, PWZ…" aria-label="Szukaj" />
+          <select id="filter" aria-label="Filtr">
+            <option value="all">Wszyscy</option>
+            <option value="active">Aktywni</option>
+            <option value="pending">Czekają na pierwsze logowanie</option>
+            <option value="idle">Bez opisów w tym miesiącu</option>
+            <option value="blocked">Zablokowani</option>
+            <option value="it">Administratorzy IT</option>
+          </select>
+          <span class="grow"></span>
+          <a class="btn btn-sm" id="csvLink" href="/api/it/export/users.csv">Pobierz listę (CSV)</a>
+          <button class="btn btn-sm" id="importBtn">Import listy osób</button>
+          <button class="btn btn-sm btn-primary" id="addBtn">+ Dodaj osobę</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Osoba</th><th>PWZ</th><th>Rola</th><th>Status</th><th class="num" data-usage>Opisy (mies.)</th><th>Ostatnia aktywność</th><th class="num">Urządz.</th><th></th></tr></thead>
+          <tbody id="people"></tbody>
+        </table></div>
+        <p class="dim small" id="peopleNote" style="margin-top:10px"></p>
+      </section>
+
+      <section data-panel="problems" style="padding:0" hidden>
+        <div class="cols">
+          <div>
+            <div class="card"><div class="card-head"><h3>Stan usługi</h3></div><ul class="config-list" id="service"></ul></div>
+            <div class="card"><div class="card-head"><h3>Osoby, które mogą potrzebować pomocy</h3></div><div id="issues" class="small"></div></div>
+            <div class="card"><div class="card-head"><h3>Wyniki testów stanowisk</h3><a class="btn btn-sm" href="/check" target="_blank" rel="noopener">Otwórz test stanowiska</a></div><div id="checks" class="small"></div></div>
+          </div>
+          <div>
+            <div class="card">
+              <div class="card-head"><h3>Zgłoś problem dostawcy</h3></div>
+              <form id="ticketForm">
+                <div class="field"><label for="tSubject">Temat</label><input id="tSubject" name="subject" maxlength="160" required placeholder="np. AI odpowiada bardzo wolno od 9:00" /></div>
+                <div class="field"><label for="tBody">Opis <span class="faint">(bez danych pacjentów)</span></label><textarea id="tBody" name="body" rows="5" maxlength="4000" required placeholder="Co się dzieje, od kiedy, u ilu osób, jaka przeglądarka…"></textarea></div>
+                <button class="btn btn-primary" type="submit">Wyślij zgłoszenie</button>
+              </form>
+            </div>
+            <div class="card"><div class="card-head"><h3>Twoje zgłoszenia</h3></div><div id="tickets" class="small"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section data-panel="log" style="padding:0" hidden>
+        <div class="card"><div class="card-head"><h3>Dziennik zmian w organizacji</h3><span class="dim small">ostatnie 300 zdarzeń</span></div><div id="audit" class="small"></div></div>
+      </section>
+
+      <section data-panel="help" style="padding:0" hidden>
+        <div class="card help-card">
+          <h3>Najpierw: test stanowiska</h3>
+          <p class="dim">Na komputerze, na którym coś nie działa, otwórz <a href="/check" target="_blank" rel="noopener">Test stanowiska</a> (bez logowania) i kliknij „Uruchom test”. Sprawdza przeglądarkę, połączenie, zegar, mikrofon, rozpoznawanie mowy, schowek i przycisk PowerMic — przy każdym błędzie podaje, co zmienić. Zalogowany radiolog może wysłać wynik — zobaczysz go w zakładce „Problemy i zgłoszenia”. Aplikacja sama zgłasza tam też problemy z mikrofonem, rozpoznawaniem mowy i schowkiem (same kody błędów, bez treści opisów).</p>
+
+          <h3>Konta — co możesz zrobić sam(a)</h3>
+          <ol>
+            <li><b>Nowe osoby</b>: „+ Dodaj osobę” lub „Import listy osób” (wklej z Excela: e-mail; imię i nazwisko; PWZ). Hasła tymczasowe są pokazywane tylko raz — pobierz CSV.</li>
+            <li><b>Zapomniane hasło</b>: ⋯ → „Nowe hasło tymczasowe” (osoba dostaje też e-mail o zmianie).</li>
+            <li><b>Zablokowane logowanie</b> (8 błędnych haseł): ⋯ → „Odblokuj logowanie” — hasło zostaje.</li>
+            <li><b>Nowy / zgubiony telefon</b> (logowanie dwuetapowe): ⋯ → „Wyłącz logowanie dwuetapowe”.</li>
+            <li><b>Zgubiony laptop, wspólny komputer</b>: ⋯ → wyloguj pojedyncze urządzenie albo wszystkie.</li>
+            <li><b>Odejście z firmy</b>: „Zablokuj” (zwalnia miejsce) albo „Usuń” (kasuje dane osobowe).</li>
+            <li>Każde konto może być zalogowane na <b id="helpDevices">2</b> urządzeniach naraz; nieużywane urządzenie wylogowuje się po 7 dniach.</li>
+          </ol>
+
+          <h3>Zapora, proxy, sieć</h3>
+          <ul>
+            <li>Zezwól na HTTPS (port 443) do adresu <code class="origin"></code>.</li>
+            <li><b>Rozpoznawanie mowy</b> wykonuje przeglądarka u swojego producenta: Chrome — usługi mowy Google, Edge — usługi mowy Microsoft. Gdy test stanowiska pokazuje błąd <code>network</code>, zapora / proxy / inspekcja TLS blokuje ten ruch — dodaj wyjątek dla usług mowy producenta przeglądarki (aktualną listę adresów podaje dokumentacja producenta). Nie przepuszczaj tego ruchu przez inspekcję TLS.</li>
+            <li>VPN o dużych opóźnieniach spowalnia dyktowanie — test pokazuje czas odpowiedzi serwera.</li>
+          </ul>
+
+          <h3>Zasady przeglądarki (Chrome / Edge, zarządzanie w domenie)</h3>
+          <p class="dim">Gotowe ustawienia, żeby mikrofon, schowek i przycisk PowerMic działały bez pytań. Nazwy zasad są takie same w Chrome i Edge — sprawdź je w dokumentacji zasad Chrome Enterprise / Microsoft Edge przed wdrożeniem w domenie.</p>
+          <ul>
+            <li><code>AudioCaptureAllowedUrls</code> = <code class="origin"></code> — mikrofon bez pytania.</li>
+            <li><code>ClipboardAllowedForUrls</code> = <code class="origin"></code> — kopiowanie opisu do RIS.</li>
+            <li><code>WebHidAllowDevicesForUrls</code> — przycisk mikrofonu: Nuance PowerMic (vendor_id 1364 = 0x0554), Philips SpeechMike (2321 = 0x0911).</li>
+            <li>Upewnij się, że <code>DefaultWebHidGuardSetting</code> nie blokuje WebHID i że adres RadVox Pro nie jest w <code>WebHidBlockedForUrls</code>, a przeglądarka nie działa w trybie gościa / incognito (ciasteczka muszą być dozwolone).</li>
+          </ul>
+          <pre class="cred mono" id="regPreview"></pre>
+          <div class="actions"><button class="btn btn-sm" id="regChrome">Pobierz plik .reg — Chrome</button><button class="btn btn-sm" id="regEdge">Pobierz plik .reg — Edge</button></div>
+
+          <h3>Przycisk mikrofonu (PowerMic / SpeechMike)</h3>
+          <ol>
+            <li>W aplikacji: Ustawienia → „Połącz PowerMic” → wybierz mikrofon → „Naucz przycisk” → naciśnij przycisk nagrywania <b>dwa razy</b>. Można włączyć „Przytrzymaj, aby mówić”.</li>
+            <li>Jeśli przycisk nie reaguje: Ustawienia → „Diagnostyka mikrofonu” (lub test stanowiska) pokazuje, czy mikrofon w ogóle wysyła dane.</li>
+            <li><b>Brak danych</b> — najczęściej mikrofon przechwytuje inny program (oprogramowanie Nuance PowerMic, Dragon, SpeechMike Control Center). Zamknij go / wyłącz autostart albo zezwól na urządzenie zasadą <code>WebHidAllowDevicesForUrls</code>.</li>
+            <li>Podłącz mikrofon bezpośrednio do komputera (nie przez hub), wyłącz oszczędzanie energii USB (selektywne wstrzymywanie USB) — mikrofon nie będzie się „odłączał”.</li>
+            <li><b>Alternatywa zawsze działająca</b>: jeśli oprogramowanie mikrofonu pozwala przypisać przyciskowi klawisz (np. F9), ustaw go, a w aplikacji: Ustawienia → „Klawisz nagrywania” → naciśnij ten przycisk.</li>
+          </ol>
+
+          <h3>Mikrofon w systemie</h3>
+          <ul>
+            <li>Windows → Ustawienia → Prywatność → Mikrofon: dostęp włączony, także dla aplikacji klasycznych (przeglądarka).</li>
+            <li>Windows → Dźwięk → Nagrywanie: właściwy mikrofon jako domyślny, poziom ok. 70–90%, mikrofon niewyciszony.</li>
+          </ul>
+
+          <h3>Co zgłaszasz dostawcy (przycisk „Zgłoś problem”)</h3>
+          <ul>
+            <li>AI niedostępne lub często „przeciążone”, błędy AI u wielu osób, sprawy licencji i liczby miejsc, błędy w działaniu aplikacji.</li>
+            <li>Dołącz raport z testu stanowiska lub z „Diagnostyki mikrofonu” — nie wpisuj danych pacjentów.</li>
+          </ul>
+
+          <h3>Bezpieczeństwo</h3>
+          <ul>
+            <li>Konsola IT pokazuje konta i problemy techniczne. Serwer, kod aplikacji, treść opisów i wyniki uczenia AI nie są dostępne dla działu IT ani firmy — to tajemnica przedsiębiorstwa dostawcy; sprawy serwera rozwiązuje dostawca w ramach zgłoszenia.</li>
+            <li>Hasła są przechowywane wyłącznie jako skrót (scrypt) — nikt nie może ich odczytać. Każda akcja w tej konsoli trafia do dziennika zmian.</li>
+            <li>Zalecane logowanie dwuetapowe dla kont IT (strona „Moje konto”).</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="overlay" id="overlay" hidden></div>
+  <div class="modal" id="modal" hidden role="dialog" aria-modal="true"></div>
+  <script type="module" src="/site/it.js"></script>
+</body>
+</html>
